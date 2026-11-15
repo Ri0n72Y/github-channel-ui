@@ -2,20 +2,21 @@
   max-width: 1180px;
   margin: 0 auto;
   padding: 48px 28px 80px;
-  background: #0b0d12;
-  color: #f2f4f8;
+  background: var(--lc-canvas);
+  color: var(--lc-text);
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
   min-height: 100vh;
+  background: var(--lc-canvas);
   box-sizing: border-box;
 }
 .headCard,
 .projectCard,
 .empty,
 .error {
-  border: 1px solid #29303c;
-  background: #11151d;
-  border-radius: 24px;
-  box-shadow: 0 18px 60px #0005;
+  border: 1px solid var(--lc-stroke);
+  background: var(--lc-surface);
+  border-radius: 16px;
+  box-shadow: var(--lc-shadow);
 }
 .headCard {
   display: flex;
@@ -25,8 +26,8 @@
 }
 .headCard img {
   width: 42%;
-  object-fit: cover;
-  background: #171c25;
+  object-fit: contain;
+  background: var(--lc-surface-input);
 }
 .headCopy {
   padding: 42px;
@@ -38,7 +39,7 @@
 .eyebrow {
   font-size: 11px;
   letter-spacing: 0.18em;
-  color: #8d9aaf;
+  color: var(--lc-text-muted);
   font-weight: 700;
 }
 .headCopy h1 {
@@ -48,14 +49,14 @@
 }
 .description {
   max-width: 680px;
-  color: #b4bdcb;
+  color: var(--lc-text-secondary);
   line-height: 1.7;
   white-space: pre-line;
 }
 .headCopy a,
 .projectCard a,
 .error a {
-  color: #a78bfa;
+  color: var(--lc-link);
   text-decoration: none;
   font-weight: 700;
 }
@@ -70,13 +71,13 @@
   gap: 16px;
   margin-top: auto;
   padding-top: 28px;
-  color: #8d9aaf;
+  color: var(--lc-text-muted);
   font-size: 13px;
-  border-top: 1px solid #29303c;
+  border-top: 1px solid var(--lc-stroke);
 }
 .sourceHint {
   font-size: 13px;
-  color: #8d9aaf;
+  color: var(--lc-text-muted);
 }
 .sectionHeading {
   display: flex;
@@ -90,20 +91,20 @@
 }
 .count,
 .note {
-  color: #8d9aaf;
+  color: var(--lc-text-muted);
   font-size: 13px;
 }
 .windowWarning {
   padding: 16px 20px;
   margin: 0 0 20px;
-  background: #332712;
-  border: 1px solid #94701f;
+  background: var(--lc-surface-raised);
+  border: 1px solid var(--lc-warning);
   border-radius: 12px;
-  color: #ffe1a0;
+  color: var(--lc-warning);
 }
 .reportWarning {
   margin: 0;
-  color: #ffe1a0;
+  color: var(--lc-warning);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -125,14 +126,15 @@
 }
 .projectCard:hover {
   transform: translateY(-4px);
-  border-color: #8b5cf6;
+  border-color: var(--lc-focus);
 }
 .projectMark {
   width: 46px;
   height: 46px;
   flex: 0 0 auto;
   border-radius: 14px;
-  background: linear-gradient(135deg, #7c3aed, #22d3ee);
+  background: var(--lc-accent-soft);
+  color:var(--lc-accent-ink);
   display: grid;
   place-items: center;
   font-weight: 800;
@@ -142,7 +144,7 @@
 }
 .cardMeta {
   font-size: 12px;
-  color: #8d9aaf;
+  color: var(--lc-text-muted);
   display: flex;
   justify-content: space-between;
   gap: 8px;
@@ -153,7 +155,7 @@
   overflow-wrap: anywhere;
 }
 .projectCard p {
-  color: #b4bdcb;
+  color: var(--lc-text-secondary);
   line-height: 1.5;
   min-height: 44px;
 }
@@ -163,18 +165,18 @@
   min-width: 250px;
   max-width: 380px;
   border-radius: 24px;
-  background: linear-gradient(100deg, #161b23 30%, #222a36 45%, #161b23 60%);
+  background: linear-gradient(100deg, var(--lc-surface-input) 30%, var(--lc-surface-raised) 45%, var(--lc-surface-input) 60%);
   background-size: 200% 100%;
   animation: shimmer 1.4s infinite;
 }
 .empty,
 .error {
   padding: 32px;
-  color: #b4bdcb;
+  color: var(--lc-text-secondary);
 }
 .error h1,
 .error h2 {
-  color: #fff;
+  color: var(--lc-text);
 }
 .errorActions {
   display: flex;
@@ -183,11 +185,12 @@
 }
 .error button,
 .dialog button {
+  min-height:44px;
   border: 0;
   border-radius: 10px;
   padding: 10px 16px;
-  background: #8b5cf6;
-  color: #fff;
+  background: var(--lc-primary);
+  color: var(--lc-on-primary);
   cursor: pointer;
 }
 .dialogBackdrop {
@@ -197,24 +200,27 @@
   display: grid;
   place-items: center;
   padding: 20px;
-  background: #0009;
+  background: rgb(0 0 0 / 62%);
 }
 .dialog {
   width: min(560px, 100%);
   display: grid;
   gap: 14px;
   padding: 24px;
-  border: 1px solid #424c5e;
+  border: 1px solid var(--lc-stroke-strong);
   border-radius: 18px;
-  background: #11151d;
-  color: #f2f4f8;
+  background: var(--lc-surface);
+  color: var(--lc-text);
+  box-shadow:var(--lc-shadow);
+  max-height:calc(100dvh - 40px);
+  overflow:auto;
 }
 .dialog form {
   display: grid;
   gap: 14px;
 }
 .dialog a {
-  color: #cdbafa;
+  color: var(--lc-link);
 }
 .dialog button:disabled {
   cursor: not-allowed;
@@ -228,28 +234,28 @@
 .dialog textarea {
   box-sizing: border-box;
   width: 100%;
-  border: 1px solid #394354;
+  border: 1px solid var(--lc-stroke-strong);
   border-radius: 8px;
-  background: #0b0d12;
-  color: #f2f4f8;
+  background: var(--lc-surface-input);
+  color: var(--lc-text);
   padding: 10px;
   font: inherit;
 }
 .errorText {
-  color: #ff9c9c;
+  color: var(--lc-error);
 }
 .headCopy a:focus-visible,
 .projectCard a:focus-visible,
 .error a:focus-visible,
 .error button:focus-visible,
 .dialog button:focus-visible {
-  outline: 2px solid #22d3ee;
+  outline: 3px solid var(--lc-focus);
   outline-offset: 3px;
 }
 .dialog a:focus-visible,
 .dialog input:focus-visible,
 .dialog textarea:focus-visible {
-  outline: 2px solid #22d3ee;
+  outline: 2px solid var(--lc-focus);
   outline-offset: 3px;
 }
 @keyframes shimmer {
@@ -286,4 +292,49 @@
 .page * {
   box-sizing: border-box;
   min-width: 0;
+}
+
+
+/* Real public imagery only; no generated artwork for missing GitHub metadata. */
+.projectCard {
+  flex-direction:column;
+  padding:0;
+  overflow:hidden;
+  gap:0;
+}
+.projectCover {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:100%;
+  aspect-ratio:16 / 7;
+  min-height:128px;
+  max-height:195px;
+  background:var(--lc-surface-raised);
+  border-bottom:1px solid var(--lc-stroke);
+  color:var(--lc-text-muted);
+  font-size:13px;
+}
+.projectCover img {width:100%;height:100%;object-fit:contain}
+.projectContent {padding:16px 18px 20px}
+.projectIdentity {display:flex;align-items:center;gap:12px;min-width:0}
+.ownerAvatar {
+  width:42px;height:42px;flex:none;display:grid;place-items:center;
+  border-radius:50%;overflow:hidden;background:var(--lc-accent-soft);
+  color:var(--lc-accent-ink);border:1px solid var(--lc-stroke-strong);
+  font-size:15px;font-weight:800;
+}
+.ownerAvatar img {width:100%;height:100%;object-fit:cover}
+.projectCard h3 {margin:0;overflow-wrap:anywhere}
+.projectDescription {
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  min-height:0!important;max-width:100%;margin:12px 0 14px;
+}
+.projectCard a:hover,.headCopy a:hover,.error a:hover {text-decoration:underline}
+.error button:hover:not(:disabled),.dialog button:hover:not(:disabled) {
+  background:var(--lc-primary-hover);
+}
+.windowWarning,.reportWarning {color:var(--lc-warning)}
+@media (prefers-reduced-motion:reduce) {
+  .projectCard,.skeleton {animation-duration:.01ms;transition-duration:.01ms}
 }
