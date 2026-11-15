@@ -3,10 +3,12 @@ import { Link, useParams } from 'react-router'
 import { readDisplayBranch, repoHomeStatus, type RepoHomeApi, type RepoHomeData, type MemberCapability } from './service'
 import { MemberProfile, TeamStatus } from './Team'
 import styles from './RepoHome.module.css'
+import { subscribeSessionChanged } from '../../shared/src/session-change'
 /** @summary Read the selected branch team file and display cards in its exact stored order. */
 export default function MembersPage({ api }: { api: RepoHomeApi }) {
   const { owner = '', repo = '' } = useParams<'owner' | 'repo'>()
   const [revision, setRevision] = useState(0)
+  useEffect(() => subscribeSessionChanged(() => setRevision(n => n + 1)), [])
   const [data, setData] = useState<RepoHomeData | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
@@ -38,7 +40,8 @@ export default function MembersPage({ api }: { api: RepoHomeApi }) {
       {capability ? <Link to={base + '/members/register'}>添加成员</Link> :
         permissionStatus === 401 ? <a href={login}>登录后添加成员</a> :
           permissionStatus === null ? <span className={styles.muted}>检查登记权限中…</span> :
-            <span className={styles.muted}>当前账号不能提交成员资料</span>}
+            permissionStatus === 403 ? <span className={styles.muted}>当前账号缺少成员登记权限</span> :
+            <button type="button" onClick={() => setRevision(n => n + 1)}>权限检查失败，重试</button>}
     </div>
     {capability && <p className={styles.muted}>已验证操作者 @{capability.user.login}，目标分支 {branch}</p>}
     {permissionError && <p className={styles.muted}>{permissionError}</p>}
