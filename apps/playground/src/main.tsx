@@ -7,5 +7,5 @@ import './style.css'
 
 const root = createRoot(document.getElementById('root')!)
 void startRuntime()
-  .then(({ ui }) => root.render(<StrictMode><BrowserRouter><App ui={ui} /></BrowserRouter></StrictMode>))
+  .then(({ ui, sessionRequest }) => root.render(<StrictMode><BrowserRouter><App ui={ui} sessionRequest={sessionRequest} /></BrowserRouter></StrictMode>))
   .catch(console.error)
