@@ -32,7 +32,7 @@ test('#76 GitHub session never returns OAuth token and validates real public ide
 })
 
 test('#76 session distinguishes expired tokens, invalid public data and upstream failures', async () => {
-  for (const [code, expected] of [[401,200],[403,503],[429,503],[503,503]]) {
+  for (const [code, expected] of [[401,200],[403,503],[429,429],[503,503]]) {
     const handler = createGithubSessionHandler({
       read: () => ({token:'private'}),
       getUser: async () => new Response(null,{status:code}),
