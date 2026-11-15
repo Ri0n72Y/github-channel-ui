@@ -1,13 +1,13 @@
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
-import type { Issue, Repo } from '../../repo-issues/src/index'
+import type { Issue, Repo, RepoIssuesApi } from '../../repo-issues/src/api'
 import styles from './IssueWorkspace.module.css'
 
 type Notice = { text: string; url?: string; relogin?: boolean; error?: boolean }
 
 /** @summary Keep the existing Issue creation demo while navigating to independent Issue pages. */
-export function IssueWorkspace({ repo, issues, loggedIn }: {
-  repo: Repo; issues: Issue[]; loggedIn: boolean
+export function IssueWorkspace({ repo, issues, loggedIn, api }: {
+  repo: Repo; issues: readonly Issue[]; loggedIn: boolean; api: Readonly<RepoIssuesApi>
 }) {
   const [creating, setCreating] = useState(false)
   const [title, setTitle] = useState('')
@@ -23,17 +23,10 @@ export function IssueWorkspace({ repo, issues, loggedIn }: {
     setPending(true)
     setNotice(null)
     try {
-      const response = await fetch('/api/github-issue-create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-LabourChain-Write': '1' },
-        body: JSON.stringify({ owner: repo.owner, repo: repo.name, title: title.trim(), body: description }),
-      })
-      const data = await response.json() as { error?: string; relogin?: boolean;
-        issue?: { number: number; html_url: string } }
-      if (!response.ok || !data.issue) throw Object.assign(
-        new Error(data.error || 'HTTP ' + response.status), { relogin: data.relogin })
-      setNotice({ text: 'Issue #' + data.issue.number + ' 创建成功。请手动刷新列表。',
-        url: data.issue.html_url })
+      const issue = await api.createIssue(repo, title.trim(), description,
+        new AbortController().signal)
+      setNotice({ text: 'Issue #' + issue.number + ' 创建成功。请手动刷新列表。',
+        url: issue.html_url })
       setCreating(false)
       setTitle('')
       setDescription('')
