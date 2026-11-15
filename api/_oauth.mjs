@@ -79,6 +79,8 @@ export function validOrigin(request, origin) {
 }
 
 export function validLoginReturnPath(path) {
+  // Never treat application/API routes as repository home return targets.
+  if (typeof path === 'string' && (path === '/api' || path.startsWith('/api/'))) return '/'
   if (path === '/installation-probe.html') return path
   if (typeof path === 'string' &&
       /^\/[a-z\d-]{1,39}\/[a-z\d._-]{1,100}\/?$/i.test(path)) return path
