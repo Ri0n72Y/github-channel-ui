@@ -40,7 +40,10 @@ function fakeGitHub({ install = true, membership = true, rate = false } = {}) {
     if (path === '/app/installations/77/access_tokens') {
       assert.equal(method, 'POST')
       assert.deepEqual(JSON.parse(options.body).repository_ids, [50])
-      assert.deepEqual(JSON.parse(options.body).permissions, { issues: 'read', contents: 'read' })
+      const permissions = JSON.parse(options.body).permissions
+      assert.ok(Object.keys(permissions).length > 0 &&
+        Object.keys(permissions).every(p => ['issues', 'contents'].includes(p) &&
+          permissions[p] === 'read'))
       return result(201, { token: 'installation-read-token' })
     }
     if (path === '/repos/sample/repo/issues/1' && method === 'GET') {

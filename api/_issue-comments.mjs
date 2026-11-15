@@ -6,7 +6,7 @@ export default {
     if (request.method !== 'GET') return Response.json({ error: 'Method not allowed' }, { status: 405 })
     try {
       const { owner, repo, number, page } = issueQuery(request, { number: true, pagination: true })
-      const access = await issueReadAccess({ owner, repo })
+      const access = await issueReadAccess({ owner, repo, permissions: ['issues'] })
       const path = '/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo) +
         '/issues/' + number + '/comments?per_page=100&page=' + page
       const { data, link } = await issueGitHubGet(access, path)

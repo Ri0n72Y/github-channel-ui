@@ -43,8 +43,8 @@ async function makeRequest(fetcher, url, init) {
   }
 }
 
-/** @summary Confirm exact Installation identity and read grants before requesting a scoped token. */
-async function ensureInstallationReadGrants(fetcher, resolved, owner) {
+/** @summary Verify the current App installation independently of optional read grants. */
+async function inspectInstallationReadGrants(fetcher, resolved, owner) {
   const response = await makeRequest(fetcher,
     GH + '/app/installations/' + resolved.installationId, {
       headers: { ...HEADERS, Authorization: 'Bearer ' + resolved.jwt },
@@ -59,16 +59,44 @@ async function ensureInstallationReadGrants(fetcher, resolved, owner) {
   try { installation = await response.json() }
   catch { throw new IssueAccessError('Invalid GitHub App installation response') }
   if (installation?.id !== resolved.installationId ||
-      installation.account?.login?.toLowerCase() !== owner.toLowerCase() ||
+      typeof installation.account?.login !== 'string' ||
+      installation.account.login.toLowerCase() !== owner.toLowerCase() ||
       installation.suspended_at) {
     throw new IssueAccessError('Repository App installation is invalid or suspended', 403)
   }
-  const grants = installation.permissions
-  // Both rights are required across Repo/Issue/Config/Channel readers.
-  if (!grants || !['read', 'write'].includes(grants.issues) ||
-      !['read', 'write'].includes(grants.contents)) {
-    throw new IssueAccessError('GitHub App installation lacks Issues or Contents read permission', 403)
+  // A missing individual grant means public GET must not request it.
+  // An unreadable permissions object makes the Installation check inconclusive.
+  if (!installation.permissions || typeof installation.permissions !== 'object' ||
+      Array.isArray(installation.permissions)) {
+    throw new IssueAccessError('GitHub App installation permission check failed', 502)
   }
+  return installation.permissions
+}
+
+/** @summary Permit only known public GitHub GET resources under the verified repository. */
+export function readAuthorizationHeaders(access, path) {
+  if (typeof access?.token === 'string' && access.token) {
+    return { Authorization: 'Bearer ' + access.token }
+  }
+  if (access?.anonymous !== true || typeof access.owner !== 'string' ||
+      typeof access.repo !== 'string' || typeof path !== 'string' || !path.startsWith('/')) {
+    throw new IssueAccessError('Public repository read authorization unavailable', 403)
+  }
+  let uri
+  try { uri = new URL(GH + path) }
+  catch { throw new IssueAccessError('Invalid public repository read path', 400) }
+  const base = '/repos/' + encodeURIComponent(access.owner) + '/' +
+    encodeURIComponent(access.repo)
+  const suffix = uri.pathname.startsWith(base) ? uri.pathname.slice(base.length) : null
+  const allowed = suffix === '' || suffix === '/readme' || suffix === '/issues' ||
+    suffix === '/labels' ||
+    /^\/branches\/[^/]+$/.test(suffix || '') ||
+    /^\/contents\/[a-z\d._/%-]+$/i.test(suffix || '') ||
+    /^\/issues\/[1-9]\d*(?:\/comments)?$/.test(suffix || '')
+  if (!allowed || uri.origin !== GH || uri.hash || uri.username || uri.password) {
+    throw new IssueAccessError('Public read path is outside the verified repository', 403)
+  }
+  return {}
 }
 
 /** @summary Classify token 422 by allowlisted fields, never exposing GitHub messages or secrets. */
@@ -86,10 +114,23 @@ async function token422Reason(response) {
   return 'Installation token request rejected by GitHub (422)'
 }
 
-/** @summary Validate the public repository and obtain a short-lived repository-scoped read token. */
-export async function issueReadAccess({ owner, repo, env = process.env, fetcher = fetch }) {
+/** @summary Read an installed public repository with minimal token grants or safe public GET. */
+export async function issueReadAccess({
+  owner, repo, env = process.env, fetcher = fetch,
+  permissions = ['issues', 'contents'],
+}) {
+  if (!Array.isArray(permissions) || permissions.length < 1 ||
+      permissions.some(p => p !== 'issues' && p !== 'contents') ||
+      new Set(permissions).size !== permissions.length) {
+    throw new IssueAccessError('Invalid public read permission selection', 400)
+  }
   const resolved = await resolveInstalledRepository({ owner, repo, env, fetcher })
-  await ensureInstallationReadGrants(fetcher, resolved, owner)
+  const grants = await inspectInstallationReadGrants(fetcher, resolved, owner)
+  // No App permission downgrade or blind token retry: publicly readable GitHub
+  // resources can be fetched anonymously after the exact installation check.
+  if (permissions.some(p => !['read', 'write'].includes(grants[p]))) {
+    return { token: null, anonymous: true, owner, repo, fetcher }
+  }
   const response = await makeRequest(fetcher,
     GH + '/app/installations/' + resolved.installationId + '/access_tokens', {
       method: 'POST',
@@ -97,7 +138,7 @@ export async function issueReadAccess({ owner, repo, env = process.env, fetcher 
         'Content-Type': 'application/json' },
       body: JSON.stringify({ repository_ids: [resolved.repositoryId],
         // Metadata read is implicit for GitHub Apps; request only required scopes.
-        permissions: { issues: 'read', contents: 'read' } }),
+        permissions: Object.fromEntries(permissions.map(p => [p, 'read'])) }),
     })
   if (response.status !== 201) {
     const status = await upstreamStatus(response)
@@ -122,7 +163,7 @@ export async function issueReadAccess({ owner, repo, env = process.env, fetcher 
 /** @summary Relay the unchanged GitHub resource and pagination headers through the trusted Function. */
 export async function issueGitHubGet(access, path) {
   const response = await makeRequest(access.fetcher, GH + path, {
-    headers: { ...HEADERS, Authorization: 'Bearer ' + access.token },
+    headers: { ...HEADERS, ...readAuthorizationHeaders(access, path) },
   })
   if (!response.ok) {
     const status = await upstreamStatus(response)

@@ -6,7 +6,7 @@ export default {
     if (request.method !== 'GET') return Response.json({ error: 'Method not allowed' }, { status: 405 })
     try {
       const { owner, repo } = issueQuery(request)
-      const access = await issueReadAccess({ owner, repo })
+      const access = await issueReadAccess({ owner, repo, permissions: ['contents'] })
       const path = '/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo) +
         '/contents/labourchain.config.yaml'
       let data

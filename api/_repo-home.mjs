@@ -5,7 +5,7 @@ export default {
     if (request.method !== 'GET') return reply({ error: 'Method not allowed' }, 405)
     try {
       const { owner, repo, branch } = paramsFor(request)
-      const access = await accessFor(owner, repo), base = pathFor(owner, repo)
+      const access = await accessFor(owner, repo, ['contents']), base = pathFor(owner, repo)
       const [info, selected] = await Promise.all([
         readRepo(access, base), readRepo(access, base + '/branches/' + encodeURIComponent(branch)),
       ])

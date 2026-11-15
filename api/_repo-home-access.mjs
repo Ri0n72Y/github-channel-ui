@@ -1,4 +1,4 @@
-import { issueReadAccess, IssueAccessError, issueError } from './_issue-access.mjs'
+import { issueReadAccess, IssueAccessError, issueError, readAuthorizationHeaders } from './_issue-access.mjs'
 import { validRepository, isGitHubRateLimited } from './_installation-probe.mjs'
 import { parseTeamFile } from '../plugins/repo-home/src/domain.mjs'
 export { issueError }
@@ -15,7 +15,7 @@ export function paramsFor(request, pagination = false) {
   if (pagination && (!/^[1-9]\d*$/.test(raw) || Number(raw) > 100000)) throw new IssueAccessError('分页参数无效', 400)
   return { owner, repo, branch, page: pagination ? Number(raw) : 1 }
 }
-export const accessFor = (owner, repo) => issueReadAccess({ owner, repo })
+export const accessFor = (owner, repo, permissions) => issueReadAccess({ owner, repo, permissions })
 export async function repoFetch(fetcher, token, path, init = {}, missing = false) {
   let response
   try {
@@ -23,7 +23,7 @@ export async function repoFetch(fetcher, token, path, init = {}, missing = false
       ...init, redirect: 'manual', signal: AbortSignal.timeout(10000),
       headers: { Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'LabourChain-RepoHome',
-        Authorization: 'Bearer ' + token, ...init.headers },
+        ...(token ? { Authorization: 'Bearer ' + token } : {}), ...init.headers },
     })
   } catch { throw new IssueAccessError('GitHub 网络请求失败', 502) }
   if (response.status === 404 && missing) return null
@@ -49,7 +49,8 @@ export async function repoFetch(fetcher, token, path, init = {}, missing = false
   catch { throw new IssueAccessError('GitHub 返回了无效 JSON', 502) }
 }
 export async function readRepo(access, path, missing = false) {
-  return repoFetch(access.fetcher, access.token, path, {}, missing)
+  const headers = readAuthorizationHeaders(access, path)
+  return repoFetch(access.fetcher, access.token, path, { headers }, missing)
 }
 export async function readText(access, path) {
   const result = await readRepo(access, path, true)

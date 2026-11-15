@@ -1,8 +1,8 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { readSession } from './_oauth.mjs'
-import { resolveInstalledRepository, isGitHubRateLimited } from './_installation-probe.mjs'
+import { resolveInstalledRepository, isGitHubRateLimited, ProbeError } from './_installation-probe.mjs'
 import { writeContext } from './_issue-interaction.mjs'
-import { IssueAccessError, issueReadAccess } from './_issue-access.mjs'
+import { IssueAccessError, issueReadAccess, readAuthorizationHeaders } from './_issue-access.mjs'
 import { paramsFor, pathFor, reply } from './_repo-home-access.mjs'
 import { readRepoConfigPreview, decodeConfigFile } from './_repo-config-preview.mjs'
 import { parseConfigNamespaces } from '../plugins/repo-config/src/domain.mjs'
@@ -27,13 +27,17 @@ function deny(message, status = 400, state = 'error') {
 /** @summary Send a bounded GitHub request and retain rate-limit and uncertain-write metadata. */
 async function githubRequest(fetcher, token, path, init = {}, missing = false) {
   const method = (init.method || 'GET').toUpperCase()
+  if (!token && method !== 'GET') {
+    throw new IssueAccessError('GitHub write requires authenticated OAuth credentials', 401)
+  }
   let response
   try {
     response = await fetcher(GH + path, {
       ...init,
       redirect: 'manual',
       signal: AbortSignal.timeout(10000),
-      headers: { ...HEADERS, Authorization: 'Bearer ' + token, ...init.headers },
+      headers: { ...HEADERS, ...(token ? { Authorization: 'Bearer ' + token } : {}),
+        ...init.headers },
     })
   } catch {
     const error = new IssueAccessError('GitHub 网络请求中断；写入结果需要重新读取确认', 502)
@@ -698,11 +702,13 @@ async function syncLabels({ body, token, fetcher, resolve, accessFactory }) {
 }
 
 function errorResponse(error) {
-  const status = error instanceof IssueAccessError ? error.status : 502
+  const status = error instanceof IssueAccessError || error instanceof ProbeError ?
+    error.status : 502
   const state = error.state || (status === 401 ? 'unauthenticated' :
     status === 403 ? 'permission_denied' :
       status === 409 ? 'stale_preview' : 'error')
-  return reply({ state, error: error.message || 'Config 服务暂时不可用',
+  return reply({ state, error: error instanceof IssueAccessError || error instanceof ProbeError ?
+    error.message : 'Config 服务暂时不可用',
     retryAfter: error.retryAfter || null }, status)
 }
 
@@ -724,7 +730,8 @@ export function createRepoConfigHandler(deps = {}) {
   const previewAccessFactory = deps.previewAccessFactory ||
     (args => issueReadAccess({ ...args, fetcher }))
   const previewRead = deps.previewRead || (async (access, path, missing = false) =>
-    githubRequest(fetcher, access.token, path, {}, missing))
+    githubRequest(fetcher, access.token, path,
+      { headers: readAuthorizationHeaders(access, path) }, missing))
 
   async function get(request) {
     const { owner, repo } = mainTarget(request)
