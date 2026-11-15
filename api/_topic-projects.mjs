@@ -1,6 +1,16 @@
 import { requireTopicTarget, github, topicConfig, topicError, reply,
   publicRepository, TopicFetchError } from './_topic.mjs'
 
+/** @summary Use only original GitHub-hosted imagery when Search includes it. */
+function trustedGitHubImage(value, hosts) {
+  if (typeof value !== 'string') return null
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' && hosts.includes(url.hostname) &&
+      !url.username && !url.password ? url.href : null
+  } catch { return null }
+}
+
 /** @summary Fetch one public GitHub Topic Search page, exposing the 1000-result window boundary. */
 export function createTopicProjectsEndpoint({ fetcher = fetch } = {}) {
   return {
@@ -33,6 +43,16 @@ export function createTopicProjectsEndpoint({ fetcher = fetch } = {}) {
             description: item.description || '', html_url: item.html_url,
             stargazers_count: item.stargazers_count || 0,
             language: item.language || null,
+            ...(() => {
+              const ownerAvatar = trustedGitHubImage(item.owner?.avatar_url,
+                ['avatars.githubusercontent.com'])
+              const cover = trustedGitHubImage(item.open_graph_image_url,
+                ['opengraph.githubassets.com', 'repository-images.githubusercontent.com'])
+              return {
+                ...(ownerAvatar ? { owner_avatar_url: ownerAvatar } : {}),
+                ...(cover ? { cover_url: cover } : {}),
+              }
+            })(),
           })),
         })
       } catch (error) { return topicError(error) }
