@@ -223,16 +223,18 @@ test('#77 valid Config partial writes project nested fields without forwarding u
   assert.notStrictEqual(result.removedAssociations,payload.removedAssociations)
   const {createElement}=await import('react')
   const {renderToStaticMarkup}=await import('react-dom/server')
+  const {MemoryRouter}=await import('react-router')
   const ConfigView=(await vite.ssrLoadModule(
     '/plugins/repo-config/src/ConfigView.tsx')).default
   const noop=()=>{}
-  const html=renderToStaticMarkup(createElement(ConfigView,{
+  const html=renderToStaticMarkup(createElement(MemoryRouter,
+    {initialEntries:['/sample/repo/config']},createElement(ConfigView,{
     owner:'sample',repo:'repo',base:'/sample/repo',login:'/api/github-login',
     snapshot:null,content:'',loading:false,busy:false,error:'',result,
     confirmRemovals:false,validationState:'ready',editorEnabled:false,
     canSave:false,canSync:false,dirty:false,onRefresh:noop,
     onContentChange:noop,onConfirmRemovalsChange:noop,onSave:noop,onSync:noop,
-  }))
+  })))
   assert.match(html,/remove_issue_label/)
   assert.match(html,/rate limited/)
   assert.match(html,/Retry-After 60/)
