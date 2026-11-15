@@ -91,6 +91,9 @@ export async function startRuntime() {
       }))
       fixtureFiber = fiber; fibers.push(fiber); await fiber
     }
-    return { ui: ctx.reactUI, dispose }
+    const sessionRequest = query.get('sessionFixture') === '1'
+      ? (await import('./session-fixture')).createSessionFixtureRequest(query)
+      : undefined
+    return { ui: ctx.reactUI, sessionRequest, dispose }
   } catch (error) { await dispose(); throw error }
 }
