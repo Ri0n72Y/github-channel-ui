@@ -29,12 +29,12 @@
 .shell label{display:inline-flex;align-items:center;flex-wrap:wrap;gap:10px}
 .shell select {margin-left:4px}
 .actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-.login{
+.shell a.login{
   display:inline-flex;align-items:center;min-height:44px;
-  text-decoration:none;background:var(--lc-primary);color:var(--lc-on-primary)!important;
+  text-decoration:none;background:var(--lc-primary);color:var(--lc-on-primary);
   border-radius:9px;padding:10px 16px;font-weight:700;
 }
-.login:hover{background:var(--lc-primary-hover)}
+.shell a.login:hover{background:var(--lc-primary-hover)}
 .sessionStatus {font-size:14px;color:var(--lc-text-muted)}
 .verification {
   margin-top:20px;padding:18px;border-radius:12px;
