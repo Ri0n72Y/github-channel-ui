@@ -1,7 +1,7 @@
 import styles from './issue-fixture.module.css'
 import type { Context } from '@deepseek-ai/cordis'
 import { Link } from 'react-router'
-import { IssueRequestError, type GithubIssue, type GithubComment,
+import { issueRequestError, type GithubIssue, type GithubComment,
   type IssueDetailApi } from '../../../plugins/issue-detail/src/service'
 
 const sha = 'a'.repeat(40)
@@ -45,11 +45,11 @@ export function createIssueFixtureService(loggedIn: boolean): IssueDetailApi {
     async getIssue(owner, repo, number, signal) {
       await wait(signal, number === 11 ? 400 : 25)
       if (!fixtureOwners.includes(owner) || repo !== 'repo' || number === 8) {
-        throw new IssueRequestError('Fixture 404', 404)
+        throw issueRequestError('Fixture 404', 404)
       }
-      if (number === 5) throw new IssueRequestError('Fixture rate limited', 429)
-      if (number === 6) throw new IssueRequestError('Fixture upstream unavailable', 502)
-      if (number === 7) throw new IssueRequestError('Fixture access denied', 403)
+      if (number === 5) throw issueRequestError('Fixture rate limited', 429)
+      if (number === 6) throw issueRequestError('Fixture upstream unavailable', 502)
+      if (number === 7) throw issueRequestError('Fixture access denied', 403)
       const issue: GithubIssue = {
         number, title: '受控 Issue #' + number,
         body: '这是一份完整的模拟 GitHub Issue 正文。',
@@ -68,18 +68,18 @@ export function createIssueFixtureService(loggedIn: boolean): IssueDetailApi {
     async getConfig(owner, repo, signal) {
       await wait(signal)
       if (owner === 'sample-no-config') {
-        throw new IssueRequestError('Fixture repository config missing', 422)
+        throw issueRequestError('Fixture repository config missing', 422)
       }
       if (owner === 'sample-bad-config') return 'namespaces:\n  channel: [invalid'
       if (owner !== 'sample' || repo !== 'repo') {
-        throw new IssueRequestError('Fixture config not found', 404)
+        throw issueRequestError('Fixture config not found', 404)
       }
       return 'namespaces:\n  channel:\n    - discussion\n'
     },
     async getComments(owner, repo, number, page, signal) {
       await wait(signal)
       if (!fixtureOwners.includes(owner) || repo !== 'repo') {
-        throw new IssueRequestError('Fixture 404', 404)
+        throw issueRequestError('Fixture 404', 404)
       }
       const items = data(owner, repo, number).slice((page - 1) * 100, page * 100)
       return { items, hasMore: page * 100 < data(owner, repo, number).length }
@@ -87,15 +87,15 @@ export function createIssueFixtureService(loggedIn: boolean): IssueDetailApi {
     async getSession(signal) { await wait(signal); return loggedIn },
     async verify(owner, repo, signal) {
       await wait(signal)
-      if (!loggedIn) throw new IssueRequestError('Fixture OAuth required', 401, true)
+      if (!loggedIn) throw issueRequestError('Fixture OAuth required', 401, true)
       return { user: { id: 1, login: 'fixture-user' },
         repository: { full_name: owner + '/' + repo, accessible: true,
           permissions: { admin: false, maintain: false, push: false, triage: false, pull: true } } }
     },
     async postComment(owner, repo, number, body, signal) {
       await wait(signal)
-      if (!loggedIn) throw new IssueRequestError('Fixture OAuth required', 401, true)
-      if (body.includes('FAIL_POST')) throw new IssueRequestError('Fixture write rejected', 403)
+      if (!loggedIn) throw issueRequestError('Fixture OAuth required', 401, true)
+      if (body.includes('FAIL_POST')) throw issueRequestError('Fixture write rejected', 403)
       const item = comment(9000 + data(owner, repo, number).length, body,
         owner, repo, number)
       data(owner, repo, number).push(item)
