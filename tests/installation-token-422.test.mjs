@@ -203,3 +203,143 @@ test('#72 six public read routes use the same exact-installation scoped token fl
     }
   }
 })
+
+
+/** @summary Exercise the same six public production endpoints without a user session. */
+function publicRoutes(mock) {
+  return [
+    [repoHome, '/api/repo-home?owner=Ri0n72Y&repo=hackathon-platform&branch=main'],
+    [repoFeed, '/api/repo-feed?owner=Ri0n72Y&repo=hackathon-platform&page=1'],
+    [issueDetail, '/api/issue-detail?owner=Ri0n72Y&repo=hackathon-platform&number=2'],
+    [issueComments, '/api/issue-comments?owner=Ri0n72Y&repo=hackathon-platform&number=2&page=1'],
+    [createRepoConfigHandler({ fetcher: mock.fetcher }),
+      '/api/repo-config?owner=Ri0n72Y&repo=hackathon-platform'],
+    [repoChannels, '/api/repo-channels?owner=Ri0n72Y&repo=hackathon-platform'],
+  ]
+}
+
+async function runVisitorRoutes(mock, expected = 200) {
+  const previous = globalThis.fetch
+  const backup = { GITHUB_APP_ID: process.env.GITHUB_APP_ID,
+    GITHUB_APP_PRIVATE_KEY: process.env.GITHUB_APP_PRIVATE_KEY }
+  globalThis.fetch = mock.fetcher
+  Object.assign(process.env, env)
+  try {
+    for (const [handler, path] of publicRoutes(mock)) {
+      const response = await handler.fetch(new Request('https://labour.test' + path))
+      assert.equal(response.status, expected, path + ': ' + await response.clone().text())
+    }
+  } finally {
+    globalThis.fetch = previous
+    for (const [key, value] of Object.entries(backup)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+}
+
+test('#72 six anonymous visitor reads preserve installation gate with no App read grants', async () => {
+  const mock = fakeGitHub({ installation: { permissions: { metadata: 'read' } } })
+  await runVisitorRoutes(mock)
+  const prefix = '/repos/Ri0n72Y/hackathon-platform'
+  const dataCalls = mock.calls.filter(c => c.path.startsWith(prefix) &&
+    c.path !== prefix + '/installation' && c.path !== prefix)
+  assert.ok(dataCalls.some(c => c.path === prefix + '/issues/2'))
+  assert.ok(dataCalls.some(c => c.path === prefix + '/branches/main'))
+  assert.ok(dataCalls.every(c => c.method === 'GET' && !c.auth),
+    'anonymous data requests carry neither OAuth nor installation credentials')
+  assert.equal(mock.calls.filter(c => c.path.endsWith('/access_tokens')).length, 0)
+  assert.equal(mock.calls.filter(c => c.path === '/app/installations/17').length, 6)
+  assert.equal(mock.calls.filter(c => c.method !== 'GET').length, 0,
+    'public read paths never mutate GitHub')
+})
+
+test('#72 Issues-only grant obtains narrow tokens for Issue reads, never requires Contents', async () => {
+  const mock = fakeGitHub({ installation: { permissions: { issues: 'read' } } })
+  await runVisitorRoutes(mock)
+  const tokens = mock.calls.filter(c => c.path.endsWith('/access_tokens'))
+  assert.equal(tokens.length, 3, 'Feed, Issue Detail and Comments use narrow Issues tokens')
+  for (const call of tokens) {
+    assert.deepEqual(JSON.parse(call.body), {
+      repository_ids: [50], permissions: { issues: 'read' },
+    })
+  }
+  const prefix = '/repos/Ri0n72Y/hackathon-platform'
+  assert.ok(mock.calls.filter(c => c.path === prefix + '/issues/2')
+    .every(c => c.auth === 'Bearer scoped-read-token'))
+  assert.ok(mock.calls.filter(c => c.path === prefix + '/branches/main')
+    .every(c => !c.auth), 'mixed-resource pages use only public GET when Contents is unavailable')
+})
+
+test('#72 Contents-only grant keeps Issue reads anonymous and Issue config narrowly authenticated', async () => {
+  const mock = fakeGitHub({ installation: { permissions: { contents: 'read' } } })
+  await runVisitorRoutes(mock)
+  assert.equal(mock.calls.filter(c => c.path.endsWith('/access_tokens')).length, 0)
+  const access = await issueReadAccess({
+    owner: 'Ri0n72Y', repo: 'hackathon-platform', env, fetcher: mock.fetcher,
+    permissions: ['contents'],
+  })
+  assert.equal(access.anonymous, undefined)
+  assert.equal(access.token, 'scoped-read-token')
+  const tokens = mock.calls.filter(c => c.path.endsWith('/access_tokens'))
+  assert.equal(tokens.length, 1)
+  assert.deepEqual(JSON.parse(tokens[0].body).permissions, { contents: 'read' })
+})
+
+test('#72 public fallback cannot read another repository, private API or write endpoint', async () => {
+  const mock = fakeGitHub({ installation: { permissions: {} } })
+  const access = await readAccess(mock)
+  for (const path of [
+    '/repos/Ri0n72Y/another-repo/issues',
+    '/repos/other/hackathon-platform/issues',
+    '/repos/Ri0n72Y/hackathon-platform/pulls',
+    '/repos/Ri0n72Y/hackathon-platform/git/refs',
+    '/repos/Ri0n72Y/hackathon-platform/actions/secrets',
+    '/user',
+  ]) {
+    assert.throws(() => readAuthorizationHeaders(access, path),
+      error => error instanceof IssueAccessError && error.status === 403, path)
+    await assert.rejects(issueGitHubGet(access, path),
+      error => error.status === 403, path)
+  }
+  assert.deepEqual(mock.calls.map(c => c.path), [
+    '/repos/Ri0n72Y/hackathon-platform',
+    '/repos/Ri0n72Y/hackathon-platform/installation',
+    '/app/installations/17',
+  ])
+})
+
+test('#72 revoked, private or mismatched repository never falls back for any visitor endpoint', async () => {
+  for (const options of [
+    { missingInstallation: true, expected: 403 },
+    { installation: { suspended_at: '2026-11-15T00:00:00Z' }, expected: 403 },
+    { installation: { account: { login: 'other' } }, expected: 403 },
+    { repositoryResponse: reply(200, { ...repository, private: true }), expected: 404 },
+    { repositoryResponse: reply(200, { ...repository, full_name: 'other/repo' }), expected: 502 },
+  ]) {
+    const mock = fakeGitHub(options)
+    await runVisitorRoutes(mock, options.expected)
+    assert.equal(mock.calls.filter(c => c.path.endsWith('/access_tokens')).length, 0)
+    assert.equal(mock.calls.some(c => c.path.endsWith('/issues/2')), false)
+    assert.ok(mock.calls.every(c => c.method === 'GET'))
+  }
+})
+
+test('#72 public GET throttling is 429 and network/installation errors never silently retry', async () => {
+  const limited = fakeGitHub({
+    installation: { permissions: {} },
+    issueResponse: reply(403, { message: 'rate limit exceeded' },
+      { 'x-ratelimit-remaining': '0' }),
+  })
+  const access = await readAccess(limited)
+  await assert.rejects(issueGitHubGet(access,
+    '/repos/Ri0n72Y/hackathon-platform/issues/2'),
+  error => error.status === 429 && /rate limit/i.test(error.message))
+  assert.equal(limited.calls.filter(c => c.path.endsWith('/issues/2')).length, 1)
+  const broken = fakeGitHub({ installationResponse: reply(503, { message: 'unavailable' }) })
+  await assert.rejects(readAccess(broken), error => error.status === 503)
+  assert.equal(broken.calls.filter(c => c.path.endsWith('/access_tokens')).length, 0)
+  const noAuth = await readAccess(fakeGitHub({ installation: { permissions: {} } }))
+  await assert.rejects(issueGitHubGet({ ...noAuth, token: null, anonymous: false },
+    '/repos/Ri0n72Y/hackathon-platform/issues/2'), error => error.status === 403)
+})
