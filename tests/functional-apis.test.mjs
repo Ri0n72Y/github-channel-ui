@@ -240,3 +240,49 @@ test('#77 valid Config partial writes project nested fields without forwarding u
   assert.match(html,/Retry-After 60/)
   assert.doesNotMatch(html,/secret/)
 })
+
+
+test('#77 Issue domain projects only validated fields and creates fresh nested snapshots',async()=>{
+  const issue={number:2,title:'Issue',body:'Content',state:'open',comments:1,
+    html_url:'https://github.com/sample/repo/issues/2',
+    labels:[{name:'work',secret:'hidden'}],user:{login:'sample',token:'secret'},
+    created_at:'2026-11-15T00:00:00Z',unknown:{secret:'hidden'}}
+  const comment={id:3,body:'Feedback',created_at:'2026-11-15T00:01:00Z',
+    html_url:'https://github.com/sample/repo/issues/2#issuecomment-3',
+    user:{login:'reviewer',token:'secret'},untrusted:{secret:'hidden'}}
+  const mock=mockReplies({
+    'GET /api/issue-detail':{value:issue},
+    'GET /api/issue-comments':{value:[comment]},
+  })
+  const api=services['issue-detail'].createIssueDetailApi(mock.request)
+  const result=await api.getIssue('sample','repo',2,signal())
+  assert.deepEqual(result,{
+    number:2,title:'Issue',body:'Content',state:'open',comments:1,
+    html_url:'https://github.com/sample/repo/issues/2',
+    labels:[{name:'work'}],user:{login:'sample'},
+    created_at:'2026-11-15T00:00:00Z',
+  })
+  const comments=await api.getComments('sample','repo',2,1,signal())
+  assert.deepEqual(comments.items,[{
+    id:3,body:'Feedback',created_at:'2026-11-15T00:01:00Z',
+    html_url:'https://github.com/sample/repo/issues/2#issuecomment-3',
+    user:{login:'reviewer'},
+  }])
+  assert.doesNotMatch(JSON.stringify({result,comments}),/secret/)
+})
+test('#77 malformed nested Github Issue or comment metadata fails at API boundary',async()=>{
+  const good={number:2,title:'Issue',body:null,state:'open',
+    html_url:'https://github.com/sample/repo/issues/2',labels:[],comments:0}
+  for(const bad of [
+    {...good,labels:[null]},
+    {...good,labels:[{name:{code:500}}]},
+    {...good,user:{login:{name:'bad'}}},
+    {...good,locked:{yes:true}},
+    {...good,closed_at:123},
+  ]){
+    const api=services['issue-detail'].createIssueDetailApi(
+      mockReplies({'GET /api/issue-detail':{value:bad}}).request)
+    await assert.rejects(api.getIssue('sample','repo',2,signal()),
+      error=>error instanceof Error&&'status' in error&&error.status===502)
+  }
+})
