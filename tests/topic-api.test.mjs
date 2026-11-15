@@ -144,3 +144,35 @@ test('#31 Topic API POST is rejected and source target validation occurs before 
   assert.equal((await get.fetch(new Request(url('topic-projects') + '&page=11'))).status, 400)
   assert.equal(m.calls.length, 0)
 })
+
+
+test('#69 Topic Search forwards only original trusted GitHub image metadata', async () => {
+  const fixtureData = fixture()
+  const endpoint = createTopicProjectsEndpoint({
+    fetcher: (url, init) => new URL(url).pathname === '/search/repositories'
+      ? respond(200, { total_count: 1, items: [{
+        full_name: 'member/project', name: 'project',
+        html_url: 'https://github.com/member/project', private: false,
+        owner: { login: 'member', avatar_url: 'https://avatars.githubusercontent.com/u/42?v=4' },
+        open_graph_image_url: 'https://repository-images.githubusercontent.com/42/cover.png',
+      }] }) : fixtureData.fetcher(url, init),
+  })
+  const response = await endpoint.fetch(new Request(url('topic-projects') + '&page=1'))
+  assert.equal(response.status, 200)
+  const item = (await response.json()).items[0]
+  assert.equal(item.owner_avatar_url, 'https://avatars.githubusercontent.com/u/42?v=4')
+  assert.equal(item.cover_url, 'https://repository-images.githubusercontent.com/42/cover.png')
+
+  const rejected = createTopicProjectsEndpoint({
+    fetcher: (url, init) => new URL(url).pathname === '/search/repositories'
+      ? respond(200, { total_count: 1, items: [{
+        full_name: 'member/project', name: 'project',
+        html_url: 'https://github.com/member/project', private: false,
+        owner: { login: 'member', avatar_url: 'https://evil.invalid/avatar.png' },
+        open_graph_image_url: 'javascript:alert(1)',
+      }] }) : fixtureData.fetcher(url, init),
+  })
+  const denied = (await (await rejected.fetch(new Request(url('topic-projects') + '&page=1'))).json()).items[0]
+  assert.equal(Object.hasOwn(denied, 'cover_url'), false)
+  assert.equal(Object.hasOwn(denied, 'owner_avatar_url'), false)
+})
