@@ -1,72 +1,85 @@
 import { Service, type Context } from '@deepseek-ai/cordis'
+import { repoIssuesApi, type Repo, type Issue, type RepoIssuesApi } from './api'
+export type { Repo, Issue } from './api'
 
-export type Repo = { owner: string; name: string; full_name: string }
-export type Issue = { number: number; title: string; html_url: string; comments: number }
-export type State = { repos: Repo[]; selected: string; issues: Issue[]; loading: boolean; error: string }
-
-declare module '@deepseek-ai/cordis' {
-  interface Context {
-    repoIssues: RepoIssuesService
-  }
+export interface RepoIssueState {
+  readonly repos:readonly Repo[]; readonly selected:string; readonly issues:readonly Issue[];
+  readonly loading:boolean;readonly error:string
 }
-
-/** @summary Fetch installed repositories and their Issues as an observable Cordis service. */
+export interface RepoIssueStore {
+  readonly api:Readonly<RepoIssuesApi>
+  readonly getSnapshot:()=>RepoIssueState
+  readonly subscribe:(listener:()=>void)=>(()=>void)
+  readonly select:(fullName:string)=>Promise<void>
+  readonly refresh:()=>Promise<void>
+  readonly dispose:()=>void
+}
+/** @summary Store new immutable Issue snapshots without exposing an HTTP Service instance. */
+export function createRepoIssuesStore(api:Readonly<RepoIssuesApi>=repoIssuesApi):Readonly<RepoIssueStore>{
+  const listeners=new Set<()=>void>()
+  let snapshot:RepoIssueState=Object.freeze({repos:Object.freeze([]),selected:'',
+    issues:Object.freeze([]),loading:false,error:''})
+  let revision=0
+  let controller:AbortController|null=null
+  function getSnapshot(){return snapshot}
+  function subscribe(listener:()=>void){
+    listeners.add(listener)
+    return ()=>{listeners.delete(listener)}
+  }
+  function publish(next:RepoIssueState){
+    snapshot=Object.freeze({...next,
+      repos:Object.freeze([...next.repos]),issues:Object.freeze([...next.issues])})
+    listeners.forEach(listener=>listener())
+  }
+  function begin(){
+    controller?.abort()
+    controller=new AbortController()
+    return {revision:++revision,signal:controller.signal}
+  }
+  async function select(fullName:string){
+    const repo=snapshot.repos.find(item=>item.full_name===fullName)
+    if(!repo)return
+    const current=begin()
+    publish({...snapshot,selected:fullName,loading:true,error:'',issues:[]})
+    try{
+      const issues=await api.getIssues(repo.owner,repo.name,current.signal)
+      if(current.revision===revision&&!current.signal.aborted)
+        publish({...snapshot,issues,loading:false})
+    }catch(error){
+      if(current.revision===revision&&!current.signal.aborted)
+        publish({...snapshot,loading:false,error:error instanceof Error?error.message:'Issue 读取失败'})
+    }
+  }
+  async function refresh(){
+    const current=begin()
+    publish({...snapshot,loading:true,error:''})
+    try{
+      const repos=await api.getRepositories(current.signal)
+      if(current.revision!==revision||current.signal.aborted)return
+      const selected=repos.some(repo=>repo.full_name===snapshot.selected)?
+        snapshot.selected:repos[0]?.full_name||''
+      publish({...snapshot,repos,selected,issues:[],loading:false})
+      if(selected)await select(selected)
+    }catch(error){
+      if(current.revision===revision&&!current.signal.aborted)
+        publish({...snapshot,loading:false,error:error instanceof Error?error.message:'仓库读取失败'})
+    }
+  }
+  function dispose(){
+    controller?.abort()
+    revision++
+    listeners.clear()
+  }
+  return Object.freeze({api,getSnapshot,subscribe,select,refresh,dispose})
+}
+declare module '@deepseek-ai/cordis' {
+  interface Context {repoIssues:RepoIssuesService}
+}
+/** @summary Bridge Cordis plugin lifecycle only; business API remains a frozen plain object. */
 export class RepoIssuesService extends Service {
-  private listeners = new Set<() => void>()
-  private revision = 0
-  private snapshot: State = { repos: [], selected: '', issues: [], loading: true, error: '' }
-
-  constructor(ctx: Context) {
-    super(ctx, 'repoIssues')
-  }
-
-  getSnapshot = () => this.snapshot
-
-  subscribe = (listener: () => void) => {
-    this.listeners.add(listener)
-    return () => { this.listeners.delete(listener) }
-  }
-
-  private publish(next: State) {
-    this.snapshot = next
-    this.listeners.forEach(listener => listener())
-  }
-
-  private async read(url: string) {
-    const response = await fetch(url)
-    const body = await response.json()
-    if (!response.ok) throw new Error(body.error || 'HTTP ' + response.status)
-    return body
-  }
-
-  async select(fullName: string) {
-    const repo = this.snapshot.repos.find(item => item.full_name === fullName)
-    if (!repo) return
-    const current = ++this.revision
-    this.publish({ ...this.snapshot, selected: fullName, loading: true, error: '', issues: [] })
-    try {
-      const data = await this.read('/api/issues?owner=' + encodeURIComponent(repo.owner) + '&repo=' + encodeURIComponent(repo.name))
-      if (current === this.revision) {
-        this.publish({ ...this.snapshot, issues: data.issues, loading: false })
-      }
-    } catch (error) {
-      if (current === this.revision) this.publish({ ...this.snapshot, loading: false, error: String(error) })
-    }
-  }
-
-  async refresh() {
-    const current = ++this.revision
-    this.publish({ ...this.snapshot, loading: true, error: '' })
-    try {
-      const data = await this.read('/api/repos')
-      if (current !== this.revision) return
-      const repos = data.repositories as Repo[]
-      const selected = repos.some(repo => repo.full_name === this.snapshot.selected)
-        ? this.snapshot.selected : (repos[0]?.full_name || '')
-      this.publish({ ...this.snapshot, repos, selected, issues: [], loading: false })
-      if (selected) await this.select(selected)
-    } catch (error) {
-      if (current === this.revision) this.publish({ ...this.snapshot, loading: false, error: String(error) })
-    }
+  readonly store=createRepoIssuesStore()
+  constructor(ctx:Context){
+    super(ctx,'repoIssues')
+    ctx.effect(()=>()=>this.store.dispose())
   }
 }
