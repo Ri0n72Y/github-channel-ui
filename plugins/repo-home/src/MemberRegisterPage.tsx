@@ -4,6 +4,7 @@ import { safeHttps, validLogin, validateMemberInput } from './domain.mjs'
 import { readDisplayBranch, repoHomeStatus, type MemberCapability, type MemberSubmitResult,
   type RepoHomeApi } from './service'
 import styles from './RepoHome.module.css'
+import { subscribeSessionChanged } from '../../shared/src/session-change'
 type Fields = { name: string; githubUsername: string; role: string; bio: string; avatarUrl: string;
   links: Array<{ label: string; url: string }> }
 const initial = (): Fields => ({ name: '', githubUsername: '', role: '', bio: '', avatarUrl: '',
@@ -51,6 +52,7 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
   const [pending, setPending] = useState(false)
   const [result, setResult] = useState<MemberSubmitResult | null>(null)
   const [revision, setRevision] = useState(0)
+  useEffect(() => subscribeSessionChanged(() => setRevision(n => n + 1)), [])
   const pendingController = useRef<AbortController | null>(null)
   useEffect(() => {
     setFields(initial()); setSubmitAttempted(false); setResult(null); setPending(false); setError('')
