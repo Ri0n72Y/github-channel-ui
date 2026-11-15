@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useParams } from 'react-router'
 import { formatLabourComment, summarizeIssueComments, validIssueTarget } from './domain.mjs'
 import { loadIssueContent } from './load-issue.mjs'
-import { IssueRequestError, type GithubComment, type GithubIssue,
+import { issueRequestError, issueRequestStatus, type GithubComment, type GithubIssue,
   type IssueDetailApi } from './service'
 import IssueDetailView from './IssueDetailView'
 import type { FormNotice, IssueDetailViewActions, IssueDetailViewModel,
@@ -77,7 +77,7 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
       try {
         // Generic Issue reading must not depend on Channel configuration.
         const loaded = await loadIssueContent(service, owner, repo, numberValue, abort.signal)
-        if (!loaded) throw new IssueRequestError('该地址不是有效的 GitHub Issue', 404)
+        if (!loaded) throw issueRequestError('该地址不是有效的 GitHub Issue', 404)
         const { issue, first } = loaded
         if (current !== revision.current || abort.signal.aborted) return
         setState({ key: routeKey, loading: false, issue, comments: uniqueComments(first.items),
