@@ -1,5 +1,6 @@
 import { oauthHeaders, readSession } from './_oauth.mjs'
 import { github } from './_issue-interaction.mjs'
+import { createGithubLogoutHandler } from './_github-logout.mjs'
 const LOGIN = /^[a-z\d-]{1,39}$/i
 
 /** @summary Validate only public GitHub identity fields; never forward OAuth credentials. */
@@ -43,4 +44,12 @@ export function createGithubSessionHandler({ read = readSession, getUser = githu
     },
   })
 }
-export default createGithubSessionHandler()
+const sessionHandler = createGithubSessionHandler()
+const logoutHandler = createGithubLogoutHandler()
+/** @summary Share one Vercel function slot for OAuth session GET and isolated logout POST. */
+export default Object.freeze({
+  fetch(request) {
+    const route = new URL(request.url).searchParams.get('__lc_route')
+    return route === 'logout' ? logoutHandler.fetch(request) : sessionHandler.fetch(request)
+  },
+})
