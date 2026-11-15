@@ -43,10 +43,13 @@ function fakeGitHub(options = {}) {
         ...installation, ...options.installation,
       })
     if (path === '/app/installations/17/access_tokens' && method === 'POST') {
-      assert.deepEqual(JSON.parse(init.body), {
-        repository_ids: [50],
-        permissions: { issues: 'read', contents: 'read' },
-      }, 'never issue an all-repository token or request unnecessary metadata grants')
+      const payload = JSON.parse(init.body)
+      assert.deepEqual(payload.repository_ids, [50], 'never issue an all-repository token')
+      const scopes = Object.keys(payload.permissions || {}).sort()
+      assert.ok(['issues', 'contents'].every(p => !scopes.includes(p) ||
+        payload.permissions[p] === 'read'))
+      assert.ok(scopes.length > 0 && scopes.every(p => p === 'issues' || p === 'contents'),
+        'never request unrelated App permissions')
       assert.match(init.headers.Authorization, /^Bearer ey/)
       return options.tokenResponse || reply(201, {
         token: 'scoped-read-token', repositories: [{ id: 50 }],
@@ -89,23 +92,39 @@ test('#72 exact repository and minimum read scopes produce a scoped installation
   assert.equal(mock.calls.filter(c => c.path.endsWith('/access_tokens')).length, 1)
 })
 
-test('#72 withdrawn installation and missing App grants reject before token issuance', async () => {
+test('#72 invalid, withdrawn or inconclusive installation fails closed before token issuance', async () => {
   const cases = [
-    { missingInstallation: true },
-    { installation: { permissions: { issues: 'read', metadata: 'read' } } },
-    { installation: { permissions: { contents: 'read', metadata: 'read' } } },
-    { installation: { permissions: { issues: 'none', contents: 'read' } } },
-    { installation: { id: 18 } },
-    { installation: { account: { login: 'other' } } },
-    { installation: { suspended_at: '2026-11-15T01:00:00Z' } },
-    { installationResponse: reply(404, { message: 'Not Found' }) },
+    { missingInstallation: true, status: 403 },
+    { installation: { id: 18 }, status: 403 },
+    { installation: { account: { login: 'other' } }, status: 403 },
+    { installation: { suspended_at: '2026-11-15T01:00:00Z' }, status: 403 },
+    { installationResponse: reply(404, { message: 'Not Found' }), status: 403 },
+    { installationResponse: reply(200, { ...installation, permissions: null }), status: 502 },
+    { installationResponse: reply(502, { message: 'Upstream unavailable' }), status: 503 },
   ]
   for (const item of cases) {
     const mock = fakeGitHub(item)
-    await assert.rejects(readAccess(mock),
-      error => error instanceof Error && error.status === 403)
-    assert.equal(mock.calls.filter(c => c.path.endsWith('/access_tokens')).length,
-      0, JSON.stringify(item))
+    await assert.rejects(readAccess(mock), error => error.status === item.status)
+    assert.equal(mock.calls.filter(c => c.path.endsWith('/access_tokens')).length, 0)
+    assert.equal(mock.calls.some(c => c.path.includes('/issues/2')), false)
+  }
+})
+
+test('#72 missing one or both read grants returns explicit anonymous mode after exact install check', async () => {
+  for (const permissions of [
+    { issues: 'read' }, { contents: 'read' }, { metadata: 'read' }, {},
+  ]) {
+    const mock = fakeGitHub({ installation: { permissions } })
+    const access = await readAccess(mock)
+    assert.equal(access.anonymous, true)
+    assert.equal(access.token, null)
+    assert.equal(access.owner, 'Ri0n72Y')
+    assert.equal(access.repo, 'hackathon-platform')
+    assert.deepEqual(mock.calls.map(c => c.path), [
+      '/repos/Ri0n72Y/hackathon-platform',
+      '/repos/Ri0n72Y/hackathon-platform/installation',
+      '/app/installations/17',
+    ])
   }
 })
 
@@ -143,7 +162,7 @@ test('#72 invalid token scope, missing token and permission preflight failure do
   }
   const malformed = fakeGitHub({ installationResponse: reply(200, { ...installation,
     permissions: null }) })
-  await assert.rejects(readAccess(malformed), error => error.status === 403)
+  await assert.rejects(readAccess(malformed), error => error.status === 502)
   const rate = fakeGitHub({ installationResponse: reply(403, {
     message: 'You have exceeded a secondary rate limit.',
   }, { 'retry-after': '60' }) })
