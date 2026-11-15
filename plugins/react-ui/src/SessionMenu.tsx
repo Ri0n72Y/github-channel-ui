@@ -90,10 +90,12 @@ export default function SessionMenu() {
   return <div className={styles.account} ref={wrapper}
     onMouseEnter={()=>{if(session.state==='authenticated')setOpen(true)}}
     onMouseLeave={event=>{
-      if(!event.currentTarget.contains(event.relatedTarget as Node|null))setOpen(false)
+      if(!(event.relatedTarget instanceof Node &&
+          event.currentTarget.contains(event.relatedTarget)))setOpen(false)
     }}
     onBlur={event=>{
-      if(!event.currentTarget.contains(event.relatedTarget as Node|null))setOpen(false)
+      if(!(event.relatedTarget instanceof Node &&
+          event.currentTarget.contains(event.relatedTarget)))setOpen(false)
     }}>
     {session.state==='loading'&&<span className={styles.status} role="status">
       正在检查 GitHub 登录…
@@ -109,7 +111,7 @@ export default function SessionMenu() {
     {session.state==='authenticated'&&session.user&&<>
       <button type="button" ref={trigger} className={styles.trigger}
         aria-haspopup="menu" aria-expanded={open} aria-controls="lc-account-menu"
-        onFocus={()=>setOpen(true)} onClick={()=>setOpen(value=>!value)}>
+        onFocus={()=>setOpen(true)} onClick={()=>setOpen(true)}>
         {session.user.avatarUrl&&!avatarFailed?
           <img className={styles.avatar} alt=""
             src={session.user.avatarUrl} onError={()=>setAvatarFailed(true)}/>:
