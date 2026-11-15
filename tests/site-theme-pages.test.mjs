@@ -73,3 +73,40 @@ test('#69 B+C only changes presentation data for cover/avatar, not GitHub write 
   assert.match(host, /data-lc-theme=\{theme\}/)
   assert.match(host, /persistTheme\(next\)/)
 })
+
+
+test('#69 B1 Config YAML editor stays inside mobile panel without content-box overflow', () => {
+  const css = read('plugins/repo-config/src/ConfigPage.module.css')
+  const view = read('plugins/repo-config/src/ConfigView.tsx')
+  const rule = selector => {
+    const match = css.match(new RegExp(selector + '\\s*\\{([^}]*)\\}'))
+    assert.ok(match, selector + ' must exist')
+    return match[1]
+  }
+  const editor = rule('\\.editor')
+  assert.match(editor, /box-sizing:\\s*border-box\\s*;/)
+  assert.match(editor, /width:\\s*100%\\s*;/)
+  assert.match(editor, /max-width:\\s*100%\\s*;/)
+  assert.match(editor, /min-width:\\s*0\\s*;/)
+  assert.match(editor, /padding:\\s*14px\\s*;/)
+  assert.match(editor, /border:\\s*1px solid/)
+  const buttons = rule('\\.panelHead button, \\.actions button')
+  assert.match(buttons, /box-sizing:\\s*border-box\\s*;/)
+  assert.match(buttons, /max-width:\\s*100%\\s*;/)
+  const mobile = css.split('@media (max-width: 600px)')[1]
+  assert.ok(mobile, 'mobile Config styles required')
+  assert.match(mobile, /\\.panel\\s*\\{\\s*padding:\\s*15px/)
+  assert.match(mobile, /\\.panelHead button\\s*\\{\\s*width:\\s*100%/)
+  assert.match(mobile, /\\.actions button\\s*\\{\\s*width:\\s*100%/)
+  // For both narrow viewports, the full-width border-box controls occupy
+  // exactly the panel's inner width; padding and borders are already included.
+  for (const viewport of [320, 375]) {
+    const pageWidth = viewport - 24 // Config mobile .page width: calc(100% - 24px)
+    const innerWidth = pageWidth - 2 * (15 + 1) // panel padding and borders
+    const fullWidthOuter = innerWidth
+    assert.ok(fullWidthOuter <= pageWidth - 2, viewport + 'px editor must fit')
+    assert.ok(fullWidthOuter > 0)
+  }
+  assert.match(view, /className=\\{styles\\.editor\\}/)
+  assert.match(view, /value=\\{content\\} onChange=\\{event => onContentChange\\(event\\.target\\.value\\)\\}/)
+})
