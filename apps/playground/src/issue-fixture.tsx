@@ -13,7 +13,6 @@ const conflicting = '```yaml\nlabour:\n  work: 另一条引用同一 Commit\n  c
 const comment = (id: number, body: string, owner: string, repo: string, number: number): GithubComment => ({
   id, body, html_url: 'https://github.com/' + owner + '/' + repo + '/issues/' + number + '#issuecomment-' + id,
   created_at: '2026-11-01T00:00:00Z', user: { login: 'fixture-user' },
-  extra_field: 'original GitHub comment data',
 })
 const pages = new Map<string, GithubComment[]>()
 const fixtureOwners = ['sample', 'sample-no-config', 'sample-bad-config']
@@ -60,8 +59,8 @@ export function createIssueFixtureService(loggedIn: boolean): IssueDetailApi {
           : [{ name: number === 4 ? 'status:todo' :
             number === 14 ? 'channel:unknown' : 'channel:discussion' }],
         comments: data(owner, repo, number).length, created_at: '2026-10-20T00:00:00Z',
-        user: { login: 'fixture-author' }, extra_field: 'preserved raw Issue field',
-        ...(number === 3 ? { pull_request: { url: 'https://api.github.com/...' } } : {}),
+        user: { login: 'fixture-author' },
+        ...(number === 3 ? { pull_request: { present: true as const } } : {}),
       }
       return issue
     },
