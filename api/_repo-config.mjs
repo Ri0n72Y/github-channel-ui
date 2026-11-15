@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { readSession } from './_oauth.mjs'
-import { resolveInstalledRepository, isGitHubRateLimited } from './_installation-probe.mjs'
+import { resolveInstalledRepository, isGitHubRateLimited, ProbeError } from './_installation-probe.mjs'
 import { writeContext } from './_issue-interaction.mjs'
 import { IssueAccessError, issueReadAccess, readAuthorizationHeaders } from './_issue-access.mjs'
 import { paramsFor, pathFor, reply } from './_repo-home-access.mjs'
@@ -702,11 +702,13 @@ async function syncLabels({ body, token, fetcher, resolve, accessFactory }) {
 }
 
 function errorResponse(error) {
-  const status = error instanceof IssueAccessError ? error.status : 502
+  const status = error instanceof IssueAccessError || error instanceof ProbeError ?
+    error.status : 502
   const state = error.state || (status === 401 ? 'unauthenticated' :
     status === 403 ? 'permission_denied' :
       status === 409 ? 'stale_preview' : 'error')
-  return reply({ state, error: error.message || 'Config 服务暂时不可用',
+  return reply({ state, error: error instanceof IssueAccessError || error instanceof ProbeError ?
+    error.message : 'Config 服务暂时不可用',
     retryAfter: error.retryAfter || null }, status)
 }
 
