@@ -8,6 +8,8 @@ import issueDetail from '../api/_issue-detail.mjs'
 import issueComments from '../api/_issue-comments.mjs'
 import { createRepoConfigHandler } from '../api/_repo-config.mjs'
 import repoChannels from '../api/_repo-channels.mjs'
+import memberRegister from '../api/_repo-member-register.mjs'
+import issueComment from '../api/github-issue-comment.mjs'
 
 const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
 const env = { GITHUB_APP_ID: '1234',
@@ -345,4 +347,47 @@ test('#72 public GET throttling is 429 and network/installation errors never sil
   const noAuth = await readAccess(fakeGitHub({ installation: { permissions: {} } }))
   await assert.rejects(issueGitHubGet({ ...noAuth, token: null, anonymous: false },
     '/repos/Ri0n72Y/hackathon-platform/issues/2'), error => error.status === 403)
+})
+
+
+test('#72 verified public anonymous read never substitutes for OAuth on write routes', async () => {
+  const mock = fakeGitHub({ installation: { permissions: {} } })
+  const access = await readAccess(mock)
+  assert.equal(access.anonymous, true)
+  const before = mock.calls.length
+  const original = globalThis.fetch
+  const oauthEnv = {
+    GITHUB_APP_CLIENT_ID: 'Iv-test',
+    GITHUB_APP_CLIENT_SECRET: 'test-secret',
+    GITHUB_OAUTH_CALLBACK_URL: 'https://labour.test/api/github-callback',
+    GITHUB_OAUTH_COOKIE_KEY: Buffer.alloc(32, 7).toString('base64url'),
+  }
+  const saved = Object.fromEntries(Object.keys(oauthEnv).map(k => [k, process.env[k]]))
+  Object.assign(process.env, oauthEnv)
+  globalThis.fetch = mock.fetcher
+  const body = { owner: 'Ri0n72Y', repo: 'hackathon-platform' }
+  const routes = [
+    [memberRegister, '/api/repo-member-register', { ...body, branch: 'main', member: { name: 'Guest' } }],
+    [issueComment, '/api/github-issue-comment', { ...body, number: 2, body: 'Guest comment' }],
+    [createRepoConfigHandler({ fetcher: mock.fetcher }), '/api/repo-config',
+      { ...body, action: 'save_config', branch: 'main', content: 'namespaces: {}' }],
+  ]
+  try {
+    for (const [handler, path, payload] of routes) {
+      const response = await handler.fetch(new Request('https://labour.test' + path, {
+        method: 'POST', headers: {
+          origin: 'https://labour.test', 'content-type': 'application/json',
+          'x-labourchain-write': '1',
+        }, body: JSON.stringify(payload),
+      }))
+      assert.equal(response.status, 401, path + ': an anonymous reader cannot write')
+    }
+    assert.equal(mock.calls.length, before, 'no anonymous write request reaches GitHub')
+  } finally {
+    globalThis.fetch = original
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
 })
