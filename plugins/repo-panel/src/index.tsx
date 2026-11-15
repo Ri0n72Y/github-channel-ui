@@ -2,6 +2,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { RepoIssuesService } from '../../repo-issues/src/index'
 import { IssueWorkspace } from './issue-workspace'
+import styles from './RepoPanel.module.css'
 
 type PermissionFlags = { admin: boolean; maintain: boolean; push: boolean; triage: boolean; pull: boolean }
 type VerificationResult = {
@@ -65,14 +66,14 @@ export function RepoPanel({ service }: { service: RepoIssuesService }) {
       })
     return () => { controller.abort(); verifyRevision.current++ }
   }, [])
-  return <div className="shell">
-    <header><h1>LabourChain · Issues</h1><div className="actions">
+  return <div className={styles.shell}>
+    <header><h1>LabourChain · Issues</h1><div className={styles.actions}>
       {session === 'connected'
-        ? <span className="session-status">GitHub 会话已建立</span>
+        ? <span className={styles.sessionStatus}>GitHub 会话已建立</span>
         : session === 'checking'
-          ? <span className="session-status">检查登录状态…</span>
-          : <a className="login" href="/api/github-login">GitHub 登录</a>}
-      <button disabled={s.loading} onClick={() => {
+          ? <span className={styles.sessionStatus}>检查登录状态…</span>
+          : <a className={styles.login} href="/api/github-login">GitHub 登录</a>}
+      <button type="button" disabled={s.loading} onClick={() => {
         verifyRevision.current++
         setVerification({ status: 'idle' })
         void service.refresh()
@@ -83,8 +84,8 @@ export function RepoPanel({ service }: { service: RepoIssuesService }) {
       <option value="">选择仓库</option>
       {s.repos.map(repo => <option key={repo.full_name} value={repo.full_name}>{repo.full_name}</option>)}
     </select></label>
-    {session === 'connected' && <section className="verification">
-      <button disabled={!s.selected || verification.status === 'loading'}
+    {session === 'connected' && <section className={styles.verification}>
+      <button type="button" disabled={!s.selected || verification.status === 'loading'}
         onClick={() => void verifyUserAndRepo()}>验证 GitHub 身份与仓库权限</button>
       {verification.status === 'loading' && <p role="status">正在向 GitHub 验证…</p>}
       {verification.status === 'error' && <p role="alert">验证失败：{verification.message}
