@@ -90,7 +90,7 @@ test('#68 B1 scoped keyboard focus outranks legacy .page and Markdown links', ()
   const legacy = '.page a:focus-visible'
   const markdownLink = '.markdown :where(a):focus-visible'
 
-  assert.match(css, /\.page button:focus-visible,\.page a:focus-visible,\.page input:focus-visible,\.page textarea:focus-visible\{outline:2px solid #195ca8;outline-offset:3px\}/)
+  assert.match(css, /\.page button:focus-visible,\.page a:focus-visible,\.page input:focus-visible,\.page textarea:focus-visible\{outline:3px solid var\(--lc-focus\);outline-offset:3px\}/)
   assert.ok(css.includes(scoped + ' {'))
   assert.ok(css.indexOf(scoped) > css.indexOf(legacy))
   assert.match(css.slice(css.indexOf(scoped)), /outline:3px solid var\(--lc-focus\);outline-offset:3px/)
