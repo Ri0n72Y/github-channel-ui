@@ -110,7 +110,7 @@ export default function SessionMenu({request=browserRequest}:{request?:RequestFn
     </a>}
     {session.state==='authenticated'&&session.user&&<>
       <button type="button" ref={trigger} className={styles.trigger}
-        aria-haspopup="menu" aria-expanded={open} aria-controls="lc-account-menu"
+        aria-expanded={open} aria-controls="lc-account-menu"
         onFocus={()=>setOpen(true)} onClick={()=>setOpen(true)}>
         {session.user.avatarUrl&&!avatarFailed?
           <img className={styles.avatar} alt=""
@@ -121,10 +121,10 @@ export default function SessionMenu({request=browserRequest}:{request?:RequestFn
         <span className={styles.username}>{session.user.login}</span>
         <span aria-hidden="true">▾</span>
       </button>
-      {open&&<div className={styles.menu} id="lc-account-menu" role="menu"
-        aria-label="GitHub 账户">
+      {open&&<div className={styles.menu} id="lc-account-menu" role="group"
+        aria-label="GitHub 账户操作">
         <span className={styles.menuUser}>@{session.user.login}</span>
-        <button type="button" role="menuitem" disabled={pending}
+        <button type="button" disabled={pending}
           onClick={()=>void logout()}>{pending?'正在退出…':'退出登录'}</button>
       </div>}
     </>}
