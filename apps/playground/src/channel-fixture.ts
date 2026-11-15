@@ -1,4 +1,4 @@
-import { ChannelRequestError, type ChannelApi, type ChannelSnapshot } from
+import { channelError, type ChannelApi, type ChannelSnapshot } from
   '../../../plugins/channel/src/service'
 
 const selectedIssue = {
@@ -29,13 +29,13 @@ export function createChannelFixtureService(query: URLSearchParams): ChannelApi 
         signal.addEventListener('abort', cancel, { once: true })
       })
       if (owner !== 'sample' || repo !== 'repo') {
-        throw new ChannelRequestError('Fixture: 仓库不可访问（HTTP 403）', 403)
+        throw channelError('Fixture: 仓库不可访问（HTTP 403）', 403)
       }
       if (mode === 'denied') {
-        throw new ChannelRequestError('Fixture: GitHub App 未安装于当前仓库', 403)
+        throw channelError('Fixture: GitHub App 未安装于当前仓库', 403)
       }
       if (mode === 'failure') {
-        throw new ChannelRequestError('Fixture: GitHub API 429 限流', 429)
+        throw channelError('Fixture: GitHub API 429 限流', 429)
       }
       const state = mode === 'missing' ? 'config_missing' :
         mode === 'invalid' ? 'invalid_config' :
