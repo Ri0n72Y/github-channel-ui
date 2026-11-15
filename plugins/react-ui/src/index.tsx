@@ -5,6 +5,7 @@ import styles from './App.module.css'
 import { persistTheme, readStoredTheme, type ThemeMode } from './theme'
 import './theme.css'
 import SessionMenu from './SessionMenu'
+import type { RequestFn } from '../../shared/src/browser-http'
 
 type Registration = { id: string; Component: ComponentType }
 export type PageRegistration = Registration & { path: string }
@@ -78,7 +79,7 @@ function NotFound() {
 }
 
 /** @summary Match plugin-registered pages inside the application's single React Router. */
-export function App({ ui }: { ui: ReactUIService }) {
+export function App({ ui, sessionRequest }: {ui:ReactUIService;sessionRequest?:RequestFn}) {
   const [theme, setTheme] = useState<ThemeMode>(readStoredTheme)
   const entries = useSyncExternalStore(ui.subscribe, ui.getSnapshot, ui.getSnapshot)
   const routes = entries.flatMap(entry => 'path' in entry
@@ -99,7 +100,7 @@ export function App({ ui }: { ui: ReactUIService }) {
         aria-label={'当前为' + currentLabel + '模式，切换为' + nextLabel + '模式'}>
         切换为{nextLabel}模式
       </button>
-      <SessionMenu />
+      <SessionMenu request={sessionRequest} />
     </header>
     <main className={styles.content}>{page}</main>
   </div>
