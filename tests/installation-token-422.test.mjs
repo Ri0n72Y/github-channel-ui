@@ -6,7 +6,7 @@ import repoHome from '../api/_repo-home.mjs'
 import repoFeed from '../api/_repo-feed.mjs'
 import issueDetail from '../api/_issue-detail.mjs'
 import issueComments from '../api/_issue-comments.mjs'
-import repoConfig from '../api/_repo-config.mjs'
+import { createRepoConfigHandler } from '../api/_repo-config.mjs'
 import repoChannels from '../api/_repo-channels.mjs'
 
 const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
@@ -162,7 +162,7 @@ test('#72 six public read routes use the same exact-installation scoped token fl
     [repoFeed, '/api/repo-feed?owner=octocat&repo=hello&page=1', 200],
     [issueDetail, '/api/issue-detail?owner=octocat&repo=hello&number=2', 200],
     [issueComments, '/api/issue-comments?owner=octocat&repo=hello&number=2&page=1', 200],
-    [repoConfig, '/api/repo-config?owner=octocat&repo=hello', 200],
+    [createRepoConfigHandler({ fetcher: mock.fetcher }), '/api/repo-config?owner=octocat&repo=hello', 200],
     [repoChannels, '/api/repo-channels?owner=octocat&repo=hello', 200],
   ]
   try {
