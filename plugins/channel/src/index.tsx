@@ -1,13 +1,13 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { lazy, Suspense } from 'react'
 import { useParams } from 'react-router'
-import { ChannelService, type ChannelApi } from './service'
+import { channelApi, type ChannelApi } from './service'
 import { channelTargetKey } from './domain.mjs'
 
 const ChannelPage = lazy(() => import('./ChannelPage'))
 
 /** @summary Register independently removable Channel selection in the shared UI host. */
-export function createChannelPlugin(api: ChannelApi = new ChannelService()) {
+export function createChannelPlugin(api: ChannelApi = channelApi) {
   return {
     name: 'channel',
     inject: ['reactUI'],
