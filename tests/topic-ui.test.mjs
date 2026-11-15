@@ -153,3 +153,21 @@ test('#31 report Control uses a synchronous in-flight guard against rapid duplic
   const control = readFileSync(resolve(root, 'plugins/topic-page/src/TopicPageContainer.tsx'), 'utf8')
   assert.match(control, /writeAbort\.current \|\| !api\.reportAvailable/)
 })
+
+
+test('#69 Topic cards show truthful no-cover placeholder and avatar fallback', () => {
+  const html = render({ snapshot: meta, projects: [project] })
+  assert.match(html, /暂无可用项目封面/)
+  assert.match(html, /member\/project/)
+  assert.match(html, /暂无项目简介|Project/)
+  assert.doesNotMatch(html, /opengraph\.githubassets\.com/)
+  const real = render({ snapshot: meta, projects: [{
+    ...project, cover_url: 'https://repository-images.githubusercontent.com/42/real.png',
+    owner_avatar_url: 'https://avatars.githubusercontent.com/u/42?v=4',
+  }] })
+  assert.match(real, /repository-images\.githubusercontent\.com\/42\/real\.png/)
+  assert.match(real, /avatars\.githubusercontent\.com\/u\/42/)
+  assert.match(real, /项目封面/)
+  assert.match(real, /GitHub 头像/)
+  assert.doesNotMatch(real, /暂无可用项目封面/)
+})
