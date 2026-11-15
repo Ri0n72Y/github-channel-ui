@@ -47,8 +47,9 @@ function makeGitHubMock(options = {}) {
       return response(200, options.rules || [])
     }
     if (method === 'GET' && path === '/app/installations/17') return response(200,
-      { permissions: { contents: options.contents || 'write',
-        pull_requests: options.pull_requests || 'write', metadata: 'read' } })
+      { id: 17, account: { login: 'octocat' }, suspended_at: null,
+        permissions: { issues: 'read', contents: options.contents || 'write',
+          pull_requests: options.pull_requests || 'write', metadata: 'read' } })
     if (method === 'GET' && path === '/user') return response(200, { id: 100, login: 'operator' })
     if (method === 'GET' && path === '/user/installations/17/repositories') return response(200,
       { repositories: [{ ...repo, permissions: { push: options.push !== false } }] })

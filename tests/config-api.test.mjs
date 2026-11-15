@@ -40,7 +40,7 @@ function actorEntries(options = {}) {
       }],
     }),
     '/app/installations/17': () => respond(200, {
-      id: 17,
+      id: 17, account: { login: 'octocat' }, suspended_at: null,
       permissions: options.appPermissions || {
         contents: 'write', issues: 'write', pull_requests: 'write',
       },

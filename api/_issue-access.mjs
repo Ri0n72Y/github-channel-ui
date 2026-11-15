@@ -43,26 +43,78 @@ async function makeRequest(fetcher, url, init) {
   }
 }
 
+/** @summary Confirm exact Installation identity and read grants before requesting a scoped token. */
+async function ensureInstallationReadGrants(fetcher, resolved, owner) {
+  const response = await makeRequest(fetcher,
+    GH + '/app/installations/' + resolved.installationId, {
+      headers: { ...HEADERS, Authorization: 'Bearer ' + resolved.jwt },
+    })
+  if (response.status !== 200) {
+    const status = await upstreamStatus(response)
+    throw new IssueAccessError(status === 404 ?
+      'Repository App installation is no longer available' : upstreamMessage(status),
+      status === 404 ? 403 : status)
+  }
+  let installation
+  try { installation = await response.json() }
+  catch { throw new IssueAccessError('Invalid GitHub App installation response') }
+  if (installation?.id !== resolved.installationId ||
+      installation.account?.login?.toLowerCase() !== owner.toLowerCase() ||
+      installation.suspended_at) {
+    throw new IssueAccessError('Repository App installation is invalid or suspended', 403)
+  }
+  const grants = installation.permissions
+  // Both rights are required across Repo/Issue/Config/Channel readers.
+  if (!grants || !['read', 'write'].includes(grants.issues) ||
+      !['read', 'write'].includes(grants.contents)) {
+    throw new IssueAccessError('GitHub App installation lacks Issues or Contents read permission', 403)
+  }
+}
+
+/** @summary Classify token 422 by allowlisted fields, never exposing GitHub messages or secrets. */
+async function token422Reason(response) {
+  let body
+  try { body = await response.clone().json() }
+  catch { return 'Installation token request rejected by GitHub (422)' }
+  const fields = Array.isArray(body?.errors) ? body.errors.map(error => error?.field) : []
+  if (fields.some(field => field === 'permissions')) {
+    return 'Installation token permission scope rejected by GitHub (422)'
+  }
+  if (fields.some(field => field === 'repository_ids' || field === 'repositories')) {
+    return 'Installation token repository scope rejected by GitHub (422)'
+  }
+  return 'Installation token request rejected by GitHub (422)'
+}
+
 /** @summary Validate the public repository and obtain a short-lived repository-scoped read token. */
 export async function issueReadAccess({ owner, repo, env = process.env, fetcher = fetch }) {
   const resolved = await resolveInstalledRepository({ owner, repo, env, fetcher })
+  await ensureInstallationReadGrants(fetcher, resolved, owner)
   const response = await makeRequest(fetcher,
     GH + '/app/installations/' + resolved.installationId + '/access_tokens', {
       method: 'POST',
       headers: { ...HEADERS, Authorization: 'Bearer ' + resolved.jwt,
         'Content-Type': 'application/json' },
       body: JSON.stringify({ repository_ids: [resolved.repositoryId],
-        permissions: { issues: 'read', contents: 'read', metadata: 'read' } }),
+        // Metadata read is implicit for GitHub Apps; request only required scopes.
+        permissions: { issues: 'read', contents: 'read' } }),
     })
   if (response.status !== 201) {
     const status = await upstreamStatus(response)
-    throw new IssueAccessError(upstreamMessage(status), status)
+    throw new IssueAccessError(status === 422 ?
+      await token422Reason(response) : upstreamMessage(status), status)
   }
   let result
   try { result = await response.json() }
   catch { throw new IssueAccessError('Invalid GitHub App token response') }
   if (typeof result?.token !== 'string' || !result.token) {
     throw new IssueAccessError('Invalid GitHub App token response')
+  }
+  // Reject any conflicting repository listing rather than using a broader token.
+  if (Array.isArray(result.repositories) &&
+      (result.repositories.length !== 1 ||
+        result.repositories[0]?.id !== resolved.repositoryId)) {
+    throw new IssueAccessError('Installation token repository scope mismatch', 502)
   }
   return { token: result.token, fetcher }
 }
