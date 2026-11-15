@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { parseConfigNamespaces } from './domain.mjs'
 import type { ConfigActionResult, ConfigSnapshot, RepoConfigApi } from './service'
-import { RepoConfigError } from './service'
+import { configState } from './service'
 import ConfigView from './ConfigView'
 
 /** @summary Own Config requests, validation, confirmations and state transitions; the View only renders props. */
@@ -117,9 +117,9 @@ export default function ConfigPage({ api, owner, repo }: {
       }
     } catch (e) {
       if (!controller.signal.aborted) {
-        setError(e instanceof RepoConfigError ? e.message :
+        setError(e instanceof Error ? e.message :
           e instanceof Error ? e.message : 'Config 提交失败')
-        if (e instanceof RepoConfigError && e.state === 'stale_preview') {
+        if (configState(e) === 'stale_preview') {
           setRevision(value => value + 1)
         }
       }
@@ -145,9 +145,9 @@ export default function ConfigPage({ api, owner, repo }: {
       setRevision(value => value + 1)
     } catch (e) {
       if (!controller.signal.aborted) {
-        setError(e instanceof RepoConfigError ? e.message :
+        setError(e instanceof Error ? e.message :
           e instanceof Error ? e.message : 'Label 同步失败')
-        if (e instanceof RepoConfigError && e.state === 'stale_preview') {
+        if (configState(e) === 'stale_preview') {
           setRevision(value => value + 1)
         }
       }
