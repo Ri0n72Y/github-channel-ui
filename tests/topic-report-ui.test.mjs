@@ -5,12 +5,12 @@ import react from '@vitejs/plugin-react'
 import { resolve } from 'node:path'
 
 const root = resolve(import.meta.dirname, '..')
-let vite, TopicPageService
+let vite, createTopicPageApi
 before(async () => {
   vite = await createServer({ root, configFile: false, logLevel: 'silent',
     plugins: [react()], server: { middlewareMode: true } })
-  TopicPageService = (await vite.ssrLoadModule('/plugins/topic-page/src/service.ts'))
-    .TopicPageService
+  createTopicPageApi = (await vite.ssrLoadModule('/plugins/topic-page/src/service.ts'))
+    .createTopicPageApi
 })
 after(async () => { await vite?.close() })
 
@@ -32,7 +32,7 @@ test('#31 user report frontend preflight and one explicit POST use only current 
     }, { status: 201 })
     throw Error('Unexpected URL')
   }
-  const api = new TopicPageService(fetcher)
+  const api = createTopicPageApi(fetcher)
   assert.equal(api.reportAvailable, true)
   assert.equal(await api.getSession(signal()), true)
   const proof = await api.getReportTarget(route, signal())
@@ -50,7 +50,7 @@ test('#31 user report frontend preflight and one explicit POST use only current 
 
 test('#31 frontend handles user permission denial with no auto-retry', async () => {
   let posts = 0
-  const api = new TopicPageService(async (url, init) => {
+  const api = createTopicPageApi(async (url, init) => {
     if (init.method === 'POST') {
       posts++
       return Response.json({ state: 'rejected',
@@ -66,7 +66,7 @@ test('#31 frontend handles user permission denial with no auto-retry', async () 
 test('#31 frontend marks network timeout and unknown server result; never silently replays', async () => {
   for (const errorMode of ['network', 'unknown', 'badCreated']) {
     let posts = 0
-    const api = new TopicPageService(async (_url, init) => {
+    const api = createTopicPageApi(async (_url, init) => {
       posts++
       if (errorMode === 'network') throw Error('timeout')
       if (errorMode === 'unknown') return Response.json({
@@ -84,7 +84,7 @@ test('#31 frontend marks network timeout and unknown server result; never silent
 
 test('#31 frontend report preparation failure does not trigger write', async () => {
   let writes = 0
-  const api = new TopicPageService(async (_url, init) => {
+  const api = createTopicPageApi(async (_url, init) => {
     if (init.method === 'POST') writes++
     return Response.json({ state: 'rejected',
       error: 'GitHub 授权失效' }, { status: 401 })
