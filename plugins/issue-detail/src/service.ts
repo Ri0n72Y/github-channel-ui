@@ -10,7 +10,7 @@ export interface GithubIssue {
 }
 export interface GithubComment {
   readonly id:number; readonly body:string; readonly html_url:string
-  readonly created_at:string; readonly user?:{readonly login:string}|null
+  readonly created_at:string; readonly user?:{readonly login:string}
 }
 export type GithubVerification = {
   user: { id: number; login: string }
@@ -95,7 +95,7 @@ function parseComment(value:unknown):GithubComment{
   return {id:comment.id as number,body:requiredString(comment.body,'body'),
     html_url:requiredString(comment.html_url,'html_url'),
     created_at:requiredString(comment.created_at,'created_at'),
-    ...(user===undefined?{}:{user})}
+    ...(user===undefined||user===null?{}:{user})}
 }
 function parseVerification(value:unknown):GithubVerification{
   const data=responseObject(value,'GitHub 用户身份响应无效')
