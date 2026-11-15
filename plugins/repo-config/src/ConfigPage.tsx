@@ -3,6 +3,7 @@ import { parseConfigNamespaces } from './domain.mjs'
 import type { ConfigActionResult, ConfigSnapshot, RepoConfigApi } from './service'
 import { configState } from './service'
 import ConfigView from './ConfigView'
+import { subscribeSessionChanged } from '../../shared/src/session-change'
 
 /** @summary Own Config requests, validation, confirmations and state transitions; the View only renders props. */
 export default function ConfigPage({ api, owner, repo }: {
@@ -20,6 +21,7 @@ export default function ConfigPage({ api, owner, repo }: {
   const [result, setResult] = useState<ConfigActionResult | null>(null)
   const [confirmRemovals, setConfirmRemovals] = useState(false)
   const [revision, setRevision] = useState(0)
+  useEffect(() => subscribeSessionChanged(() => setRevision(n => n + 1)), [])
   const active = useRef<AbortController | null>(null)
   const pendingPr = useRef<{ url: string; content: string } | null>(null)
 
