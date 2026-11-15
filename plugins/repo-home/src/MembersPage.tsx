@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { readDisplayBranch, RepoHomeError, type RepoHomeApi, type RepoHomeData, type MemberCapability } from './service'
+import { readDisplayBranch, repoHomeStatus, type RepoHomeApi, type RepoHomeData, type MemberCapability } from './service'
 import { MemberProfile, TeamStatus } from './Team'
 import styles from './RepoHome.module.css'
 /** @summary Read the selected branch team file and display cards in its exact stored order. */
@@ -26,7 +26,7 @@ export default function MembersPage({ api }: { api: RepoHomeApi }) {
     void api.getCapability(owner, repo, branch, controller.signal).then(value => {
       if (!controller.signal.aborted) setCapability(value)
     }).catch(e => { if (!controller.signal.aborted) {
-      setPermissionStatus(e instanceof RepoHomeError ? e.status : 502)
+      setPermissionStatus(repoHomeStatus(e))
       setPermissionError(e instanceof Error ? e.message : '无法验证权限')
     } })
     return () => controller.abort()
