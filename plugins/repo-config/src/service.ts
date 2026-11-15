@@ -79,16 +79,17 @@ function optionalBool(value:unknown,field:string){
 function parseCapability(value:unknown):ConfigCapability|undefined{
   if(value===undefined)return undefined
   const c=responseObject(value,'Config 权限状态无效'),user=c.user===undefined?null:responseObject(c.user)
+  const userPermissions=record(c.userPermissions),appPermissions=record(c.appPermissions)
   return {
     state:typeof c.state==='string'?c.state:'error',
     ...(user&&typeof user.login==='string'&&typeof user.id==='number'?
       {user:{login:user.login,id:user.id}}:{}),
-    ...(record(c.userPermissions)?{userPermissions:{
-      pull:c.userPermissions.pull===true,triage:c.userPermissions.triage===true,
-      push:c.userPermissions.push===true,maintain:c.userPermissions.maintain===true,
-      admin:c.userPermissions.admin===true}}:{}),
-    ...(record(c.appPermissions)?{appPermissions:Object.fromEntries(
-      Object.entries(c.appPermissions).filter((entry):entry is [string,string]=>
+    ...(userPermissions?{userPermissions:{
+      pull:userPermissions.pull===true,triage:userPermissions.triage===true,
+      push:userPermissions.push===true,maintain:userPermissions.maintain===true,
+      admin:userPermissions.admin===true}}:{}),
+    ...(appPermissions?{appPermissions:Object.fromEntries(
+      Object.entries(appPermissions).filter((entry):entry is [string,string]=>
         typeof entry[1]==='string'))}:{}),
     ...(optionalBool(c.protectedBranch,'protectedBranch')===undefined?{}:
       {protectedBranch:optionalBool(c.protectedBranch,'protectedBranch')}),
@@ -126,6 +127,7 @@ function parseSnapshot(value:unknown):ConfigSnapshot{
   if(typeof s.state!=='string')throw configError('Config 状态无效',502)
   const config=s.config===undefined?undefined:responseObject(s.config)
   const counts=s.counts===undefined?undefined:responseObject(s.counts)
+  const namespaces=config?record(config.namespaces):null
   return {
     state:s.state,
     ...(optionalString(s.branch,'branch')===undefined?{}:{branch:s.branch as string}),
@@ -138,8 +140,8 @@ function parseSnapshot(value:unknown):ConfigSnapshot{
       state:typeof config.state==='string'?config.state:'error',
       ...(optionalString(config.defaultPreview,'defaultPreview')?{defaultPreview:config.defaultPreview as string}:{}),
       ...(optionalString(config.error,'error')?{error:config.error as string}:{}),
-      ...(record(config.namespaces)?{namespaces:Object.fromEntries(
-        Object.entries(config.namespaces).map(([key,value])=>{
+      ...(namespaces?{namespaces:Object.fromEntries(
+        Object.entries(namespaces).map(([key,value])=>{
           if(!Array.isArray(value)||value.some(x=>typeof x!=='string'))
             throw configError('Config 命名空间响应无效',502)
           return [key,value as string[]]
