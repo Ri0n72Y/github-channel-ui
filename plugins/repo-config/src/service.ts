@@ -45,9 +45,13 @@ export type ConfigActionResult = {
   requestedBy?: string
   createdLabels?: readonly string[]
   removedAssociations?: number | ReadonlyArray<{ number: number; label: string }>
-  failed?: ReadonlyArray<{ kind: string; error: string; name?: string; number?: number; label?: string; retryAfter?: string | null }>
-  pending?: unknown
+  failed?: ReadonlyArray<{ kind: string; error: string; stage?: string; name?: string;
+    number?: number; label?: string; retryAfter?: string | null }>
+  pending?: ReadonlyArray<{ readonly number: number; readonly labels: readonly string[] }> |
+    ConfigLabelPlan | null
   retryAfter?: string | null
+  previewId?: string
+  requiresRefresh?: boolean
   noChanges?: boolean
   reconciled?: boolean
 }
@@ -158,23 +162,98 @@ function parseSnapshot(value:unknown):ConfigSnapshot{
     ...(optionalString(s.error,'error')?{error:s.error as string}:{}),
   }
 }
+/** @summary Reject malformed optional wire fields before any value reaches React. */
+function optionalActionNumber(value:unknown,field:string):number|undefined{
+  if(value===undefined)return undefined
+  if(typeof value!=='number'||!Number.isSafeInteger(value)||value<0)
+    throw configError('Config 写入数字字段无效：'+field,502)
+  return value
+}
+function nullableActionString(value:unknown,field:string):string|null|undefined{
+  if(value===null)return null
+  return optionalString(value,field)
+}
+function parseFailed(value:unknown):ConfigActionResult['failed']{
+  if(value===undefined)return undefined
+  if(!Array.isArray(value))throw configError('Config 部分失败列表无效',502)
+  return value.map(item=>{
+    const row=responseObject(item,'Config 部分失败项无效')
+    if(typeof row.kind!=='string'||typeof row.error!=='string')
+      throw configError('Config 部分失败项字段无效',502)
+    const number=optionalActionNumber(row.number,'failed.number')
+    return {
+      kind:row.kind,error:row.error,
+      ...(optionalString(row.stage,'failed.stage')===undefined?{}:
+        {stage:row.stage as string}),
+      ...(optionalString(row.name,'failed.name')===undefined?{}:
+        {name:row.name as string}),
+      ...(number===undefined?{}:{number}),
+      ...(optionalString(row.label,'failed.label')===undefined?{}:
+        {label:row.label as string}),
+      ...(row.retryAfter===undefined?{}:
+        {retryAfter:nullableActionString(row.retryAfter,'failed.retryAfter')}),
+    }
+  })
+}
+function parseRemovedAssociations(value:unknown):ConfigActionResult['removedAssociations']{
+  if(value===undefined)return undefined
+  if(typeof value==='number')return optionalActionNumber(value,'removedAssociations')
+  if(!Array.isArray(value))throw configError('Config 移除关联结果无效',502)
+  return value.map(item=>{
+    const row=responseObject(item,'Config 移除关联项无效')
+    if(typeof row.label!=='string')throw configError('Config 移除关联标签无效',502)
+    const number=optionalActionNumber(row.number,'removedAssociations.number')
+    if(number===undefined||number===0)throw configError('Config 移除关联编号无效',502)
+    return {number,label:row.label}
+  })
+}
+function parsePending(value:unknown):ConfigActionResult['pending']{
+  if(value===undefined)return undefined
+  if(value===null)return null
+  if(!Array.isArray(value))return parsePlan(value)
+  return value.map(item=>{
+    const row=responseObject(item,'Config 待处理项无效')
+    const number=optionalActionNumber(row.number,'pending.number')
+    if(number===undefined||number===0||!Array.isArray(row.labels)||
+      row.labels.some(label=>typeof label!=='string'))
+      throw configError('Config 待处理关联无效',502)
+    return {number,labels:[...row.labels] as string[]}
+  })
+}
 function parseAction(value:unknown):ConfigActionResult{
-  const result=responseObject(value,'Config 写入响应无效')
-  if(typeof result.state!=='string')throw configError('Config 写入状态无效',502)
-  // Validate the full result against the explicitly named wire fields.
-  for(const key of ['prUrl','branch','branchUrl','commitSha','fileSha','headSha',
-    'requestedBy','error','previewId'] as const) {
-    if(result[key]!==undefined&&typeof result[key]!=='string')
-      throw configError('Config 写入响应字段无效：'+key,502)
+  const data=responseObject(value,'Config 写入响应无效')
+  if(typeof data.state!=='string')throw configError('Config 写入状态无效',502)
+  const result:ConfigActionResult={state:data.state}
+  const strings=['prUrl','branch','branchUrl','commitSha','fileSha',
+    'headSha','requestedBy','error','previewId'] as const
+  for(const key of strings){
+    const value=optionalString(data[key],key)
+    if(value!==undefined)Object.assign(result,{[key]:value})
   }
-  if(result.prNumber!==undefined&&!Number.isSafeInteger(result.prNumber))
-    throw configError('Config PR 编号无效',502)
-  if(result.createdLabels!==undefined&&(!Array.isArray(result.createdLabels)||
-      result.createdLabels.some(v=>typeof v!=='string')))
-    throw configError('Config Label 写入结果无效',502)
-  if(result.failed!==undefined&&!Array.isArray(result.failed))
-    throw configError('Config 部分失败列表无效',502)
-  return {...result,state:result.state} as ConfigActionResult
+  const prNumber=optionalActionNumber(data.prNumber,'prNumber')
+  if(prNumber!==undefined){
+    if(prNumber===0)throw configError('Config PR 编号无效',502)
+    Object.assign(result,{prNumber})
+  }
+  const retryAfter=nullableActionString(data.retryAfter,'retryAfter')
+  if(retryAfter!==undefined)Object.assign(result,{retryAfter})
+  for(const key of ['noChanges','reconciled','requiresRefresh'] as const){
+    const value=optionalBool(data[key],key)
+    if(value!==undefined)Object.assign(result,{[key]:value})
+  }
+  if(data.createdLabels!==undefined){
+    if(!Array.isArray(data.createdLabels)||
+      data.createdLabels.some(label=>typeof label!=='string'))
+      throw configError('Config Label 写入结果无效',502)
+    Object.assign(result,{createdLabels:[...data.createdLabels] as string[]})
+  }
+  const removedAssociations=parseRemovedAssociations(data.removedAssociations)
+  if(removedAssociations!==undefined)Object.assign(result,{removedAssociations})
+  const failed=parseFailed(data.failed)
+  if(failed!==undefined)Object.assign(result,{failed})
+  const pending=parsePending(data.pending)
+  if(pending!==undefined)Object.assign(result,{pending})
+  return result
 }
 function params(owner:string,repo:string){return new URLSearchParams({owner,repo}).toString()}
 /** @summary Return one stable request-function-only Config API with explicit user writes. */
