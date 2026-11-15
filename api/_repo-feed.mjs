@@ -10,7 +10,7 @@ export default {
       if (labels.length > 10 || labels.some(label => !label || label.length > 50)) {
         return reply({ error: 'Issue Labels 过滤参数无效' }, 400)
       }
-      const access = await accessFor(owner, repo)
+      const access = await accessFor(owner, repo, ['issues'])
       const filters = labels.length ? '&labels=' + encodeURIComponent(labels.join(',')) : ''
       const result = await readRepo(access, pathFor(owner, repo) +
         '/issues?state=all&sort=updated&direction=desc&per_page=20&page=' + page + filters)
