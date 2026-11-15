@@ -81,6 +81,10 @@ export function validOrigin(request, origin) {
 export function validLoginReturnPath(path) {
   if (path === '/installation-probe.html') return path
   if (typeof path === 'string' &&
+      /^\/[a-z\d-]{1,39}\/[a-z\d._-]{1,100}\/?$/i.test(path)) return path
+  if (typeof path === 'string' &&
+      /^\/[a-z\d-]{1,39}\/[a-z\d._-]{1,100}\/channels$/i.test(path)) return path
+  if (typeof path === 'string' &&
       /^\/[a-z\d-]{1,39}\/[a-z\d._-]{1,100}\/issues\/[1-9]\d*$/i.test(path) &&
       Number.isSafeInteger(Number(path.split('/').at(-1)))) return path
   if (typeof path === 'string' &&
