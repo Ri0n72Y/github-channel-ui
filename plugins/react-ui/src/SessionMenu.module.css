@@ -1,0 +1,35 @@
+.account {position:relative;display:flex;align-items:center;min-height:44px;min-width:0}
+.status{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--lc-text-secondary);font-size:13px}
+.login,.retry,.trigger,.menu button{font:inherit;cursor:pointer;min-height:44px}
+.login{display:inline-flex;align-items:center;justify-content:center;
+  padding:10px 16px;border-radius:9px;background:var(--lc-primary);
+  color:var(--lc-on-primary);font-weight:700;text-decoration:none;white-space:nowrap}
+.login:hover{background:var(--lc-primary-hover)}
+.retry{border:1px solid var(--lc-stroke-strong);border-radius:9px;
+  background:var(--lc-surface-raised);color:var(--lc-text);padding:8px 12px}
+.trigger{display:inline-flex;align-items:center;gap:8px;max-width:100%;
+  border:1px solid var(--lc-stroke);border-radius:10px;
+  background:var(--lc-surface-input);color:var(--lc-text);padding:4px 10px}
+.trigger:hover{border-color:var(--lc-focus);background:var(--lc-surface-raised)}
+.avatar,.fallback{width:32px;height:32px;border-radius:50%;object-fit:cover;flex:none}
+.fallback{display:grid;place-items:center;background:var(--lc-accent-soft);
+  color:var(--lc-accent-ink);font-weight:800}
+.username{max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.menu{position:absolute;right:0;top:calc(100% - 1px);min-width:185px;max-width:min(260px,90vw);
+  display:flex;flex-direction:column;z-index:20;gap:5px;padding:9px;
+  border:1px solid var(--lc-stroke);border-radius:12px;
+  background:var(--lc-surface-raised);box-shadow:var(--lc-shadow)}
+.menuUser{padding:8px 10px;color:var(--lc-text-secondary);overflow-wrap:anywhere;font-size:13px}
+.menu button{border:1px solid var(--lc-stroke-strong);border-radius:9px;
+  padding:10px 14px;text-align:left;background:var(--lc-surface-input);color:var(--lc-text)}
+.menu button:hover:not(:disabled){background:var(--lc-accent-soft);color:var(--lc-accent-ink)}
+.menu button:disabled{opacity:.6;cursor:not-allowed}
+.account :is(a,button):focus-visible{outline:3px solid var(--lc-focus);outline-offset:3px}
+.error{position:absolute;top:100%;right:0;padding:8px 12px;
+  background:var(--lc-surface-raised);color:var(--lc-error);border:1px solid var(--lc-stroke);
+  border-radius:8px;min-width:175px;z-index:21}
+@media(max-width:375px){
+  .account{justify-content:flex-end;max-width:100%}
+  .username{max-width:100px}
+  .menu{max-width:85vw}
+}
