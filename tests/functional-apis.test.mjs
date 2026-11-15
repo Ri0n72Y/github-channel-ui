@@ -170,3 +170,71 @@ test('#76 default HTTP request calls global fetch with its native receiver',asyn
     assert.equal(seen[0].init.credentials,'same-origin')
   }finally{globalThis.fetch=real}
 })
+
+
+test('#77 Config write boundary rejects malformed partial results before React',async()=>{
+  const failures=[
+    {failed:[null]},
+    {failed:[{kind:{},error:'x'}]},
+    {failed:[{kind:'create_label',error:{code:'bad'}}]},
+    {failed:[{kind:'remove_label',error:'x',retryAfter:{seconds:5}}]},
+    {removedAssociations:[null]},
+    {removedAssociations:[{number:2,label:{value:'bug'}}]},
+    {removedAssociations:{number:2,label:'bug'}},
+    {pending:[null]},
+    {pending:[{number:2,labels:['bug',null]}]},
+    {pending:{unvalidated:true}},
+    {createdLabels:['good',{name:'bad'}]},
+    {requiresRefresh:'yes'},
+    {retryAfter:{seconds:2}},
+  ]
+  for(const field of failures){
+    const payload={state:'partial_failure',...field}
+    const api=services['repo-config'].createRepoConfigApi(
+      async()=>Response.json(payload))
+    await assert.rejects(api.sync('sample','repo','proof',false,signal()),
+      error=>error instanceof Error && 'status' in error && error.status===502,
+      JSON.stringify(field))
+  }
+})
+test('#77 valid Config partial writes project nested fields without forwarding unknown JSON',async()=>{
+  const payload={state:'partial_failure',error:'Some labels could not sync',
+    createdLabels:['new-label'],
+    removedAssociations:[{number:2,label:'old-label'}],
+    failed:[{kind:'remove_issue_label',error:'rate limited',number:2,
+      label:'old-label',stage:'remove',retryAfter:'60',extra:{secret:'hidden'}}],
+    pending:[{number:2,labels:['old-label']}],
+    retryAfter:null,requiresRefresh:true,
+    noChanges:false,reconciled:false,unsupported:{token:'secret'}}
+  const before=JSON.stringify(payload)
+  const api=services['repo-config'].createRepoConfigApi(async()=>Response.json(payload))
+  const result=await api.sync('sample','repo','proof',false,signal())
+  assert.deepEqual(result,{
+    state:'partial_failure',error:'Some labels could not sync',
+    createdLabels:['new-label'],
+    removedAssociations:[{number:2,label:'old-label'}],
+    failed:[{kind:'remove_issue_label',error:'rate limited',number:2,
+      label:'old-label',stage:'remove',retryAfter:'60'}],
+    pending:[{number:2,labels:['old-label']}],retryAfter:null,
+    requiresRefresh:true,noChanges:false,reconciled:false,
+  })
+  assert.equal(JSON.stringify(payload),before,'the input business snapshot is immutable')
+  assert.notStrictEqual(result.failed,payload.failed)
+  assert.notStrictEqual(result.removedAssociations,payload.removedAssociations)
+  const {createElement}=await import('react')
+  const {renderToStaticMarkup}=await import('react-dom/server')
+  const ConfigView=(await vite.ssrLoadModule(
+    '/plugins/repo-config/src/ConfigView.tsx')).default
+  const noop=()=>{}
+  const html=renderToStaticMarkup(createElement(ConfigView,{
+    owner:'sample',repo:'repo',base:'/sample/repo',login:'/api/github-login',
+    snapshot:null,content:'',loading:false,busy:false,error:'',result,
+    confirmRemovals:false,validationState:'ready',editorEnabled:false,
+    canSave:false,canSync:false,dirty:false,onRefresh:noop,
+    onContentChange:noop,onConfirmRemovalsChange:noop,onSave:noop,onSync:noop,
+  }))
+  assert.match(html,/remove_issue_label/)
+  assert.match(html,/rate limited/)
+  assert.match(html,/Retry-After 60/)
+  assert.doesNotMatch(html,/secret/)
+})
