@@ -34,12 +34,12 @@ function fakeGitHub(options = {}) {
     assert.equal(init.redirect, 'manual')
     calls.push({ path, method, body: init.body, auth: init.headers?.Authorization })
     if (path === '/repos/Ri0n72Y/hackathon-platform' && method === 'GET')
-      return options.repositoryResponse || reply(200, repository)
+      return options.repositoryResponse?.clone() || reply(200, repository)
     if (path === '/repos/Ri0n72Y/hackathon-platform/installation' && method === 'GET')
       return options.missingInstallation ? reply(404) :
         reply(200, { id: 17, account: { login: 'Ri0n72Y' }, suspended_at: null })
     if (path === '/app/installations/17' && method === 'GET')
-      return options.installationResponse || reply(200, {
+      return options.installationResponse?.clone() || reply(200, {
         ...installation, ...options.installation,
       })
     if (path === '/app/installations/17/access_tokens' && method === 'POST') {
