@@ -13,12 +13,12 @@ const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
 const env = { GITHUB_APP_ID: '1234',
   GITHUB_APP_PRIVATE_KEY: privateKey.export({ type: 'pkcs8', format: 'pem' }) }
 const repository = {
-  id: 50, name: 'hello', full_name: 'octocat/hello', private: false,
-  default_branch: 'main', html_url: 'https://github.com/octocat/hello',
+  id: 50, name: 'hackathon-platform', full_name: 'Ri0n72Y/hackathon-platform', private: false,
+  default_branch: 'main', html_url: 'https://github.com/Ri0n72Y/hackathon-platform',
   description: 'A public repository',
-  owner: { login: 'octocat', type: 'User' },
+  owner: { login: 'Ri0n72Y', type: 'User' },
 }
-const installation = { id: 17, account: { login: 'octocat' }, suspended_at: null,
+const installation = { id: 17, account: { login: 'Ri0n72Y' }, suspended_at: null,
   permissions: { issues: 'write', contents: 'read', metadata: 'read' } }
 const reply = (status, data, headers = {}) =>
   new Response(data === undefined ? null : JSON.stringify(data), {
@@ -33,11 +33,11 @@ function fakeGitHub(options = {}) {
     assert.equal(new URL(url).origin, 'https://api.github.com')
     assert.equal(init.redirect, 'manual')
     calls.push({ path, method, body: init.body, auth: init.headers?.Authorization })
-    if (path === '/repos/octocat/hello' && method === 'GET')
+    if (path === '/repos/Ri0n72Y/hackathon-platform' && method === 'GET')
       return reply(200, repository)
-    if (path === '/repos/octocat/hello/installation' && method === 'GET')
+    if (path === '/repos/Ri0n72Y/hackathon-platform/installation' && method === 'GET')
       return options.missingInstallation ? reply(404) :
-        reply(200, { id: 17, account: { login: 'octocat' }, suspended_at: null })
+        reply(200, { id: 17, account: { login: 'Ri0n72Y' }, suspended_at: null })
     if (path === '/app/installations/17' && method === 'GET')
       return options.installationResponse || reply(200, {
         ...installation, ...options.installation,
@@ -52,20 +52,20 @@ function fakeGitHub(options = {}) {
         token: 'scoped-read-token', repositories: [{ id: 50 }],
       })
     }
-    if (path === '/repos/octocat/hello/branches/main' && method === 'GET')
+    if (path === '/repos/Ri0n72Y/hackathon-platform/branches/main' && method === 'GET')
       return reply(200, { name: 'main', commit: { sha: 'a'.repeat(40) } })
-    if (path === '/repos/octocat/hello/readme' && method === 'GET')
+    if (path === '/repos/Ri0n72Y/hackathon-platform/readme' && method === 'GET')
       return reply(404)
-    if (path === '/repos/octocat/hello/contents/team-member.json' && method === 'GET')
+    if (path === '/repos/Ri0n72Y/hackathon-platform/contents/team-member.json' && method === 'GET')
       return reply(404)
-    if (path === '/repos/octocat/hello/contents/labourchain.config.yaml' && method === 'GET')
+    if (path === '/repos/Ri0n72Y/hackathon-platform/contents/labourchain.config.yaml' && method === 'GET')
       return reply(404)
-    if (path === '/repos/octocat/hello/issues/2' && method === 'GET')
+    if (path === '/repos/Ri0n72Y/hackathon-platform/issues/2' && method === 'GET')
       return reply(200, { id: 2, number: 2, title: 'A normal Issue', body: '',
-        state: 'open', html_url: 'https://github.com/octocat/hello/issues/2' })
-    if (path === '/repos/octocat/hello/issues/2/comments' && method === 'GET')
+        state: 'open', html_url: 'https://github.com/Ri0n72Y/hackathon-platform/issues/2' })
+    if (path === '/repos/Ri0n72Y/hackathon-platform/issues/2/comments' && method === 'GET')
       return reply(200, [])
-    if (path === '/repos/octocat/hello/issues' && method === 'GET')
+    if (path === '/repos/Ri0n72Y/hackathon-platform/issues' && method === 'GET')
       return reply(200, [{ id: 2, number: 2, title: 'A normal Issue', state: 'open' }])
     throw Error('Unexpected mocked GitHub call ' + method + ' ' + path)
   }
@@ -73,7 +73,7 @@ function fakeGitHub(options = {}) {
 }
 
 const readAccess = mock => issueReadAccess({
-  owner: 'octocat', repo: 'hello', env, fetcher: mock.fetcher,
+  owner: 'Ri0n72Y', repo: 'hackathon-platform', env, fetcher: mock.fetcher,
 })
 
 test('#72 exact repository and minimum read scopes produce a scoped installation token', async () => {
@@ -81,8 +81,8 @@ test('#72 exact repository and minimum read scopes produce a scoped installation
   const access = await readAccess(mock)
   assert.equal(access.token, 'scoped-read-token')
   assert.deepEqual(mock.calls.map(c => c.path).slice(0, 4), [
-    '/repos/octocat/hello',
-    '/repos/octocat/hello/installation',
+    '/repos/Ri0n72Y/hackathon-platform',
+    '/repos/Ri0n72Y/hackathon-platform/installation',
     '/app/installations/17',
     '/app/installations/17/access_tokens',
   ])
@@ -139,7 +139,7 @@ test('#72 invalid token scope, missing token and permission preflight failure do
   ]) {
     const mock = fakeGitHub({ tokenResponse })
     await assert.rejects(readAccess(mock), error => error.status === 502)
-    assert.equal(mock.calls.some(c => c.path === '/repos/octocat/hello/issues/2'), false)
+    assert.equal(mock.calls.some(c => c.path === '/repos/Ri0n72Y/hackathon-platform/issues/2'), false)
   }
   const malformed = fakeGitHub({ installationResponse: reply(200, { ...installation,
     permissions: null }) })
@@ -158,12 +158,12 @@ test('#72 six public read routes use the same exact-installation scoped token fl
   globalThis.fetch = mock.fetcher
   Object.assign(process.env, env)
   const cases = [
-    [repoHome, '/api/repo-home?owner=octocat&repo=hello&branch=main', 200],
-    [repoFeed, '/api/repo-feed?owner=octocat&repo=hello&page=1', 200],
-    [issueDetail, '/api/issue-detail?owner=octocat&repo=hello&number=2', 200],
-    [issueComments, '/api/issue-comments?owner=octocat&repo=hello&number=2&page=1', 200],
-    [createRepoConfigHandler({ fetcher: mock.fetcher }), '/api/repo-config?owner=octocat&repo=hello', 200],
-    [repoChannels, '/api/repo-channels?owner=octocat&repo=hello', 200],
+    [repoHome, '/api/repo-home?owner=Ri0n72Y&repo=hackathon-platform&branch=main', 200],
+    [repoFeed, '/api/repo-feed?owner=Ri0n72Y&repo=hackathon-platform&page=1', 200],
+    [issueDetail, '/api/issue-detail?owner=Ri0n72Y&repo=hackathon-platform&number=2', 200],
+    [issueComments, '/api/issue-comments?owner=Ri0n72Y&repo=hackathon-platform&number=2&page=1', 200],
+    [createRepoConfigHandler({ fetcher: mock.fetcher }), '/api/repo-config?owner=Ri0n72Y&repo=hackathon-platform', 200],
+    [repoChannels, '/api/repo-channels?owner=Ri0n72Y&repo=hackathon-platform', 200],
   ]
   try {
     for (const [handler, path, status] of cases) {
