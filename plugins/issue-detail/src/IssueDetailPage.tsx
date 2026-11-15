@@ -30,11 +30,10 @@ function safeGitHubUrl(value: unknown): string | null {
   } catch { return null }
 }
 function asIssueError(error: unknown) {
-  return error instanceof IssueRequestError
-    ? { message: error.message, status: error.status }
-    : { message: error instanceof Error ? error.message : '请求失败', status: 502 }
+  return {message: error instanceof Error ? error.message : '请求失败',
+    status: issueRequestStatus(error)}
 }
-function uniqueComments(items: GithubComment[]) {
+function uniqueComments(items: readonly GithubComment[]) {
   const seen = new Set<number>()
   return items.filter(item => Number.isSafeInteger(item.id) &&
     (!seen.has(item.id) && Boolean(seen.add(item.id))))
