@@ -5,6 +5,7 @@ import { loadIssueContent } from './load-issue.mjs'
 import { issueRequestError, issueRequestStatus, type GithubComment, type GithubIssue,
   type IssueDetailApi } from './service'
 import IssueDetailView from './IssueDetailView'
+import { subscribeSessionChanged } from '../../shared/src/session-change'
 import type { FormNotice, IssueDetailViewActions, IssueDetailViewModel,
   LabourDraft, LabourField, PermissionView } from './view-model'
 
@@ -46,6 +47,8 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
   const [state, setState] = useState<Load>(empty)
   const [auth, setAuth] = useState<Auth>({ key: '', status: 'checking', message: '' })
   const [reload, setReload] = useState(0)
+  const [authRevision, setAuthRevision] = useState(0)
+  useEffect(() => subscribeSessionChanged(() => setAuthRevision(n => n + 1)), [])
   const [draft, setDraft] = useState('')
   const [labour, setLabour] = useState<LabourDraft>(initialLabour)
   const [pendingKind, setPendingKind] = useState<'comment' | 'labour' | null>(null)
@@ -113,7 +116,7 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
       }
     })()
     return () => abort.abort()
-  }, [service, owner, repo, valid, routeKey])
+  }, [service, owner, repo, valid, routeKey, authRevision])
 
   const issue = state.key === routeKey && !state.loading ? state.issue : null
   const completePages = Boolean(issue && !state.hasMore && !state.pageError &&
