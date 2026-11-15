@@ -2,7 +2,9 @@ export type TopicRoute = { owner: string; repo: string }
 export type TopicRepository = {
   full_name: string; name: string; owner: string | null;
   description: string; html_url: string; stargazers_count: number;
-  language: string | null
+  language: string | null;
+  /** Optional URL supplied and host-validated from GitHub Search; never synthesized. */
+  cover_url?: string; owner_avatar_url?: string
 }
 export type TopicSnapshot = {
   repository: { owner: string; name: string; full_name: string; html_url: string }
