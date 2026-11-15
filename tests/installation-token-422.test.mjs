@@ -274,7 +274,9 @@ test('#72 Issues-only grant obtains narrow tokens for Issue reads, never require
 test('#72 Contents-only grant keeps Issue reads anonymous and Issue config narrowly authenticated', async () => {
   const mock = fakeGitHub({ installation: { permissions: { contents: 'read' } } })
   await runVisitorRoutes(mock)
-  assert.equal(mock.calls.filter(c => c.path.endsWith('/access_tokens')).length, 0)
+  const homepageTokens = mock.calls.filter(c => c.path.endsWith('/access_tokens'))
+  assert.equal(homepageTokens.length, 1, 'Repo Home only needs Contents read')
+  assert.deepEqual(JSON.parse(homepageTokens[0].body).permissions, { contents: 'read' })
   const access = await issueReadAccess({
     owner: 'Ri0n72Y', repo: 'hackathon-platform', env, fetcher: mock.fetcher,
     permissions: ['contents'],
@@ -282,8 +284,9 @@ test('#72 Contents-only grant keeps Issue reads anonymous and Issue config narro
   assert.equal(access.anonymous, undefined)
   assert.equal(access.token, 'scoped-read-token')
   const tokens = mock.calls.filter(c => c.path.endsWith('/access_tokens'))
-  assert.equal(tokens.length, 1)
-  assert.deepEqual(JSON.parse(tokens[0].body).permissions, { contents: 'read' })
+  assert.equal(tokens.length, 2)
+  assert.ok(tokens.every(c => JSON.parse(c.body).permissions.contents === 'read'))
+  assert.ok(tokens.every(c => Object.keys(JSON.parse(c.body).permissions).length === 1))
 })
 
 test('#72 public fallback cannot read another repository, private API or write endpoint', async () => {
