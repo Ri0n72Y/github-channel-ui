@@ -1,7 +1,14 @@
-.workspace { margin-top: 1.4rem; }
+.workspace { margin-top:1.4rem;padding:16px 0;color:var(--lc-text) }
+.workspace a{color:var(--lc-link)}
+.workspace :is(a,button,input,textarea):focus-visible{outline:3px solid var(--lc-focus);outline-offset:3px}
+.workspace button{min-height:44px;border:1px solid transparent;border-radius:9px;background:var(--lc-primary);color:var(--lc-on-primary);padding:10px 14px;font:inherit;cursor:pointer}
+.workspace button:hover:not(:disabled){background:var(--lc-primary-hover)}
+.workspace button:disabled{opacity:.6;cursor:not-allowed}
+.workspace [role="alert"]{color:var(--lc-error)}
+.workspace [role="status"]{color:var(--lc-success)}
 .toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
-.list { padding-left: 1.4rem; display: grid; gap: .7rem; }
-.list li { display: flex; gap: 1rem; align-items: baseline; flex-wrap: wrap; }
-.form { display: grid; gap: .7rem; padding: 1rem; border: 1px solid #ddd; }
+.list { padding-left:0;list-style:none;display:grid;gap:.7rem }
+.list li { display:flex;gap:1rem;align-items:baseline;flex-wrap:wrap;padding:12px 14px;background:var(--lc-surface);border:1px solid var(--lc-stroke);border-radius:10px }
+.form {display:grid;gap:.7rem;padding:1rem;border:1px solid var(--lc-stroke);border-radius:12px;background:var(--lc-surface)}
 .form label { display: grid; gap: .3rem; }
-.form input, .form textarea { padding: .5rem; }
+.form input,.form textarea{padding:.65rem;border:1px solid var(--lc-stroke-strong);background:var(--lc-surface-input);color:var(--lc-text);border-radius:8px;font:inherit;max-width:100%;min-width:0}
