@@ -1,4 +1,4 @@
-import { RepoHomeError, type RepoHomeApi, type RepoHomeData, type RepoFeedIssue,
+import { repoHomeError, type RepoHomeApi, type RepoHomeData, type RepoFeedIssue,
   type MemberSubmitResult } from '../../../plugins/repo-home/src/service'
 const sampleIssue = (n: number): RepoFeedIssue => ({
   id: n, number: n, state: n % 2 ? 'open' : 'closed', title: '示例 Issue #' + n,
@@ -19,8 +19,8 @@ export function createRepoFixtureService(query: URLSearchParams): RepoHomeApi {
   return {
     async getHome(owner, repo, branch, signal) {
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
-      if (mode === 'intro-error') throw new RepoHomeError('受控项目读取失败', 502)
-      if (mode === 'bad-branch' && branch !== 'main') throw new RepoHomeError('展示分支不存在', 404)
+      if (mode === 'intro-error') throw repoHomeError('受控项目读取失败', 502)
+      if (mode === 'bad-branch' && branch !== 'main') throw repoHomeError('展示分支不存在', 404)
       const state = cases[query.get('fixtureTeam') || ''] || 'ready'
       return {
         repository: { full_name: owner + '/' + repo, name: repo,
@@ -42,7 +42,7 @@ export function createRepoFixtureService(query: URLSearchParams): RepoHomeApi {
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
       if ((mode === 'feed-error' || mode === 'feed-429') && page === 2 && !failedPage) {
         failedPage = true
-        throw new RepoHomeError('受控分页失败', mode === 'feed-429' ? 429 : 503)
+        throw repoHomeError('受控分页失败', mode === 'feed-429' ? 429 : 503)
       }
       const totalPages = Math.ceil(count / 20)
       const start = (page - 1) * 20
@@ -52,16 +52,16 @@ export function createRepoFixtureService(query: URLSearchParams): RepoHomeApi {
     },
     async getCapability(_owner, _repo, branch, signal) {
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
-      if (mode === 'unauthenticated') throw new RepoHomeError('请先登录', 401)
-      if (mode === 'denied') throw new RepoHomeError('用户无写权限', 403)
-      if (mode === 'bot-denied') throw new RepoHomeError('App 缺少 Contents: write 权限', 403)
+      if (mode === 'unauthenticated') throw repoHomeError('请先登录', 401)
+      if (mode === 'denied') throw repoHomeError('用户无写权限', 403)
+      if (mode === 'bot-denied') throw repoHomeError('App 缺少 Contents: write 权限', 403)
       return { user: { login: 'fixture-operator', id: 123 }, branch,
         protected: mode === 'pr', mode: mode === 'pr' ? 'pr' : 'commit' }
     },
     async register(_owner, _repo, _branch, _member, signal): Promise<MemberSubmitResult> {
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
-      if (mode === 'conflict') throw new RepoHomeError('受控 SHA 冲突', 409)
-      if (mode === 'write-error') throw new RepoHomeError('受控 Bot 失败', 502)
+      if (mode === 'conflict') throw repoHomeError('受控 SHA 冲突', 409)
+      if (mode === 'write-error') throw repoHomeError('受控 Bot 失败', 502)
       return { status: mode === 'pr' ? 'pending_pr' : 'committed',
         url: mode === 'pr' ? 'https://github.com/octocat/Hello-World/pull/1' :
           'https://github.com/octocat/Hello-World/commit/0123456',
