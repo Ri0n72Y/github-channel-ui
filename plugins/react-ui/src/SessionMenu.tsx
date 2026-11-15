@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router'
-import { browserRequest, record } from '../../shared/src/browser-http'
+import { browserRequest, record, type RequestFn } from '../../shared/src/browser-http'
 import { emitSessionChanged } from '../../shared/src/session-change'
 import styles from './SessionMenu.module.css'
 
@@ -22,7 +22,7 @@ function validPublicUser(value:unknown):PublicUser|null {
   return {login:user.login,avatarUrl:user.avatarUrl}
 }
 /** @summary Keep the one mounted Header Session control independent of route state. */
-export default function SessionMenu() {
+export default function SessionMenu({request=browserRequest}:{request?:RequestFn}) {
   const { pathname } = useLocation()
   const [session,setSession]=useState<SessionState>(INITIAL)
   const [revision,setRevision]=useState(0)
@@ -35,7 +35,7 @@ export default function SessionMenu() {
   useEffect(()=>{
     const abort=new AbortController()
     setSession(INITIAL)
-    void browserRequest('/api/github-session',{
+    void request('/api/github-session',{
       credentials:'same-origin',cache:'no-store',signal:abort.signal,
     }).then(async response=>{
       const body:unknown=await response.json()
@@ -52,7 +52,7 @@ export default function SessionMenu() {
       if(!abort.signal.aborted)setSession({state:'error',user:null})
     })
     return ()=>abort.abort()
-  },[revision])
+  },[revision,request])
   useEffect(()=>{
     if(!open)return
     function outside(event:PointerEvent){
@@ -73,7 +73,7 @@ export default function SessionMenu() {
     if(pending)return
     setPending(true);setActionError('')
     try{
-      const response=await browserRequest('/api/github-logout',{
+      const response=await request('/api/github-logout',{
         method:'POST',credentials:'same-origin',cache:'no-store',
         headers:{'X-LabourChain-Write':'1'},
       })
