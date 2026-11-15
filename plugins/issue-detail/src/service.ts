@@ -1,13 +1,16 @@
-export type GithubIssue = {
-  number: number; title: string; body: string | null; state: string; html_url: string;
-  labels: ReadonlyArray<string | { name: string }>; comments: number;
-  user?: { login: string }; created_at?: string; updated_at?: string;
-  closed_at?: string | null; locked?: boolean; pull_request?: unknown;
-  [field: string]: unknown
+export interface GithubIssue {
+  readonly number:number; readonly title:string; readonly body:string|null
+  readonly state:string; readonly html_url:string
+  readonly labels:readonly (string|{readonly name:string})[]
+  readonly comments:number
+  readonly user?:{readonly login:string}|null
+  readonly created_at?:string; readonly updated_at?:string
+  readonly closed_at?:string|null; readonly locked?:boolean
+  readonly pull_request?:{readonly present:true}
 }
-export type GithubComment = {
-  id: number; body: string; html_url: string; created_at: string;
-  user?: { login: string }; [field: string]: unknown
+export interface GithubComment {
+  readonly id:number; readonly body:string; readonly html_url:string
+  readonly created_at:string; readonly user?:{readonly login:string}|null
 }
 export type GithubVerification = {
   user: { id: number; login: string }
@@ -43,26 +46,56 @@ function requiredString(v:unknown,field:string):string{
   if(typeof v!=='string')throw issueRequestError('Issue 响应字段无效：'+field,502)
   return v
 }
+/** @summary Copy only verified GitHub business fields, including nested labels and users. */
+function parseUser(value:unknown):{readonly login:string}|null|undefined{
+  if(value===undefined)return undefined
+  if(value===null)return null
+  const user=responseObject(value,'GitHub 作者信息无效')
+  return {login:requiredString(user.login,'user.login')}
+}
 function parseIssue(value:unknown):GithubIssue{
   const issue=responseObject(value,'Issue 响应无效')
   if(!Number.isSafeInteger(issue.number)||!Array.isArray(issue.labels)||
-    issue.labels.some(label=>typeof label!=='string'&&
-      typeof record(label)?.name!=='string')||!Number.isSafeInteger(issue.comments)){
+    !Number.isSafeInteger(issue.comments)){
     throw issueRequestError('Issue 字段无效',502)
   }
-  return {...issue,number:issue.number as number,
-    title:requiredString(issue.title,'title'),
+  const labels=issue.labels.map(label=>{
+    if(typeof label==='string')return label
+    const data=responseObject(label,'Issue Label 无效')
+    return {name:requiredString(data.name,'label.name')}
+  })
+  const user=parseUser(issue.user)
+  for(const key of ['created_at','updated_at'] as const){
+    if(issue[key]!==undefined&&typeof issue[key]!=='string')
+      throw issueRequestError('Issue 时间字段无效：'+key,502)
+  }
+  if(issue.closed_at!==undefined&&issue.closed_at!==null&&
+    typeof issue.closed_at!=='string')
+    throw issueRequestError('Issue 关闭时间字段无效',502)
+  if(issue.locked!==undefined&&typeof issue.locked!=='boolean')
+    throw issueRequestError('Issue 锁定字段无效',502)
+  return {
+    number:issue.number as number,title:requiredString(issue.title,'title'),
     body:issue.body===null?null:requiredString(issue.body,'body'),
     state:requiredString(issue.state,'state'),
     html_url:requiredString(issue.html_url,'html_url'),
-    labels:issue.labels as Array<string|{name:string}>,comments:issue.comments as number}
+    labels,comments:issue.comments as number,
+    ...(user===undefined?{}:{user}),
+    ...(typeof issue.created_at==='string'?{created_at:issue.created_at}:{}),
+    ...(typeof issue.updated_at==='string'?{updated_at:issue.updated_at}:{}),
+    ...(issue.closed_at===undefined?{}:{closed_at:issue.closed_at as string|null}),
+    ...(issue.locked===undefined?{}:{locked:issue.locked as boolean}),
+    ...(issue.pull_request===undefined?{}:{pull_request:{present:true as const}}),
+  }
 }
 function parseComment(value:unknown):GithubComment{
-  const v=responseObject(value,'Issue 评论无效')
-  if(!Number.isSafeInteger(v.id))throw issueRequestError('Issue 评论编号无效',502)
-  return {...v,id:v.id as number,body:requiredString(v.body,'body'),
-    html_url:requiredString(v.html_url,'html_url'),
-    created_at:requiredString(v.created_at,'created_at')}
+  const comment=responseObject(value,'Issue 评论无效')
+  if(!Number.isSafeInteger(comment.id))throw issueRequestError('Issue 评论编号无效',502)
+  const user=parseUser(comment.user)
+  return {id:comment.id as number,body:requiredString(comment.body,'body'),
+    html_url:requiredString(comment.html_url,'html_url'),
+    created_at:requiredString(comment.created_at,'created_at'),
+    ...(user===undefined?{}:{user})}
 }
 function parseVerification(value:unknown):GithubVerification{
   const data=responseObject(value,'GitHub 用户身份响应无效')
