@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { generateKeyPairSync } from 'node:crypto'
-import { issueReadAccess, IssueAccessError } from '../api/_issue-access.mjs'
+import { issueReadAccess, IssueAccessError, issueGitHubGet, readAuthorizationHeaders } from '../api/_issue-access.mjs'
 import repoHome from '../api/_repo-home.mjs'
 import repoFeed from '../api/_repo-feed.mjs'
 import issueDetail from '../api/_issue-detail.mjs'
@@ -34,7 +34,7 @@ function fakeGitHub(options = {}) {
     assert.equal(init.redirect, 'manual')
     calls.push({ path, method, body: init.body, auth: init.headers?.Authorization })
     if (path === '/repos/Ri0n72Y/hackathon-platform' && method === 'GET')
-      return reply(200, repository)
+      return options.repositoryResponse || reply(200, repository)
     if (path === '/repos/Ri0n72Y/hackathon-platform/installation' && method === 'GET')
       return options.missingInstallation ? reply(404) :
         reply(200, { id: 17, account: { login: 'Ri0n72Y' }, suspended_at: null })
@@ -64,10 +64,10 @@ function fakeGitHub(options = {}) {
     if (path === '/repos/Ri0n72Y/hackathon-platform/contents/labourchain.config.yaml' && method === 'GET')
       return reply(404)
     if (path === '/repos/Ri0n72Y/hackathon-platform/issues/2' && method === 'GET')
-      return reply(200, { id: 2, number: 2, title: 'A normal Issue', body: '',
+      return options.issueResponse || reply(200, { id: 2, number: 2, title: 'A normal Issue', body: '',
         state: 'open', html_url: 'https://github.com/Ri0n72Y/hackathon-platform/issues/2' })
     if (path === '/repos/Ri0n72Y/hackathon-platform/issues/2/comments' && method === 'GET')
-      return reply(200, [])
+      return options.commentsResponse || reply(200, [])
     if (path === '/repos/Ri0n72Y/hackathon-platform/issues' && method === 'GET')
       return reply(200, [{ id: 2, number: 2, title: 'A normal Issue', state: 'open' }])
     throw Error('Unexpected mocked GitHub call ' + method + ' ' + path)
