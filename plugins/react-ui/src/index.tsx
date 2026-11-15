@@ -4,6 +4,7 @@ import { Link, useRoutes } from 'react-router'
 import styles from './App.module.css'
 import { persistTheme, readStoredTheme, type ThemeMode } from './theme'
 import './theme.css'
+import SessionMenu from './SessionMenu'
 
 type Registration = { id: string; Component: ComponentType }
 export type PageRegistration = Registration & { path: string }
@@ -92,12 +93,13 @@ export function App({ ui }: { ui: ReactUIService }) {
     persistTheme(next)
   }
   return <div className={styles.app} data-lc-theme={theme}>
-    <header className={styles.toolbar} aria-label="主题设置">
+    <header className={styles.toolbar} aria-label="站点主题和 GitHub 账户">
       <span className={styles.themeStatus}>当前：{currentLabel}模式</span>
       <button className={styles.themeButton} type="button" onClick={toggleTheme}
         aria-label={'当前为' + currentLabel + '模式，切换为' + nextLabel + '模式'}>
         切换为{nextLabel}模式
       </button>
+      <SessionMenu />
     </header>
     <main className={styles.content}>{page}</main>
   </div>
