@@ -1,7 +1,7 @@
-.markdown{line-height:1.7;min-width:0;overflow-wrap:anywhere;font-size:15px}
-.markdown a{color:#195ca8;overflow-wrap:anywhere}
-.markdown pre{white-space:pre;overflow-x:auto;background:#f2f5f8;border-radius:8px;padding:12px}
-.markdown code{background:#edf1f4;padding:1px 3px;border-radius:4px}
+.markdown{line-height:1.7;min-width:0;overflow-wrap:anywhere;font-size:15px;color:var(--lc-text-secondary)}
+.markdown a{color:var(--lc-link);overflow-wrap:anywhere;text-underline-offset:.15em}
+.markdown pre{white-space:pre;overflow-x:auto;background:var(--lc-surface-input);border-radius:8px;padding:12px}
+.markdown code{background:var(--lc-surface-input);padding:1px 3px;border-radius:4px}
 .markdown pre code{background:transparent}
 .heading{font-weight:700;line-height:1.35;margin:16px 0 8px}
 .heading[aria-level="1"]{font-size:1.65em;margin-top:26px;margin-bottom:14px}
@@ -19,15 +19,15 @@
 .article .heading[aria-level="5"]{font-size:1em}
 .article .heading[aria-level="6"]{font-size:.96em}
 .paragraph{margin:10px 0;white-space:pre-wrap}
-.markdown blockquote{border-left:3px solid #b7c4d4;padding:2px 12px;margin:12px 0;color:#46546c}
+.markdown blockquote{border-left:3px solid var(--lc-primary);padding:2px 12px;margin:12px 0;color:var(--lc-text-secondary)}
 .markdown ul,.markdown ol{padding-left:24px}
 .markdown li .paragraph{margin:0}
 .media{margin:16px 0;max-width:100%}
 .media img{display:block;max-width:100%;height:auto;border-radius:8px}
-.media figcaption{font-size:13px;color:#576579}
-.video{border:1px solid #d5dce6;border-radius:8px;padding:14px;display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.media figcaption{font-size:13px;color:var(--lc-text-muted)}
+.video{border:1px solid var(--lc-stroke);border-radius:8px;padding:14px;display:flex;gap:12px;flex-wrap:wrap;align-items:center}
 .video a{margin-left:auto}
-.invalid{color:#8f3543;overflow-wrap:anywhere}
+.invalid{color:var(--lc-error);overflow-wrap:anywhere}
 
 /* Preview contains only a rendered Markdown prefix; no clipped, off-screen focus targets. */
 .preview .media img{max-height:120px;object-fit:contain;object-position:left}
@@ -36,28 +36,27 @@
 .preview .paragraph{margin:6px 0}
 .preview pre{max-height:100px;overflow:auto}
 
-/* Semantic tokens inherit only from the Repo Home fixture's scoped theme.
-   All other Markdown consumers retain the original CSS fallback colors. */
-.markdown {color:var(--lc-text-secondary,inherit);max-width:100%;min-width:0;overflow-wrap:anywhere}
-.markdown a {color:var(--lc-link,#195ca8)}
-.markdown :where(a):focus-visible {outline:3px solid var(--lc-focus,#195ca8);outline-offset:3px}
+/* Theme colors inherit from the shared React UI Host or controlled Repo Fixture. */
+.markdown {color:var(--lc-text-secondary);max-width:100%;min-width:0;overflow-wrap:anywhere}
+.markdown a {color:var(--lc-link)}
+.markdown :where(a):focus-visible {outline:3px solid var(--lc-focus);outline-offset:3px}
 .markdown pre {
   box-sizing:border-box;max-width:100%;white-space:pre;overflow-x:auto;
-  background:var(--lc-surface-input,#f2f5f8);
-  border:1px solid var(--lc-stroke,#d5dce6);padding:14px;border-radius:10px;
+  background:var(--lc-surface-input);
+  border:1px solid var(--lc-stroke);padding:14px;border-radius:10px;
 }
-.markdown code {background:var(--lc-surface-input,#edf1f4);color:var(--lc-text,inherit)}
+.markdown code {background:var(--lc-surface-input);color:var(--lc-text)}
 .markdown pre code {background:transparent}
 .markdown blockquote {
-  padding:8px 12px;border-left:3px solid var(--lc-primary,#b7c4d4);
-  background:var(--lc-surface-raised,transparent);color:var(--lc-text,#46546c);
+  padding:8px 12px;border-left:3px solid var(--lc-primary);
+  background:var(--lc-surface-raised);color:var(--lc-text);
 }
-.markdown hr {border:0;border-top:1px solid var(--lc-stroke,#d5dce6)}
+.markdown hr {border:0;border-top:1px solid var(--lc-stroke)}
 .media {max-width:100%;overflow-wrap:anywhere}
 .media img {max-width:100%;height:auto;object-fit:contain}
-.media figcaption {color:var(--lc-text-muted,#576579)}
-.video {background:var(--lc-surface-input,transparent);
-  border-color:var(--lc-stroke,#d5dce6);color:var(--lc-text-secondary,inherit);
+.media figcaption {color:var(--lc-text-muted)}
+.video {background:var(--lc-surface-input);
+  border-color:var(--lc-stroke);color:var(--lc-text-secondary);
 }
-.video a {color:var(--lc-link,#195ca8)}
-.invalid {color:var(--lc-error,#8f3543)}
+.video a {color:var(--lc-link)}
+.invalid {color:var(--lc-error)}
