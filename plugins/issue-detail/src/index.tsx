@@ -1,11 +1,11 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { lazy, Suspense } from 'react'
-import { IssueDetailService, type IssueDetailApi } from './service'
+import { issueDetailApi, type IssueDetailApi } from './service'
 
 const IssueDetailPage = lazy(() => import('./IssueDetailPage'))
 
 /** @summary Register a lazy, independently removable Issue detail page in the shared UI host. */
-export function createIssueDetailPlugin(service: IssueDetailApi = new IssueDetailService()) {
+export function createIssueDetailPlugin(service: IssueDetailApi = issueDetailApi) {
   return {
     name: 'issue-detail',
     inject: ['reactUI'],
