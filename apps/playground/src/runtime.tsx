@@ -17,6 +17,9 @@ export async function startRuntime() {
     const uiFiber = ctx.plugin(ReactUIService)
     fibers.push(uiFiber); await uiFiber
     const query = new URLSearchParams(window.location.search)
+    const sessionFixture = query.get('sessionFixture') === '1'
+      ? (await import('./session-fixture')).createSessionFixture(query)
+      : undefined
     const channelFixture = query.get('channelFixture') === '1'
     const topicFixture = query.get('topicFixture') === '1'
     const isolated = query.get('repoOnly') === '1' || query.get('repoFixture') === '1' ||
@@ -30,7 +33,7 @@ export async function startRuntime() {
     if (!topicFixture) {
       if (!channelFixture) {
       const homePlugin = query.get('repoFixture') === '1'
-        ? createRepoHomePlugin((await import('./repo-fixture')).createRepoFixtureService(query), {
+        ? createRepoHomePlugin((await import('./repo-fixture')).createRepoFixtureService(query, sessionFixture?.isAuthenticated), {
           // Controlled visual fixture only; no site default, selector, or persistence.
           theme: query.get('repoTheme') === 'dark' ? 'dark' :
             query.get('repoTheme') === 'light' ? 'light' : undefined,
@@ -91,9 +94,6 @@ export async function startRuntime() {
       }))
       fixtureFiber = fiber; fibers.push(fiber); await fiber
     }
-    const sessionRequest = query.get('sessionFixture') === '1'
-      ? (await import('./session-fixture')).createSessionFixtureRequest(query)
-      : undefined
-    return { ui: ctx.reactUI, sessionRequest, dispose }
+    return { ui: ctx.reactUI, sessionRequest: sessionFixture?.request, dispose }
   } catch (error) { await dispose(); throw error }
 }
