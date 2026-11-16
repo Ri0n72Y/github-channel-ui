@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { readDisplayBranch, type RepoHomeApi, type RepoHomeData } from './service'
-import { MemberProfile, TeamStatus } from './Team'
+import { MemberManagementLink, MemberProfile, TeamStatus } from './Team'
 import styles from './RepoHome.module.css'
 import { useMemberWriteAccess } from './useMemberWriteAccess'
 /** @summary Read the selected branch team file and display cards in its exact stored order. */
@@ -27,8 +27,7 @@ export default function MembersPage({ api }: { api: RepoHomeApi }) {
     <p><Link to={base}>项目主页</Link> / 团队成员</p>
     <div className={styles.sectionHead}><h1>团队成员 {data?.team.state === 'ready' || data?.team.state === 'empty'
       ? '(' + data.team.members.length + ')' : ''}</h1>
-      {memberWrite.state === 'allowed' &&
-        <Link to={base + '/members/register'}>添加成员</Link>}
+      <MemberManagementLink base={base} state={memberWrite.state} />
     </div>
     {memberWrite.capability &&
       <p className={styles.muted}>已验证操作者 @{memberWrite.capability.user.login}，目标分支 {branch}</p>}
