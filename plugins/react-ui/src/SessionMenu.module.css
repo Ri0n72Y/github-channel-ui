@@ -2,7 +2,7 @@
 .status{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--lc-text-secondary);font-size:13px}
 .login,.retry,.trigger,.menu button{font:inherit;cursor:pointer;min-height:44px}
 .login{display:inline-flex;align-items:center;justify-content:center;
-  padding:10px 16px;border-radius:9px;background:var(--lc-primary);
+  box-sizing:border-box;min-height:44px;padding:0 16px;border-radius:9px;background:var(--lc-primary);
   color:var(--lc-on-primary);font-weight:700;text-decoration:none;white-space:nowrap}
 .login:hover{background:var(--lc-primary-hover)}
 .retry{border:1px solid var(--lc-stroke-strong);border-radius:9px;
@@ -28,6 +28,9 @@
 .error{position:absolute;top:100%;right:0;padding:8px 12px;
   background:var(--lc-surface-raised);color:var(--lc-error);border:1px solid var(--lc-stroke);
   border-radius:8px;min-width:175px;z-index:21}
+@media(max-width:680px){
+  .login {padding:0 10px;font-size:13px}
+}
 @media(max-width:375px){
   .account{justify-content:flex-end;max-width:100%}
   .username{max-width:100px}
