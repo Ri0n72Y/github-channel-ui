@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router'
 import { summarizeReadme } from './domain.mjs'
 import type { RepoHomeApi, RepoHomeData, RepoFeedIssue } from './service'
 import { readDisplayBranch, displayBranchKey } from './service'
-import { TeamStrip, TeamStatus } from './Team'
+import { MemberManagementLink, TeamStrip, TeamStatus } from './Team'
 import { useMemberWriteAccess } from './useMemberWriteAccess'
 import { RepoIssueActivityCard } from './RepoIssueActivityCard'
 import styles from './RepoHome.module.css'
@@ -139,9 +139,8 @@ export default function RepoHomePage({ api, theme }: { api: RepoHomeApi; theme?:
     <section className={[styles.section, styles.teamPanel].join(' ')} aria-labelledby="team-heading">
       <div className={styles.sectionHead}><h2 id="team-heading">团队成员</h2>
         <Link to={base + '/members'}>查看全部成员</Link>
-        {memberWrite.state === 'allowed' && data &&
-          ['ready', 'empty', 'missing'].includes(data.team.state) &&
-          <Link to={base + '/members/register'}>添加成员</Link>}
+        {data && ['ready', 'empty', 'missing'].includes(data.team.state) &&
+          <MemberManagementLink base={base} state={memberWrite.state} />}
       </div>
       {data ? <TeamStatus team={data.team} base={base} branch={branch}
         onRetry={() => setGeneration(n => n + 1)} /> : !homeLoading && <p>团队信息不可用。</p>}
