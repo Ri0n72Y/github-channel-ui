@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { safeHttps, type Member } from './domain.mjs'
 import type { Team } from './service'
+import type { MemberWriteState } from './useMemberWriteAccess'
 import styles from './RepoHome.module.css'
 
 /** @summary Use a validated avatar URL or GitHub avatar with an initial-letter fallback. */
@@ -18,12 +19,18 @@ export function TeamStatus({ team, base, branch = 'main', onRetry }: {
   team: Team; base: string; branch?: string; onRetry?: () => void
 }) {
   if (team.state === 'ready') return null
-  if (team.state === 'missing') return <p>尚未添加团队成员。<Link to={base + '/members/register'}>添加成员</Link></p>
-  if (team.state === 'empty') return <p>暂无成员。<Link to={base + '/members/register'}>添加成员</Link></p>
+  if (team.state === 'missing') return <p>尚未添加团队成员。</p>
+  if (team.state === 'empty') return <p>暂无成员。</p>
   return <p role="alert">{team.state === 'invalid' ? '成员文件格式错误：' : '成员文件读取失败：'}{team.error}
     {team.state === 'invalid' && <a href={'https://github.com/' + base.slice(1) + '/blob/' +
       encodeURIComponent(branch) + '/team-member.json'} target="_blank" rel="noopener noreferrer">查看 GitHub 成员文件</a>}
     {onRetry && <button type="button" onClick={onRetry}>重试</button>}</p>
+}
+/** @summary Keep the management route invisible until its scoped write capability succeeds. */
+export function MemberManagementLink({ base, state }: {
+  readonly base: string; readonly state: MemberWriteState
+}) {
+  return state === 'allowed' ? <Link to={base + '/members/register'}>添加成员</Link> : null
 }
 export function MemberProfile({ member }: { member: Member }) {
   return <div className={styles.profile}>

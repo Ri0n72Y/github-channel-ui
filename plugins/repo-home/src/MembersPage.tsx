@@ -1,50 +1,42 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { readDisplayBranch, repoHomeStatus, type RepoHomeApi, type RepoHomeData, type MemberCapability } from './service'
-import { MemberProfile, TeamStatus } from './Team'
+import { readDisplayBranch, type RepoHomeApi, type RepoHomeData } from './service'
+import { MemberManagementLink, MemberProfile, TeamStatus } from './Team'
 import styles from './RepoHome.module.css'
-import { subscribeSessionChanged } from '../../shared/src/session-change'
+import { useMemberWriteAccess } from './useMemberWriteAccess'
 /** @summary Read the selected branch team file and display cards in its exact stored order. */
 export default function MembersPage({ api }: { api: RepoHomeApi }) {
   const { owner = '', repo = '' } = useParams<'owner' | 'repo'>()
   const [revision, setRevision] = useState(0)
-  useEffect(() => subscribeSessionChanged(() => setRevision(n => n + 1)), [])
   const [data, setData] = useState<RepoHomeData | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
-  const [capability, setCapability] = useState<MemberCapability | null>(null)
-  const [permissionError, setPermissionError] = useState('')
-  const [permissionStatus, setPermissionStatus] = useState<number | null>(null)
   const branch = readDisplayBranch(owner, repo)
   const base = '/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo)
-  const login = '/api/github-login?return_to=' + encodeURIComponent(base + '/members/register')
+  const memberWrite = useMemberWriteAccess(api, owner, repo, branch, revision)
   useEffect(() => {
     const controller = new AbortController()
-    setLoading(true); setError(''); setData(null); setCapability(null); setPermissionError(''); setPermissionStatus(null)
+    setLoading(true); setError(''); setData(null)
     void api.getHome(owner, repo, branch, controller.signal).then(result => {
       if (!controller.signal.aborted) setData(result)
     }).catch(e => { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : String(e)) })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
-    void api.getCapability(owner, repo, branch, controller.signal).then(value => {
-      if (!controller.signal.aborted) setCapability(value)
-    }).catch(e => { if (!controller.signal.aborted) {
-      setPermissionStatus(repoHomeStatus(e))
-      setPermissionError(e instanceof Error ? e.message : '无法验证权限')
-    } })
     return () => controller.abort()
   }, [api, owner, repo, branch, revision])
   return <section className={styles.page}>
     <p><Link to={base}>项目主页</Link> / 团队成员</p>
     <div className={styles.sectionHead}><h1>团队成员 {data?.team.state === 'ready' || data?.team.state === 'empty'
       ? '(' + data.team.members.length + ')' : ''}</h1>
-      {capability ? <Link to={base + '/members/register'}>添加成员</Link> :
-        permissionStatus === 401 ? <a href={login}>登录后添加成员</a> :
-          permissionStatus === null ? <span className={styles.muted}>检查登记权限中…</span> :
-            permissionStatus === 403 ? <span className={styles.muted}>当前账号缺少成员登记权限</span> :
-            <button type="button" onClick={() => setRevision(n => n + 1)}>权限检查失败，重试</button>}
+      <MemberManagementLink base={base} state={memberWrite.state} />
     </div>
-    {capability && <p className={styles.muted}>已验证操作者 @{capability.user.login}，目标分支 {branch}</p>}
-    {permissionError && <p className={styles.muted}>{permissionError}</p>}
+    {memberWrite.capability &&
+      <p className={styles.muted}>已验证操作者 @{memberWrite.capability.user.login}，目标分支 {branch}</p>}
+    {memberWrite.state === 'denied' &&
+      <p className={styles.muted}>当前账号没有成员登记权限。</p>}
+    {memberWrite.state === 'error' && <p role="status" className={styles.muted}>
+      登记权限暂无法验证：{memberWrite.error}
+      <button type="button" onClick={memberWrite.retry}>重试检查</button>
+    </p>}
     {loading && <p role="status">正在读取成员文件…</p>}
     {error && <p role="alert">{error} <button type="button" onClick={() => setRevision(n => n + 1)}>重试</button></p>}
     {data && <TeamStatus team={data.team} base={base} branch={branch} onRetry={() => setRevision(n => n + 1)} />}
