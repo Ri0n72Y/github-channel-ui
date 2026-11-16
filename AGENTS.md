@@ -17,6 +17,14 @@
 - GitHub 写入采用 GitHub App 用户授权，以当前用户身份执行并遵守其实际权限。服务端验证会话、目标仓库与操作权限；App 私钥、令牌和其他服务端秘密不得暴露给前端。
 - GitHub API 写入可能失败或部分完成；界面应反映权威结果，并提供可理解的失败反馈，不把未经确认的本地变更当作已持久化。
 
+## TypeScript / React 函数式静态 API 与不可变数据（#77，Owner 已授权）
+
+- **权威编码规范：** [LabourChain TypeScript/React Functional API Standard](docs/LabourChain-TypeScript-React-Functional-API-Standard.md)。Google TypeScript 与 React 官方规则和本项目追加禁令明确区分。此前的 HTTP Service Class / Client 实例、历史内部 DTO/Adapter/Fixture 不能成为兼容义务；修改一条业务调用链必须同步替换提供方、消费者、测试与 Playground，不保留两套调用路径。
+- **普通业务 API：** 默认具名函数加模块级 `const api = Object.freeze({ ... })` 只读普通对象。确有受控测试或不同环境需求时，只用 `createApi(request: RequestFn)` 函数工厂一次性注入普通请求函数；禁止业务 HTTP `class`、`new FooService()`、`this.fetcher`、动态替换客户端成员、共享业务对象直接 mutation。`window.fetch` 不得抽离后以错误 receiver 调用；默认依赖使用 `globalThis.fetch(input, init)` 自由函数。
+- **数据与副作用：** 解析/筛选/排序保持纯函数；共享模型用 `Readonly`、`readonly` 数组与嵌套复制，来自服务端的 JSON 在使用前按 `unknown` 做边界校验。HTTP 本身有 I/O；React render/useMemo 不发请求，Effect 与事件在对应生命周期处理 AbortSignal、Race、加载/失败状态。局部临时变量、AbortController、Response 等平台对象可在局部使用。
+- **框架例外：** Cordis 必需的 `extends Service` 等只允许作为生命周期薄适配层，业务 API 不使用 Class；标准 `Error`、`URL`、`Response` 不属于禁令。单 UI Host、插件 inject、CSS Modules、语义链接与按钮等本文件既有约束继续有效。
+- **安全：** 保留经核验的公开 GitHub 仓库读、OAuth + App/User 交集的写入授权、同源与明确确认、未知写入结果不能自动重试。仅修改本平台无迁移义务的旧内部实现；真实 GitHub 数据不能删除或伪造。#76 全站 Session Header 与浏览器 fetch 修复必须随 #77 的客户端迁移同步交付。
+
 ## Cordis 插件与 React 开发约束
 
 - **薄核心、业务插件：** 应用入口只负责创建 Cordis Context、装配/释放插件及 React Root，不在 Bootstrap 中实现项目、频道或 GitHub 业务。以**可独立验收的业务功能**划分插件；一个功能可贡献多个页面与组件，不必每个 URL 或组件建一个插件，也不把多个独立业务闭环合成大插件。Playground 应能按业务功能组合真实依赖或受控替身进行验收，不复制生产实现。

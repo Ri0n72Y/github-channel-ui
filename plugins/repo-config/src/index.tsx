@@ -2,12 +2,12 @@ import type { Context } from '@deepseek-ai/cordis'
 import { lazy, Suspense } from 'react'
 import { useParams } from 'react-router'
 import { configTargetKey } from './target-key.mjs'
-import { RepoConfigService, type RepoConfigApi } from './service'
+import { repoConfigApi, type RepoConfigApi } from './service'
 
 const ConfigPage = lazy(() => import('./ConfigPage'))
 
 /** @summary Register the independently testable repository Config maintenance route. */
-export function createRepoConfigPlugin(api: RepoConfigApi = new RepoConfigService()) {
+export function createRepoConfigPlugin(api: RepoConfigApi = repoConfigApi) {
   return {
     name: 'repo-config',
     inject: ['reactUI'],

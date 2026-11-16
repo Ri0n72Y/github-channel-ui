@@ -3,6 +3,7 @@ import { validTopicRepository, loadTopicProjectCandidates } from './domain.mjs'
 import type { TopicPageApi, TopicRoute, TopicPageError, TopicRepository,
   TopicSnapshot } from './service'
 import TopicPageView from './TopicPageView'
+import { subscribeSessionChanged } from '../../shared/src/session-change'
 
 type ReadState = {
   snapshot: TopicSnapshot | null; projects: TopicRepository[];
@@ -35,6 +36,12 @@ export default function TopicPageContainer({ owner, repo, api }: {
     snapshot: null, projects: [], loading: true, error: null, windowExhausted: false,
   })
   const [authenticated, setAuthenticated] = useState(false)
+  const [sessionRevision, setSessionRevision] = useState(0)
+  useEffect(() => subscribeSessionChanged(() => {
+    setAuthenticated(false)
+    setReport(prev => ({ ...prev, proof: '', open: false }))
+    setSessionRevision(n => n + 1)
+  }), [])
   const [report, setReport] = useState<ReportState>(EMPTY_REPORT)
   const writeAbort = useRef<AbortController | null>(null)
   const proofAbort = useRef<AbortController | null>(null)
@@ -81,7 +88,7 @@ export default function TopicPageContainer({ owner, repo, api }: {
       if (!abort.signal.aborted) setAuthenticated(false)
     })
     return () => abort.abort()
-  }, [api, owner, repo])
+  }, [api, owner, repo, sessionRevision])
 
   useEffect(() => () => {
     writeAbort.current?.abort()

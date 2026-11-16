@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router'
 import { safeHttps, validLogin, validateMemberInput } from './domain.mjs'
-import { readDisplayBranch, RepoHomeError, type MemberCapability, type MemberSubmitResult,
+import { readDisplayBranch, repoHomeStatus, type MemberCapability, type MemberSubmitResult,
   type RepoHomeApi } from './service'
 import styles from './RepoHome.module.css'
+import { subscribeSessionChanged } from '../../shared/src/session-change'
 type Fields = { name: string; githubUsername: string; role: string; bio: string; avatarUrl: string;
   links: Array<{ label: string; url: string }> }
 const initial = (): Fields => ({ name: '', githubUsername: '', role: '', bio: '', avatarUrl: '',
@@ -51,6 +52,7 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
   const [pending, setPending] = useState(false)
   const [result, setResult] = useState<MemberSubmitResult | null>(null)
   const [revision, setRevision] = useState(0)
+  useEffect(() => subscribeSessionChanged(() => setRevision(n => n + 1)), [])
   const pendingController = useRef<AbortController | null>(null)
   useEffect(() => {
     setFields(initial()); setSubmitAttempted(false); setResult(null); setPending(false); setError('')
@@ -62,7 +64,7 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
       if (!controller.signal.aborted) setCapability(value)
     }).catch(e => {
       if (controller.signal.aborted) return
-      setAuthStatus(e instanceof RepoHomeError ? e.status : 502)
+      setAuthStatus(repoHomeStatus(e))
       setError(e instanceof Error ? e.message : '权限验证失败')
     })
     return () => {
@@ -94,7 +96,7 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
     } catch (e) {
       if (!controller.signal.aborted) {
         setError(e instanceof Error ? e.message : '提交失败，请重试')
-        if (e instanceof RepoHomeError && e.status === 401) { setAuthStatus(401); setCapability(null) }
+        if (repoHomeStatus(e) === 401) { setAuthStatus(401); setCapability(null) }
       }
     } finally {
       if (pendingController.current === controller) pendingController.current = null

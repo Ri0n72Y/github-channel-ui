@@ -56,6 +56,10 @@
     {
       "source": "/api/topic-report",
       "destination": "/api/repo-access?__lc_route=topic-report"
+    },
+    {
+      "source": "/api/github-logout",
+      "destination": "/api/github-session?__lc_route=logout"
     }
   ]
 }

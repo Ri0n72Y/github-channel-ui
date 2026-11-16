@@ -1,82 +1,78 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import type { RepoIssuesService } from '../../repo-issues/src/index'
+import type { RepoIssueStore } from '../../repo-issues/src/index'
+import type { Verification as GithubVerification } from '../../repo-issues/src/api'
+import { subscribeSessionChanged } from '../../shared/src/session-change'
 import { IssueWorkspace } from './issue-workspace'
 import styles from './RepoPanel.module.css'
 
-type PermissionFlags = { admin: boolean; maintain: boolean; push: boolean; triage: boolean; pull: boolean }
-type VerificationResult = {
-  user: { id: number; login: string }
-  repository: { full_name: string; accessible: boolean; permissions: PermissionFlags | null }
-}
-type Verification = { status: 'idle' | 'loading' | 'success' | 'error'; data?: VerificationResult; message?: string; relogin?: boolean }
+type Verification = { status: 'idle' | 'loading' | 'success' | 'error'; data?: GithubVerification; message?: string; relogin?: boolean }
 
 /** @summary Display the repositories and Issues exposed by the repository service. */
-export function RepoPanel({ service }: { service: RepoIssuesService }) {
-  const s = useSyncExternalStore(service.subscribe, service.getSnapshot)
-  const [session, setSession] = useState<'checking' | 'connected' | 'anonymous'>('checking')
+export function RepoPanel({ store }: { store: RepoIssueStore }) {
+  const s = useSyncExternalStore(store.subscribe, store.getSnapshot)
+  const [session, setSession] = useState<'checking' | 'connected' | 'anonymous' | 'error'>('checking')
   const [verification, setVerification] = useState<Verification>({ status: 'idle' })
   const verifyRevision = useRef(0)
+  const verifyAbort = useRef<AbortController|null>(null)
+  const [sessionRevision,setSessionRevision]=useState(0)
+  useEffect(()=>subscribeSessionChanged(()=>{
+    setSessionRevision(n=>n+1);setVerification({status:'idle'})
+  }),[])
 
   function selectRepo(fullName: string) {
     verifyRevision.current++
+    verifyAbort.current?.abort()
     setVerification({ status: 'idle' })
-    void service.select(fullName)
+    void store.select(fullName)
   }
 
   async function verifyUserAndRepo() {
     const repo = s.repos.find(item => item.full_name === s.selected)
     if (!repo || session !== 'connected') return
     const revision = ++verifyRevision.current
+    verifyAbort.current?.abort()
+    const controller=new AbortController()
+    verifyAbort.current=controller
     setVerification({ status: 'loading' })
     try {
-      const params = new URLSearchParams({ owner: repo.owner, repo: repo.name })
-      const response = await fetch('/api/github-verify?' + params, { cache: 'no-store' })
-      const body = await response.json()
-      if (revision !== verifyRevision.current) return
-      if (!response.ok) {
-        setVerification({ status: 'error', message: body.error || '验证失败',
-          relogin: body.relogin === true })
-        return
-      }
-      setVerification({ status: 'success', data: body as VerificationResult })
-    } catch {
-      if (revision === verifyRevision.current) {
-        setVerification({ status: 'error', message: '网络请求失败' })
-      }
+      const data=await store.api.verify(repo.owner,repo.name,controller.signal)
+      if (revision !== verifyRevision.current || controller.signal.aborted) return
+      setVerification({status:'success',data})
+    } catch (error) {
+      if (revision !== verifyRevision.current || controller.signal.aborted) return
+      setVerification({status:'error',
+        message:error instanceof Error?error.message:'网络请求失败',
+        relogin:Boolean(error instanceof Error&&'relogin' in error&&error.relogin===true)})
     }
   }
 
-  useEffect(() => {
-    void service.refresh()
-  }, [service])
-
-  useEffect(() => {
-    const controller = new AbortController()
-    void fetch('/api/github-session', { signal: controller.signal })
-      .then(async response => {
-        if (!response.ok) throw new Error('Session check failed')
-        return (await response.json()) as { authenticated: boolean }
-      })
-      .then(data => {
-        if (!controller.signal.aborted) setSession(data.authenticated === true ? 'connected' : 'anonymous')
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setSession('anonymous')
-      })
-    return () => { controller.abort(); verifyRevision.current++ }
-  }, [])
+  useEffect(()=>{void store.refresh()},[store])
+  useEffect(()=>{
+    const controller=new AbortController()
+    setSession('checking')
+    void store.api.getSession(controller.signal).then(connected=>{
+      if(!controller.signal.aborted)setSession(connected?'connected':'anonymous')
+    }).catch(()=>{
+      if(!controller.signal.aborted)setSession('error')
+    })
+    return ()=>{
+      controller.abort();verifyRevision.current++;verifyAbort.current?.abort()
+    }
+  },[store,sessionRevision])
   return <div className={styles.shell}>
     <header><h1>LabourChain · Issues</h1><div className={styles.actions}>
       {session === 'connected'
         ? <span className={styles.sessionStatus}>GitHub 会话已建立</span>
         : session === 'checking'
           ? <span className={styles.sessionStatus}>检查登录状态…</span>
-          : <a className={styles.login} href="/api/github-login">GitHub 登录</a>}
+          : session === 'error'
+            ? <button type="button" onClick={()=>setSessionRevision(n=>n+1)}>登录状态检查失败，重试</button>
+            : <span className={styles.sessionStatus}>请使用顶部 GitHub 登录</span>}
       <button type="button" disabled={s.loading} onClick={() => {
         verifyRevision.current++
         setVerification({ status: 'idle' })
-        void service.refresh()
+        void store.refresh()
       }}>刷新</button>
     </div></header>
     <p>已安装授权的公开 GitHub 仓库（只读）</p>
@@ -107,7 +103,7 @@ export function RepoPanel({ service }: { service: RepoIssuesService }) {
         key={s.selected}
         repo={s.repos.find(repo => repo.full_name === s.selected)!}
         issues={s.issues}
-        loggedIn={session === 'connected'} />}
+        loggedIn={session === 'connected'} api={store.api} />}
     <footer>Issue 读取使用安装授权；创建和评论使用已登录的 GitHub 用户身份，不使用 Bot 写入。</footer>
   </div>
 }
@@ -117,9 +113,9 @@ export const repoPanel = {
   name: 'repo-panel',
   inject: ['reactUI', 'repoIssues'],
   apply(ctx: Context) {
-    const service = ctx.repoIssues
+    const store = ctx.repoIssues.store
     function RepoPanelEntry() {
-      return <RepoPanel service={service} />
+      return <RepoPanel store={store} />
     }
     ctx.effect(() => ctx.reactUI.registerPage({
       id: 'repo-panel', path: '/', Component: RepoPanelEntry,

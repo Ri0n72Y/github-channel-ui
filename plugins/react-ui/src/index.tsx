@@ -4,6 +4,8 @@ import { Link, useRoutes } from 'react-router'
 import styles from './App.module.css'
 import { persistTheme, readStoredTheme, type ThemeMode } from './theme'
 import './theme.css'
+import SessionMenu from './SessionMenu'
+import type { RequestFn } from '../../shared/src/browser-http'
 
 type Registration = { id: string; Component: ComponentType }
 export type PageRegistration = Registration & { path: string }
@@ -77,7 +79,7 @@ function NotFound() {
 }
 
 /** @summary Match plugin-registered pages inside the application's single React Router. */
-export function App({ ui }: { ui: ReactUIService }) {
+export function App({ ui, sessionRequest }: {ui:ReactUIService;sessionRequest?:RequestFn}) {
   const [theme, setTheme] = useState<ThemeMode>(readStoredTheme)
   const entries = useSyncExternalStore(ui.subscribe, ui.getSnapshot, ui.getSnapshot)
   const routes = entries.flatMap(entry => 'path' in entry
@@ -92,12 +94,13 @@ export function App({ ui }: { ui: ReactUIService }) {
     persistTheme(next)
   }
   return <div className={styles.app} data-lc-theme={theme}>
-    <header className={styles.toolbar} aria-label="主题设置">
+    <header className={styles.toolbar} aria-label="站点主题和 GitHub 账户">
       <span className={styles.themeStatus}>当前：{currentLabel}模式</span>
       <button className={styles.themeButton} type="button" onClick={toggleTheme}
         aria-label={'当前为' + currentLabel + '模式，切换为' + nextLabel + '模式'}>
         切换为{nextLabel}模式
       </button>
+      <SessionMenu request={sessionRequest} />
     </header>
     <main className={styles.content}>{page}</main>
   </div>

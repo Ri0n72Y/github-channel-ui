@@ -1,13 +1,13 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { lazy, Suspense } from 'react'
 import { useParams } from 'react-router'
-import { TopicPageService, type TopicPageApi } from './service'
+import { topicPageApi, type TopicPageApi } from './service'
 import { topicTargetKey } from './domain.mjs'
 
 const TopicPageContainer = lazy(() => import('./TopicPageContainer'))
 
 /** @summary Register TopicPage as an independent route in the existing shared Router. */
-export function createTopicPagePlugin(api: TopicPageApi = new TopicPageService()) {
+export function createTopicPagePlugin(api: TopicPageApi = topicPageApi) {
   return {
     name: 'topic-page',
     inject: ['reactUI'],

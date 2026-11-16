@@ -3,11 +3,11 @@ export type TopicCandidate = { full_name: string; html_url: string }
 export type TopicCandidatesMeta = {
   repository: { full_name: string };
   config: { whitelist: boolean };
-  allowedRepositories: string[]
+  allowedRepositories: readonly string[]
 }
 export type TopicCandidatePage<T extends TopicCandidate> = {
   page: number; perPage: number; hasNext: boolean; windowExhausted: boolean;
-  items: T[]
+  items: readonly T[]
 }
 export type TopicCandidateSummary<T extends TopicCandidate> = {
   items: T[]; ended: boolean; windowExhausted: boolean

@@ -1,6 +1,6 @@
 import type { ConfigActionResult, ConfigSnapshot, RepoConfigApi } from
   '../../../plugins/repo-config/src/service'
-import { RepoConfigError } from '../../../plugins/repo-config/src/service'
+import { configError } from '../../../plugins/repo-config/src/service'
 
 const CONFIG = 'namespaces:\n  status:\n    - todo\n    - doing\n    - review\n    - done\n    - archived\n  channel: [wishlist]\n'
 const DEFAULT = 'namespaces:\n  status:\n    - todo\n    - doing\n    - review\n    - done\n    - archived\n  channel:\n    - wishlist\n'
@@ -61,7 +61,7 @@ export function createRepoConfigFixtureService(query: URLSearchParams): RepoConf
     },
     async save(_owner, _repo, next, _head, _file, signal): Promise<ConfigActionResult> {
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
-      if (mode === 'denied') throw new RepoConfigError('模拟：当前用户没有仓库写权限', 403, 'user_permission_missing')
+      if (mode === 'denied') throw configError('模拟：当前用户没有仓库写权限', 403, 'user_permission_missing')
       if (mode === 'pr') return {
         state: 'awaiting_pr_merge',
         prUrl: 'https://github.com/octocat/Hello-World/pull/88',
@@ -75,7 +75,7 @@ export function createRepoConfigFixtureService(query: URLSearchParams): RepoConf
     async sync(_owner, _repo, _previewId, confirmed, signal): Promise<ConfigActionResult> {
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
       if (plan.requiresConfirmation && !confirmed) {
-        throw new RepoConfigError('请先确认清理清单', 400, 'confirmation_required')
+        throw configError('请先确认清理清单', 400, 'confirmation_required')
       }
       if (mode === 'partial') return {
         state: 'partial_failure',

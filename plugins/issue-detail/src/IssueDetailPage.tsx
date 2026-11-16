@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useParams } from 'react-router'
 import { formatLabourComment, summarizeIssueComments, validIssueTarget } from './domain.mjs'
 import { loadIssueContent } from './load-issue.mjs'
-import { IssueRequestError, type GithubComment, type GithubIssue,
+import { issueRequestError, issueRequestStatus, type GithubComment, type GithubIssue,
   type IssueDetailApi } from './service'
 import IssueDetailView from './IssueDetailView'
+import { subscribeSessionChanged } from '../../shared/src/session-change'
 import type { FormNotice, IssueDetailViewActions, IssueDetailViewModel,
   LabourDraft, LabourField, PermissionView } from './view-model'
 
@@ -30,11 +31,10 @@ function safeGitHubUrl(value: unknown): string | null {
   } catch { return null }
 }
 function asIssueError(error: unknown) {
-  return error instanceof IssueRequestError
-    ? { message: error.message, status: error.status }
-    : { message: error instanceof Error ? error.message : '请求失败', status: 502 }
+  return {message: error instanceof Error ? error.message : '请求失败',
+    status: issueRequestStatus(error)}
 }
-function uniqueComments(items: GithubComment[]) {
+function uniqueComments(items: readonly GithubComment[]) {
   const seen = new Set<number>()
   return items.filter(item => Number.isSafeInteger(item.id) &&
     (!seen.has(item.id) && Boolean(seen.add(item.id))))
@@ -47,6 +47,8 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
   const [state, setState] = useState<Load>(empty)
   const [auth, setAuth] = useState<Auth>({ key: '', status: 'checking', message: '' })
   const [reload, setReload] = useState(0)
+  const [authRevision, setAuthRevision] = useState(0)
+  useEffect(() => subscribeSessionChanged(() => setAuthRevision(n => n + 1)), [])
   const [draft, setDraft] = useState('')
   const [labour, setLabour] = useState<LabourDraft>(initialLabour)
   const [pendingKind, setPendingKind] = useState<'comment' | 'labour' | null>(null)
@@ -77,7 +79,7 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
       try {
         // Generic Issue reading must not depend on Channel configuration.
         const loaded = await loadIssueContent(service, owner, repo, numberValue, abort.signal)
-        if (!loaded) throw new IssueRequestError('该地址不是有效的 GitHub Issue', 404)
+        if (!loaded) throw issueRequestError('该地址不是有效的 GitHub Issue', 404)
         const { issue, first } = loaded
         if (current !== revision.current || abort.signal.aborted) return
         setState({ key: routeKey, loading: false, issue, comments: uniqueComments(first.items),
@@ -114,7 +116,7 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
       }
     })()
     return () => abort.abort()
-  }, [service, owner, repo, valid, routeKey])
+  }, [service, owner, repo, valid, routeKey, authRevision])
 
   const issue = state.key === routeKey && !state.loading ? state.issue : null
   const completePages = Boolean(issue && !state.hasMore && !state.pageError &&

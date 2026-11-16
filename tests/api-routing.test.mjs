@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import issueRead from '../api/issue-read.mjs'
 import repoAccess from '../api/repo-access.mjs'
+import githubSession from '../api/github-session.mjs'
 
 const issueRoutes = ['issue-detail', 'issue-comments', 'issue-config']
 const repoRoutes = ['repo-home', 'repo-feed', 'repo-member-permission',
@@ -29,7 +30,9 @@ test('Vercel rewrites retain each established public URL and the original SPA fa
   assert.equal(spa.destination, '/index.html')
   assert.equal(new RegExp('^' + spa.source + '$').test('/api/issue-detail'), false)
   assert.equal(new RegExp('^' + spa.source + '$').test('/octocat/repo/issues/1'), true)
-  assert.equal(rewrites.length, 13)
+  assert.equal(rewrites.length, 14)
+  assert.deepEqual(rewrites.find(r => r.source === '/api/github-logout'),
+    { source: '/api/github-logout', destination: '/api/github-session?__lc_route=logout' })
   for (const name of issueRoutes) {
     assert.deepEqual(rewrites.find(r => r.source === '/api/' + name),
       { source: '/api/' + name, destination: '/api/issue-read?__lc_route=' + name })
@@ -79,4 +82,11 @@ test('grouped readers still pass unchanged target query to original validation',
       'owner=wrong/name&repo=repo')))
     assert.equal(bad.status, 400)
   }
+})
+
+test('#76 logout shares session function but GET cannot mutate cookies', async () => {
+  const response = await githubSession.fetch(new Request(
+    'https://labour.test/api/github-session?__lc_route=logout'))
+  assert.equal(response.status, 405)
+  assert.equal(response.headers.get('set-cookie'), null)
 })

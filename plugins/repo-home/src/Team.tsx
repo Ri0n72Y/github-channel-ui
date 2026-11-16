@@ -39,7 +39,7 @@ export function MemberProfile({ member }: { member: Member }) {
   </div>
 }
 /** @summary Provide one scrollable avatar row and a shared hover/focus/tap anchored popover. */
-export function TeamStrip({ members, base }: { members: Member[]; base: string }) {
+export function TeamStrip({ members, base }: { members: readonly Member[]; base: string }) {
   const [active, setActive] = useState<number | null>(null)
   const [position, setPosition] = useState({ left: 12, top: 64, maxHeight: 360 })
   const root = useRef<HTMLDivElement>(null)
