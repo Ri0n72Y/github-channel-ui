@@ -1,10 +1,12 @@
 import type { RequestFn } from '../../../plugins/shared/src/browser-http'
 
 /** @summary Isolate Header auth, token expiry and logout failures without GitHub writes. */
-export function createSessionFixtureRequest(query:URLSearchParams):RequestFn{
+export function createSessionFixture(query:URLSearchParams):Readonly<{
+  request:RequestFn; isAuthenticated:()=>boolean
+}>{
   const mode=query.get('sessionCase')||'anonymous'
   let signedIn=['authenticated','avatar-fail','logout-error'].includes(mode)
-  return async function request(input,init={}){
+  async function request(input:RequestInfo|URL,init:RequestInit={}){
     const url=String(input),method=init.method||'GET'
     if(init.signal?.aborted)throw new DOMException('Aborted','AbortError')
     if(url==='/api/github-session'&&method==='GET'){
@@ -26,4 +28,5 @@ export function createSessionFixtureRequest(query:URLSearchParams):RequestFn{
     }
     throw Error('Unexpected Session Fixture request: '+method+' '+url)
   }
+  return Object.freeze({request,isAuthenticated:()=>signedIn})
 }
