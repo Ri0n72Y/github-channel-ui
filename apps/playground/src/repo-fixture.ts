@@ -11,7 +11,8 @@ const sampleIssue = (n: number): RepoFeedIssue => ({
     Array(20).fill('长正文内容').join('。') : '演示正文：' + n,
 })
 /** @summary Exercise Repo Home reads, independent failures, pagination and submission without GitHub writes. */
-export function createRepoFixtureService(query: URLSearchParams): RepoHomeApi {
+export function createRepoFixtureService(query: URLSearchParams,
+  isAuthenticated?: () => boolean): RepoHomeApi {
   const mode = query.get('fixtureCase') || 'default'
   const count = Math.min(120, Math.max(0, Number(query.get('fixtureCount') || 21) || 0))
   const cases: Record<string,string> = { missing: 'missing', invalid: 'invalid', empty: 'empty', error: 'error' }
@@ -52,6 +53,7 @@ export function createRepoFixtureService(query: URLSearchParams): RepoHomeApi {
     },
     async getCapability(_owner, _repo, branch, signal) {
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+      if (isAuthenticated && !isAuthenticated()) throw repoHomeError('请先登录', 401)
       if (mode === 'unauthenticated') throw repoHomeError('请先登录', 401)
       if (mode === 'denied') throw repoHomeError('用户无写权限', 403)
       if (mode === 'bot-denied') throw repoHomeError('App 缺少 Contents: write 权限', 403)
