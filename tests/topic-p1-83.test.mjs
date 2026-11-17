@@ -125,10 +125,11 @@ test('#83 installed batch fills sparse pages, dedups stable ID and distinguishes
 
 function configMock({protectedBranch=false,appWrite=true,appPrWrite=true,
   userPush=true,sha=null,actual='topic: labourchain\nwhitelist: true\n',
-  mismatch=false,prFailure=false,rulesFailure=false}={}){
+  mismatch=false,prFailure=false,rulesFailure=false,readbackFailure=null}={}){
   const calls=[]
   const base=ROOT
-  let saved=null
+  const savedByBranch=new Map()
+  let pendingPR=null
   const fetcher=async(url,init={})=>{
     const path=new URL(url).pathname,method=init.method||'GET'
     const req={path,method,body:init.body?JSON.parse(init.body):null,
@@ -142,8 +143,16 @@ function configMock({protectedBranch=false,appWrite=true,appPrWrite=true,
     if(path===base&&method==='GET')return reply(200,{
       id:50,private:false,full_name:'sample/repo',default_branch:'main',
       permissions:{push:userPush}})
-    if(path===base+'/branches/main')return reply(200,{name:'main',
-      protected:protectedBranch,commit:{sha:mismatch?'d'.repeat(40):'b'.repeat(40)}})
+    if(path===base+'/branches/main'){
+      if(savedByBranch.has('main')&&readbackFailure?.stage==='branch'){
+        if(readbackFailure.type==='network')throw Error('timed out')
+        if(readbackFailure.type==='json')return new Response('not JSON',{status:200})
+        return reply(readbackFailure.status||503,{error:'readback unavailable'},
+          readbackFailure.status===429?{'x-ratelimit-remaining':'0'}:{})
+      }
+      return reply(200,{name:'main',
+        protected:protectedBranch,commit:{sha:mismatch?'d'.repeat(40):'b'.repeat(40)}})
+    }
     if(path.startsWith(base+'/branches/labourchain%2Ftopic-'))return reply(200,{
       name:decodeURIComponent(path.split('/').slice(-1)[0]),
       commit:{sha:'c'.repeat(40)},protected:false})
@@ -154,18 +163,32 @@ function configMock({protectedBranch=false,appWrite=true,appPrWrite=true,
     if(path.startsWith(base+'/rules/branches/labourchain%2Ftopic-'))
       return reply(200,[])
     if(path===base+'/contents/topics.config.yaml'&&method==='GET') {
+      const ref=new URL(url).searchParams.get('ref')||'main'
+      const saved=savedByBranch.get(ref)
+      if(saved&&readbackFailure?.stage==='file'){
+        if(readbackFailure.type==='network')throw Error('timed out')
+        if(readbackFailure.type==='json')return new Response('not JSON',{status:200})
+        return reply(readbackFailure.status||503,{error:'readback unavailable'},
+          readbackFailure.status===429?{'x-ratelimit-remaining':'0'}:{})
+      }
       if(!saved&&sha===null)return new Response('',{status:404})
       return reply(200,file(saved?.text||actual,saved?.sha||sha))
     }
     if(path===base+'/git/refs'&&method==='POST')
       return reply(201,{ref:req.body.ref})
     if(path===base+'/contents/topics.config.yaml'&&method==='PUT'){
-      saved={sha:'e'.repeat(40),text:Buffer.from(req.body.content,'base64').toString()}
+      const saved={sha:'e'.repeat(40),text:Buffer.from(req.body.content,'base64').toString()}
+      savedByBranch.set(req.body.branch,saved)
       return reply(201,{commit:{sha:'f'.repeat(40)},content:{sha:saved.sha}})
     }
-    if(path===base+'/pulls'&&method==='POST')
-      return prFailure?reply(503,{error:'unavailable'}):
-        reply(201,{number:81,html_url:'https://github.com/sample/repo/pull/81'})
+    if(path===base+'/pulls'&&method==='GET')return reply(200,pendingPR?[pendingPR]:[])
+    if(path===base+'/pulls'&&method==='POST'){
+      if(prFailure)return reply(503,{error:'unavailable'})
+      pendingPR={number:81,html_url:'https://github.com/sample/repo/pull/81',
+        state:'open',head:{ref:req.body.head,repo:{full_name:'sample/repo'}},
+        base:{ref:req.body.base}}
+      return reply(201,pendingPR)
+    }
     throw Error('unexpected '+method+' '+path)
   }
   return {fetcher,calls}
