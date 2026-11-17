@@ -43,3 +43,20 @@ export function loadTopicProjectCandidates<T extends TopicCandidate>(
   signal?: AbortSignal,
   minimum?: number
 ): Promise<TopicCandidateSummary<T> & { pagesRead: number }>
+
+export interface TopicInstalledCursor { readonly page:number; readonly offset:number }
+export interface TopicInstalledCandidate extends TopicCandidate {
+  readonly id:number
+}
+export interface TopicInstalledPage<T extends TopicInstalledCandidate> {
+  readonly page:number; readonly offset:number; readonly perPage:number
+  readonly hasNext:boolean; readonly nextPage:number|null; readonly nextOffset:number|null
+  readonly windowExhausted:boolean; readonly items:readonly T[]
+}
+export function loadInstalledTopicBatch<T extends TopicInstalledCandidate>(
+  meta: TopicCandidatesMeta,
+  getPage:(page:number,offset:number)=>Promise<TopicInstalledPage<T>>,
+  signal?:AbortSignal,cursor?:TopicInstalledCursor,existingIds?:readonly number[],
+  minimum?:number
+):Promise<{items:T[];cursor:TopicInstalledCursor|null;ended:boolean;
+  windowExhausted:boolean;slicesRead:number}>
