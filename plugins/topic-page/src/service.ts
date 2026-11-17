@@ -80,7 +80,7 @@ function parseSnapshot(value:unknown):TopicSnapshot{
   return {repository:{owner:required(repo.owner,'owner'),name:required(repo.name,'name'),
     full_name:required(repo.full_name,'full_name'),html_url:required(repo.html_url,'html_url')},
     readme:required(snapshot.readme,'readme'),coverUrl:snapshot.coverUrl as string|null,
-    config:config?{topic:required(config.topic,'topic'),whitelist:config.whitelist}:null,
+    config:config?{topic:required(config.topic,'topic'),whitelist:config.whitelist as boolean}:null,
     configState:snapshot.configState as TopicSnapshot['configState'],
     configText:snapshot.configText===null?null:required(snapshot.configText,'configText'),
     configSha:snapshot.configSha===null?null:required(snapshot.configSha,'configSha'),
