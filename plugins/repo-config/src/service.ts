@@ -220,7 +220,17 @@ function parsePending(value:unknown):ConfigActionResult['pending']{
     return {number,labels:[...row.labels] as string[]}
   })
 }
-function parseAction(value:unknown):ConfigActionResult{
+/** @summary Require a recognized action-specific outcome before trusting a successful POST. */
+function validPullRequestUrl(value:unknown):boolean{
+  if(typeof value!=='string')return false
+  try{
+    const url=new URL(value)
+    return url.protocol==='https:'&&url.hostname==='github.com'&&
+      !url.username&&!url.password&&
+      /^\\/[^/]+\\/[^/]+\\/pull\\/[1-9][0-9]*$/.test(url.pathname)
+  }catch{return false}
+}
+function parseAction(value:unknown,action:'save_config'|'sync_labels'):ConfigActionResult{
   const data=responseObject(value,'Config 写入响应无效')
   if(typeof data.state!=='string')throw configError('Config 写入状态无效',502)
   const result:ConfigActionResult={state:data.state}
@@ -253,6 +263,25 @@ function parseAction(value:unknown):ConfigActionResult{
   if(failed!==undefined)Object.assign(result,{failed})
   const pending=parsePending(data.pending)
   if(pending!==undefined)Object.assign(result,{pending})
+  const state=result.state
+  if(action==='save_config'){
+    if(state==='awaiting_pr_merge'){
+      if(!validPullRequestUrl(result.prUrl))throw configError('维护 PR 地址缺失或无效',502)
+    }else if(state==='sync_pending'){
+      if(typeof result.commitSha!=='string'||!/^[a-f0-9]{40}$/i.test(result.commitSha)||
+        typeof result.fileSha!=='string'||!/^[a-f0-9]{40}$/i.test(result.fileSha))
+        throw configError('Config Commit 结果缺少有效 SHA',502)
+    }else if(state==='ready'){
+      if(result.noChanges!==true)throw configError('Config 无变更确认缺失',502)
+    }else if(state==='partial_failure'){
+      if(!result.error)throw configError('Config 部分失败信息缺失',502)
+    }else throw configError('Config 写入状态无效',502)
+  }else if(state==='ready'){
+    if(!Array.isArray(result.createdLabels)||result.removedAssociations===undefined)
+      throw configError('Label 同步成功结果不完整',502)
+  }else if(state==='partial_failure'){
+    if(!result.failed?.length)throw configError('Label 同步部分失败信息缺失',502)
+  }else throw configError('Label 同步状态无效',502)
   return result
 }
 function params(owner:string,repo:string){return new URLSearchParams({owner,repo}).toString()}
@@ -269,7 +298,7 @@ export function createRepoConfigApi(request:RequestFn=browserRequest):Readonly<R
       body:JSON.stringify({action:'save_config',owner,repo,branch:'main',content,
         expectedHeadSha:head,expectedFileSha:file}),
     })
-    try { return parseAction(body) }
+    try { return parseAction(body,'save_config') }
     catch (error) {
       throw requestFailure(error instanceof Error ? error.message : 'Config 写入响应无效',
         502, { outcomeUnknown: true })
@@ -282,7 +311,7 @@ export function createRepoConfigApi(request:RequestFn=browserRequest):Readonly<R
       body:JSON.stringify({action:'sync_labels',owner,repo,branch:'main',previewId,
         confirmRemovals:confirmed}),
     })
-    try { return parseAction(body) }
+    try { return parseAction(body,'sync_labels') }
     catch (error) {
       throw requestFailure(error instanceof Error ? error.message : 'Config 同步响应无效',
         502, { outcomeUnknown: true })
