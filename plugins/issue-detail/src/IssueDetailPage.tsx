@@ -56,6 +56,11 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
   const revision = useRef(0)
   const controller = useRef<AbortController | null>(null)
   const pageInFlight = useRef<number | null>(null)
+  useEffect(() => {
+    if (pageInFlight.current !== null && state.page >= pageInFlight.current) {
+      pageInFlight.current = null
+    }
+  }, [state.page])
   const valid = validIssueTarget(owner, repo, number)
   const numberValue = Number(number)
   const target = (owner || '') + '/' + (repo || '')
@@ -155,11 +160,16 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
           comments: uniqueComments([...previous.comments, ...next.items]),
           lastRead: new Date().toISOString(), hasMore: next.hasMore, pageError: '' }))
     } catch (error) {
-      if (current === revision.current) setState(previous => ({
-        ...previous, fetchingMore: false, pageError: asIssueError(error).message,
-      }))
+      if (current === revision.current) {
+        if (pageInFlight.current === page) pageInFlight.current = null
+        setState(previous => ({
+          ...previous, fetchingMore: false, pageError: asIssueError(error).message,
+        }))
+      }
     } finally {
-      if (current === revision.current && pageInFlight.current === page) pageInFlight.current = null
+      // A completed page remains locked until React commits its new cursor.
+      if (current === revision.current && pageInFlight.current === page &&
+          controller.current?.signal.aborted) pageInFlight.current = null
     }
   }
 
