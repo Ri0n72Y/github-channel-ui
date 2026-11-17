@@ -134,8 +134,10 @@ function configMock({protectedBranch=false,appWrite=true,userPush=true,sha=null,
       auth:init.headers?.Authorization}
     calls.push(req)
     if(path==='/app/installations/17')return reply(200,{
-      id:17,account:{login:'sample'},permissions:{contents:appWrite?'write':'read'},
+      id:17,account:{login:'sample'},permissions:{
+        contents:appWrite?'write':'read',pull_requests:'write'},
       suspended_at:null})
+    if(path==='/user')return reply(200,{id:42,login:'sample'})
     if(path===base&&method==='GET')return reply(200,{
       id:50,private:false,full_name:'sample/repo',default_branch:'main',
       permissions:{push:userPush}})
