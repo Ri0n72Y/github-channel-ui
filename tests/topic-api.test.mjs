@@ -7,7 +7,8 @@ import { createTopicProjectsEndpoint } from '../api/_topic-projects.mjs'
 
 const ROOT = '/repos/sample/repo'
 const config = 'topic: labourchain\nwhitelist: true\n'
-const data = text => ({ type: 'file', encoding: 'base64', size: Buffer.byteLength(text),
+const data = text => ({ type: 'file', sha:'a'.repeat(40),
+  encoding: 'base64', size: Buffer.byteLength(text),
   content: Buffer.from(text, 'utf8').toString('base64') })
 const respond = (code, body, headers = {}) => Response.json(body, { status: code, headers })
 function fixture(options = {}) {
@@ -18,7 +19,9 @@ function fixture(options = {}) {
     calls.push({ path: u.pathname, query: u.search, auth: init.headers?.Authorization })
     assert.equal((init.method || 'GET'), 'GET', 'Topic source must stay read-only')
     if (u.pathname === ROOT) return respond(200, { full_name: 'sample/repo',
-      private: options.private === true })
+      private: options.private === true, default_branch:'main' })
+    if (u.pathname === ROOT + '/branches/main') return respond(200, {
+      name:'main', commit:{sha:'b'.repeat(40)} })
     if (u.pathname === ROOT + '/contents/README.md') return respond(200,
       data('Preamble\n# Real Title\nDescription one\nDescription two\nemail: hi@example.org\ndatetime: Friday'))
     if (u.pathname === ROOT + '/contents/topics.config.yaml') return respond(200,
@@ -37,13 +40,18 @@ function fixture(options = {}) {
     if (u.pathname === '/search/repositories') {
       if (options.rateLimit) return respond(403, {}, { 'x-ratelimit-remaining': '0' })
       return respond(200, { total_count: options.totalCount ?? 1200,
-        items: [{ full_name: 'Member/Project', name: 'Project',
-          html_url: 'https://github.com/Member/Project', private: false }] })
+        items: [{ id:42, full_name: 'Member/Project', name: 'Project',
+          owner:{login:'Member'}, html_url: 'https://github.com/Member/Project',
+          private: false }] })
     }
     throw Error('Unexpected endpoint ' + u.pathname)
   }
   return { calls, errors, fetcher, projectFileCalls: () => projectFileCalls,
     logger: { error: (...args) => errors.push(args) } }
+}
+const verified = async ({owner,repo}) => {
+  if ((owner+'/'+repo).toLowerCase()!=='member/project')throw Error('Not installed')
+  return {repositoryId:42,installationId:17}
 }
 const url = endpoint => 'https://example.test/api/' + endpoint + '?owner=sample&repo=repo'
 
@@ -88,7 +96,7 @@ test('#31 read-only metadata endpoint logs failed whitelist file without leaking
 
 test('#31 GitHub Search explicitly exposes 1000 window exhaustion without claiming true end', async () => {
   const m = fixture()
-  const endpoint = createTopicProjectsEndpoint({ fetcher: m.fetcher })
+  const endpoint = createTopicProjectsEndpoint({ fetcher: m.fetcher, installationResolver: verified })
   const response = await endpoint.fetch(new Request(url('topic-projects') + '&page=10'))
   assert.equal(response.status, 200)
   const page = await response.json()
@@ -97,7 +105,7 @@ test('#31 GitHub Search explicitly exposes 1000 window exhaustion without claimi
   assert.equal(page.windowExhausted, true)
   assert.equal(page.totalCount, 1200)
   const end = fixture({ totalCount: 27 })
-  const final = await createTopicProjectsEndpoint({ fetcher: end.fetcher })
+  const final = await createTopicProjectsEndpoint({ fetcher: end.fetcher, installationResolver: verified })
     .fetch(new Request(url('topic-projects') + '&page=1'))
   assert.equal((await final.json()).windowExhausted, false)
 })
@@ -149,9 +157,10 @@ test('#31 Topic API POST is rejected and source target validation occurs before 
 test('#69 Topic Search forwards only original trusted GitHub image metadata', async () => {
   const fixtureData = fixture()
   const endpoint = createTopicProjectsEndpoint({
+    installationResolver: verified,
     fetcher: (url, init) => new URL(url).pathname === '/search/repositories'
       ? respond(200, { total_count: 1, items: [{
-        full_name: 'member/project', name: 'project',
+        id:42, full_name: 'member/project', name: 'project',
         html_url: 'https://github.com/member/project', private: false,
         owner: { login: 'member', avatar_url: 'https://avatars.githubusercontent.com/u/42?v=4' },
         open_graph_image_url: 'https://repository-images.githubusercontent.com/42/cover.png',
@@ -164,9 +173,10 @@ test('#69 Topic Search forwards only original trusted GitHub image metadata', as
   assert.equal(item.cover_url, 'https://repository-images.githubusercontent.com/42/cover.png')
 
   const rejected = createTopicProjectsEndpoint({
+    installationResolver: verified,
     fetcher: (url, init) => new URL(url).pathname === '/search/repositories'
       ? respond(200, { total_count: 1, items: [{
-        full_name: 'member/project', name: 'project',
+        id:42, full_name: 'member/project', name: 'project',
         html_url: 'https://github.com/member/project', private: false,
         owner: { login: 'member', avatar_url: 'https://evil.invalid/avatar.png' },
         open_graph_image_url: 'javascript:alert(1)',
