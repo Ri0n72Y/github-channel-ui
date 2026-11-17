@@ -2,7 +2,7 @@
 export type TopicCandidate = { full_name: string; html_url: string }
 export type TopicCandidatesMeta = {
   repository: { full_name: string };
-  config: { whitelist: boolean };
+  config: { whitelist: boolean } | null;
   allowedRepositories: readonly string[]
 }
 export type TopicCandidatePage<T extends TopicCandidate> = {
