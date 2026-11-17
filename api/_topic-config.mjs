@@ -101,17 +101,22 @@ async function verifyActor(fetcher, owner, repo, token, installationResolver) {
       app.account?.login?.toLowerCase() !== owner.toLowerCase() ||
       app.suspended_at || app.permissions?.contents !== 'write')
     throw error('App Installation 尚无 Contents:write 授权', 403)
+  const actor = await requestGitHub(fetcher, '/user', token)
+  if (!Number.isSafeInteger(actor?.id) ||
+      !/^[a-z\d-]{1,39}$/i.test(actor?.login || ''))
+    throw error('无法核实 GitHub OAuth 用户身份', 401)
   const target = await requestGitHub(fetcher, base, token)
   if (target?.private !== false ||
       target.full_name?.toLowerCase() !== (owner + '/' + repo).toLowerCase() ||
       target.id !== installed.repositoryId ||
-      target.permissions?.push !== true)
+      !(target.permissions?.push === true || target.permissions?.maintain === true ||
+        target.permissions?.admin === true))
     throw error('当前 GitHub 用户无目标仓库写入权限', 403)
   if (typeof target.default_branch !== 'string' ||
       !BRANCH.test(target.default_branch) || target.default_branch.startsWith('/') ||
       target.default_branch.includes('..') || target.default_branch.endsWith('/'))
     throw error('仓库默认分支无效', 502)
-  return { base, branch: target.default_branch }
+  return { base, branch: target.default_branch, appPermissions:app.permissions }
 }
 async function putYaml(fetcher, base, branch, text, token, oldFile) {
   const payload = { branch, content: Buffer.from(text, 'utf8').toString('base64'),
@@ -154,7 +159,7 @@ async function save({ body, token, fetcher, installationResolver }) {
   if (body.confirmed !== true || !SHA.test(body.expectedHeadSha || '') ||
       body.expectedFileSha !== null && !SHA.test(body.expectedFileSha || ''))
     throw error('必须确认写入并携带当前 HEAD/文件 SHA', 400)
-  const { base, branch } = await verifyActor(fetcher, body.owner, body.repo,
+  const { base, branch, appPermissions } = await verifyActor(fetcher, body.owner, body.repo,
     token, installationResolver)
   const current = await sourceState(fetcher, base, branch, token)
   const rules = await effectiveRules(fetcher, base, branch, token)
@@ -171,6 +176,8 @@ async function save({ body, token, fetcher, installationResolver }) {
     return { state:'committed', branch, effective:true,
       ...saved, config:parsed }
   }
+  if (appPermissions.pull_requests !== 'write')
+    throw error('App Installation 尚无 Pull requests:write 授权', 403)
   const workBranch = 'labourchain/topic-' + randomUUID()
   const branchUrl = 'https://github.com/' + body.owner + '/' + body.repo +
     '/tree/' + workBranch
