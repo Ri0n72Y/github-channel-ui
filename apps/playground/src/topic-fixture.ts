@@ -86,7 +86,7 @@ export function createTopicFixtureService(query: URLSearchParams): TopicPageApi 
       if(headSha!=='b'.repeat(40) ||
           (mode==='config-missing'?configSha!==null:configSha!=='a'.repeat(40)))
         throw Object.assign(new Error('配置 HEAD 已改变'), {status:409,stage:'config-write'})
-      if (!/^topic:\\s+[a-z\\d-]+/m.test(content))
+      if (!/^topic:\s+[a-z\d-]+/m.test(content))
         throw Object.assign(new Error('配置无效'), {status:422,stage:'config-write'})
       if (mode==='config-denied')throw Object.assign(new Error('Contents 写权限不足'),
         {status:403,stage:'config-write'})
