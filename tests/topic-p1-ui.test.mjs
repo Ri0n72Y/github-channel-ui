@@ -7,7 +7,7 @@ import {createServer} from 'vite'
 import react from '@vitejs/plugin-react'
 import {resolve} from 'node:path'
 const root=resolve(import.meta.dirname,'..')
-let vite,View,fixture,parseBatch
+let vite,View,fixture,parseBatch,draftModule
 before(async()=>{
   vite=await createServer({root,configFile:false,logLevel:'silent',
     plugins:[react()],server:{middlewareMode:true}})
@@ -16,6 +16,7 @@ before(async()=>{
     .createTopicFixtureService
   parseBatch=(await vite.ssrLoadModule('/plugins/topic-page/src/domain.mjs'))
     .loadInstalledTopicBatch
+  draftModule=await vite.ssrLoadModule('/plugins/topic-page/src/topic-config-draft.ts')
 })
 after(async()=>await vite?.close())
 const noop=()=>{}
@@ -92,4 +93,53 @@ test('#83 sparse Installation fixture fills after several cursor chunks, with ab
   const view=readFileSync(resolve(root,'plugins/topic-page/src/TopicPageView.tsx'),'utf8')
   assert.match(view,/加载更多项目/)
   assert.match(view,/重试加载更多/)
+})
+
+
+test('#83 Reviewer B2: pending PR locks resubmit until source HEAD or config SHA changes',async()=>{
+  const api=fixture(new URLSearchParams({topicCase:'config-pr',fixtureAuth:'1'}))
+  const snapshot=await api.getSnapshot(route,signal())
+  const result=await api.saveConfig(route,'topic: labourchain\n',
+    snapshot.headSha,snapshot.configSha,signal())
+  const html=render(snapshot,{authenticated:true,configResult:result,
+    configAwaitingMerge:true,onConfigRecheck:noop})
+  assert.match(html,/已有待合并维护 PR，重复提交已锁定/)
+  assert.match(html,/重新检查默认分支配置/)
+  const button=html.match(/<button[^>]*disabled=""[^>]*>确认提交配置<\/button>/)
+  assert.ok(button,'pending PR blocks write before any new request')
+  assert.equal(draftModule.sameTopicConfigBase(snapshot,snapshot),true)
+  assert.equal(draftModule.sameTopicConfigBase(snapshot,
+    {...snapshot,headSha:'d'.repeat(40)}),false)
+  assert.equal(draftModule.sameTopicConfigBase(snapshot,
+    {...snapshot,configSha:'e'.repeat(40)}),false)
+  const source=readFileSync(resolve(root,'plugins/topic-page/src/TopicPageContainer.tsx'),'utf8')
+  assert.match(source,/pendingConfigBase\.current !== null/)
+  assert.match(source,/sameTopicConfigBase\(pendingConfigBase\.current,meta\)/)
+  assert.match(source,/configAwaitingMerge=\{pendingConfigBase\.current !== null\}/)
+})
+test('#83 Reviewer P2: delayed successful snapshot and failed reload preserve dirty draft',async()=>{
+  const prior='topic: custom-topic\nwhitelist: false\n'
+  const initial='topic: labourchain\nwhitelist: true\n'
+  let existing=initial,dirty=false,resolveLater
+  const delayed=new Promise(resolve=>{resolveLater=resolve})
+  const refreshing=delayed.then(incoming=>{
+    existing=draftModule.reconcileTopicDraft(existing,incoming,dirty)
+  })
+  // Simulates the user editing while the retry is still in-flight.
+  await Promise.resolve()
+  existing=prior;dirty=true
+  resolveLater(initial)
+  await refreshing
+  assert.equal(existing,prior)
+  assert.equal(draftModule.reconcileTopicDraft(existing,initial,true),prior)
+  assert.equal(draftModule.reconcileTopicDraft(existing,initial,false),initial)
+  let failure
+  try {await Promise.reject(Error('GitHub GET 503'))}catch(err){failure=err}
+  assert.match(failure.message,/503/)
+  assert.equal(existing,prior,'failing GET must not mutate an existing dirty draft')
+  const source=readFileSync(resolve(root,'plugins/topic-page/src/TopicPageContainer.tsx'),'utf8')
+  assert.match(source,/draftDirty\.current=true/)
+  assert.match(source,/setDraft\(previous => reconcileTopicDraft\(previous,meta\.configText,draftDirty\.current\)\)/)
+  assert.doesNotMatch(source,/setDraft\(meta\.configText \?\?/)
+  assert.doesNotMatch(source,/setConfigUncertain\(false\).*setDraft/)
 })
