@@ -122,14 +122,15 @@ export function createTopicProjectsEndpoint({
         if (data.incomplete_results === true) throw new TopicFetchError(
           'GitHub Topic Search 结果不完整，请重试读取', 502, 'topic-search')
         const accessible = Math.min(data.total_count, 1000)
-        const candidates = data.items.slice(offset, offset + BATCH).filter(item=>
+        const searched = data.items.slice(offset, offset + BATCH)
+        const candidates = searched.filter(item=>
           !allowedNames || (typeof item?.full_name==='string' &&
             allowedNames.has(item.full_name.toLowerCase())))
         // Missing or invalid metadata is never grounds to infer an installation.
         const items = await verifyBatch(candidates, {
           fetcher, env, installationResolver,
         })
-        const end = offset + candidates.length
+        const end = offset + searched.length
         const moreOnPage = end < data.items.length
         const morePages = page * 100 < accessible
         const hasNext = moreOnPage || morePages
