@@ -281,3 +281,29 @@ test('#86 Member: route unmount aborts in-flight submission, with no background 
  await flush()
  assert.equal(calls,1)
 })
+
+test('#86 Config: session change during write releases busy, preserves unknown outcome warning',async()=>{
+ const pending=deferred()
+ let sends=0
+ const source=configFixture(new URLSearchParams({configCase:'changes'}))
+ const api={...source,save:()=>{sends++;return pending.promise}}
+ const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
+   {api,owner:'sample',repo:'repo'},p=>p.owner+'/'+p.repo)
+ try{
+  const area=app.host.querySelector('textarea')
+  await act(async()=>input(area,area.value+'\n# pending write'))
+  const submit=app.host.querySelector('button[type="submit"]')
+  assert.ok(submit&&!submit.disabled)
+  await act(async()=>submit.click())
+  assert.equal(sends,1)
+  assert.match(app.host.textContent,/正在提交/)
+  await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
+  await flush()
+  assert.doesNotMatch(app.host.textContent,/正在提交…/)
+  assert.match(app.host.textContent,/写入结果可能未知/)
+  assert.equal(sends,1)
+  pending.resolve({state:'ready'})
+  await flush()
+  assert.equal(sends,1)
+ } finally {await app.close()}
+})
