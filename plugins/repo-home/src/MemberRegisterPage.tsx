@@ -5,6 +5,7 @@ import { readDisplayBranch, repoHomeStatus, type MemberCapability, type MemberSu
   type RepoHomeApi } from './service'
 import styles from './RepoHome.module.css'
 import { subscribeSessionChanged } from '../../shared/src/session-change'
+import { uncertainWriteResult } from '../../shared/src/browser-http'
 type Fields = { name: string; githubUsername: string; role: string; bio: string; avatarUrl: string;
   links: Array<{ label: string; url: string }> }
 const initial = (): Fields => ({ name: '', githubUsername: '', role: '', bio: '', avatarUrl: '',
@@ -51,15 +52,27 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
   const fieldRefs = useRef<Partial<Record<FieldKey, HTMLInputElement | HTMLTextAreaElement | null>>>({})
   const [pending, setPending] = useState(false)
   const [result, setResult] = useState<MemberSubmitResult | null>(null)
+  const [writeOutcomeUnknown, setWriteOutcomeUnknown] = useState(false)
   const [revision, setRevision] = useState(0)
-  useEffect(() => subscribeSessionChanged(() => setRevision(n => n + 1)), [])
   const pendingController = useRef<AbortController | null>(null)
-  useEffect(() => {
-    setFields(initial()); setSubmitAttempted(false); setResult(null); setPending(false); setError('')
-  }, [owner, repo, branch])
+  useEffect(() => subscribeSessionChanged(() => {
+    const write = pendingController.current
+    if (write) {
+      pendingController.current = null
+      write.abort()
+      setPending(false)
+      setWriteOutcomeUnknown(true)
+    }
+    setCapability(null)
+    setRevision(n => n + 1)
+  }), [])
+  useEffect(() => () => {
+    pendingController.current?.abort()
+    pendingController.current = null
+  }, [])
   useEffect(() => {
     const controller = new AbortController()
-    setCapability(null); setAuthStatus(null); setError('')
+    setCapability(null); setAuthStatus(null)
     void api.getCapability(owner, repo, branch, controller.signal).then(value => {
       if (!controller.signal.aborted) setCapability(value)
     }).catch(e => {
@@ -67,15 +80,11 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
       setAuthStatus(repoHomeStatus(e))
       setError(e instanceof Error ? e.message : '权限验证失败')
     })
-    return () => {
-      controller.abort()
-      pendingController.current?.abort()
-      pendingController.current = null
-    }
+    return () => controller.abort()
   }, [api, owner, repo, branch, revision])
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!capability || pending) return
+    if (!capability || pending || writeOutcomeUnknown || pendingController.current) return
     setSubmitAttempted(true)
     const first = Object.keys(validateVisibleFields(fields))[0] as FieldKey | undefined
     if (first) {
@@ -92,16 +101,28 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
     setPending(true); setError(''); setResult(null)
     try {
       const saved = await api.register(owner, repo, branch, member, controller.signal)
-      if (!controller.signal.aborted) setResult(saved)
+      if (pendingController.current === controller && !controller.signal.aborted) setResult(saved)
     } catch (e) {
-      if (!controller.signal.aborted) {
-        setError(e instanceof Error ? e.message : '提交失败，请重试')
+      if (pendingController.current === controller && !controller.signal.aborted) {
+        setError(e instanceof Error ? e.message : '提交失败，请先核查 GitHub 状态')
+        if (uncertainWriteResult(e)) setWriteOutcomeUnknown(true)
         if (repoHomeStatus(e) === 401) { setAuthStatus(401); setCapability(null) }
       }
     } finally {
-      if (pendingController.current === controller) pendingController.current = null
-      if (!controller.signal.aborted) setPending(false)
+      if (pendingController.current === controller) {
+        pendingController.current = null
+        setPending(false)
+      }
     }
+  }
+  function unlockUnknownWrite() {
+    if (pending || !writeOutcomeUnknown || !window.confirm(
+      '请确认已在 GitHub 检查成员文件和可能存在的维护 PR，并确认可以安全发起新的提交。解除锁定后将重新检查写入权限，继续吗？'
+    )) return
+    setWriteOutcomeUnknown(false)
+    setCapability(null)
+    setError('')
+    setRevision(n => n + 1)
   }
   function change(key: keyof Omit<Fields, 'links'>, value: string) {
     setFields(previous => ({ ...previous, [key]: value }))
@@ -116,6 +137,12 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
     <p className={styles.muted}>目标：{owner}/{repo} · 提交到 <strong>{branch}</strong></p>
     {authStatus === null && !capability && <p role="status">正在验证操作者和仓库写权限…</p>}
     {error && <p role="alert">{error}</p>}
+    {writeOutcomeUnknown && <div role="alert">
+      <p>提交结果未知，GitHub 可能已经接收请求。请先核查成员文件和维护 PR，禁止直接重复提交。</p>
+      <button type="button" onClick={unlockUnknownWrite} disabled={pending}>
+        我已核查 GitHub，解除提交锁定并重验权限
+      </button>
+    </div>}
     {submitAttempted && Object.keys(fieldErrors).length > 0 &&
       <p role="alert">请修正标记的字段后重新提交。</p>}
     {authStatus === 401 && <a href={login}>登录 GitHub 后返回此表单</a>}
@@ -183,7 +210,7 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
             </div>
           })}
         </fieldset>
-        <div className={styles.actions}><button type="submit" disabled={pending}>
+        <div className={styles.actions}><button type="submit" disabled={pending || writeOutcomeUnknown}>
           {pending ? '正在提交…' : '提交成员资料'}</button><Link to={base + '/members'}>取消</Link></div>
       </form></>}
     {result && <p role="status">{result.status === 'pending_pr' ?

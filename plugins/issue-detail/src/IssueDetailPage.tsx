@@ -55,17 +55,20 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
   const [notice, setNotice] = useState<FormNotice | null>(null)
   const revision = useRef(0)
   const controller = useRef<AbortController | null>(null)
+  const pageInFlight = useRef<number | null>(null)
+  useEffect(() => {
+    if (pageInFlight.current !== null && state.page >= pageInFlight.current) {
+      pageInFlight.current = null
+    }
+  }, [state.page])
   const valid = validIssueTarget(owner, repo, number)
   const numberValue = Number(number)
   const target = (owner || '') + '/' + (repo || '')
   const routeKey = target + '/issues/' + (number || '')
 
   useEffect(() => {
-    setNotice(null)
-  }, [routeKey])
-
-  useEffect(() => {
     const current = ++revision.current
+    pageInFlight.current = null
     const abort = new AbortController()
     controller.current = abort
     setState({ ...empty, key: routeKey })
@@ -142,20 +145,31 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
   }
 
   async function loadMore() {
-    if (!valid || !owner || !repo || !issue || !state.hasMore || state.fetchingMore) return
+    if (!valid || !owner || !repo || !issue || !state.hasMore ||
+        state.fetchingMore || pageInFlight.current !== null) return
+    const page = state.page + 1
+    pageInFlight.current = page
     const current = revision.current
     setState(previous => ({ ...previous, fetchingMore: true, pageError: '' }))
     try {
-      const next = await service.getComments(owner, repo, numberValue, state.page + 1,
+      const next = await service.getComments(owner, repo, numberValue, page,
         controller.current?.signal || new AbortController().signal)
       if (current !== revision.current) return
-      setState(previous => ({ ...previous, fetchingMore: false, page: previous.page + 1,
-        comments: uniqueComments([...previous.comments, ...next.items]),
-        lastRead: new Date().toISOString(), hasMore: next.hasMore, pageError: '' }))
+      setState(previous => previous.key !== routeKey || previous.page !== page - 1
+        ? previous : ({ ...previous, fetchingMore: false, page,
+          comments: uniqueComments([...previous.comments, ...next.items]),
+          lastRead: new Date().toISOString(), hasMore: next.hasMore, pageError: '' }))
     } catch (error) {
-      if (current === revision.current) setState(previous => ({
-        ...previous, fetchingMore: false, pageError: asIssueError(error).message,
-      }))
+      if (current === revision.current) {
+        if (pageInFlight.current === page) pageInFlight.current = null
+        setState(previous => ({
+          ...previous, fetchingMore: false, pageError: asIssueError(error).message,
+        }))
+      }
+    } finally {
+      // A completed page remains locked until React commits its new cursor.
+      if (current === revision.current && pageInFlight.current === page &&
+          controller.current?.signal.aborted) pageInFlight.current = null
     }
   }
 

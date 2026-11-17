@@ -23,8 +23,10 @@ export function createRepoHomePlugin(api: RepoHomeApi = repoHomeApi,
       }
       ctx.effect(() => ctx.reactUI.registerPage({ id, path, Component: Entry }))
     }
-    const HomeWithVisualTheme = ({ api }: { api: RepoHomeApi }) =>
-      <RepoHomePage api={api} theme={options.theme} />
+    function HomeWithVisualTheme({ api }: { api: RepoHomeApi }) {
+      const { owner = '', repo = '' } = useParams<'owner' | 'repo'>()
+      return <RepoHomePage key={owner + '/' + repo} api={api} theme={options.theme} />
+    }
     register('repo-home', '/:owner/:repo', HomeWithVisualTheme)
     register('repo-home-members', '/:owner/:repo/members', MembersPage)
     register('repo-home-register', '/:owner/:repo/members/register', ScopedMemberRegisterPage)
