@@ -227,7 +227,7 @@ function validPullRequestUrl(value:unknown):boolean{
     const url=new URL(value)
     return url.protocol==='https:'&&url.hostname==='github.com'&&
       !url.username&&!url.password&&
-      /^\\/[^/]+\\/[^/]+\\/pull\\/[1-9][0-9]*$/.test(url.pathname)
+      /^\/[^/]+\/[^/]+\/pull\/[1-9][0-9]*$/.test(url.pathname)
   }catch{return false}
 }
 function parseAction(value:unknown,action:'save_config'|'sync_labels'):ConfigActionResult{
