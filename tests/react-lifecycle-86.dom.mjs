@@ -528,3 +528,101 @@ test('#86 QA: malformed 200 or non-JSON POST response is classified as unknown',
  await assert.rejects(createRepoConfigApi(rejected).save('sample','repo','yaml','head',null,signal),
   e=>e.status===403&&!uncertainWriteResult(e))
 })
+
+
+test('#86 B1: malformed successful Config Save/Sync responses become unknown writes',async()=>{
+ const {createRepoConfigApi}=await server.ssrLoadModule('/plugins/repo-config/src/service.ts')
+ const {uncertainWriteResult}=await server.ssrLoadModule('/plugins/shared/src/browser-http.ts')
+ const signal=new AbortController().signal
+ const response=body=>new Response(JSON.stringify(body),{
+  status:200,headers:{'Content-Type':'application/json'}})
+ const save=body=>createRepoConfigApi(async()=>response(body)).save(
+  'sample','repo','namespaces:\n  status: [todo]','a'.repeat(40),'b'.repeat(40),signal)
+ const sync=body=>createRepoConfigApi(async()=>response(body)).sync(
+  'sample','repo','c'.repeat(64),true,signal)
+ for(const body of [
+  {state:'awaiting_pr_merge'},
+  {state:'awaiting_pr_merge',prUrl:''},
+  {state:'awaiting_pr_merge',prUrl:'https://evil.example/sample/repo/pull/1'},
+  {state:'awaiting_pr_merge',prUrl:'https://github.com/sample/repo/issues/1'},
+  {state:'unexpected'},
+  {state:'sync_pending'},
+  {state:'ready'},
+  {state:'partial_failure'},
+ ]){
+  await assert.rejects(save(body),e=>e.outcomeUnknown===true&&uncertainWriteResult(e),
+    'save response must be unknown: '+JSON.stringify(body))
+ }
+ for(const body of [
+  {state:'unexpected'},
+  {state:'awaiting_pr_merge',prUrl:'https://github.com/sample/repo/pull/3'},
+  {state:'sync_pending',commitSha:'a'.repeat(40)},
+  {state:'ready'},
+  {state:'partial_failure'},
+ ]){
+  await assert.rejects(sync(body),e=>e.outcomeUnknown===true&&uncertainWriteResult(e),
+    'sync response must be unknown: '+JSON.stringify(body))
+ }
+ assert.equal((await save({state:'awaiting_pr_merge',
+  prUrl:'https://github.com/sample/repo/pull/88'})).state,'awaiting_pr_merge')
+ assert.equal((await save({state:'sync_pending',commitSha:'d'.repeat(40),
+  fileSha:'e'.repeat(40)})).state,'sync_pending')
+ assert.equal((await save({state:'ready',noChanges:true})).state,'ready')
+ assert.equal((await sync({state:'ready',createdLabels:[],removedAssociations:0})).state,'ready')
+})
+test('#86 B1: malformed 200 Config Save cannot create a second maintenance PR',async()=>{
+ const {createRepoConfigApi}=await server.ssrLoadModule('/plugins/repo-config/src/service.ts')
+ const fixture=configFixture(new URLSearchParams({configCase:'changes'}))
+ for(const bad of [{state:'awaiting_pr_merge'},{state:'unexpected'}]){
+  let posts=0
+  const wire=createRepoConfigApi(async()=>{posts++;return new Response(JSON.stringify(bad),{
+   status:200,headers:{'Content-Type':'application/json'}})})
+  const api={...fixture,save:(...args)=>wire.save(...args)}
+  const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
+   {api,owner:'sample',repo:'repo'},p=>p.owner+'/'+p.repo)
+  try{
+   const area=app.host.querySelector('#repo-config-source')
+   await act(async()=>input(area,area.value+'\n# changed B1'))
+   let submit=app.host.querySelector('button[type="submit"]')
+   assert.ok(submit&&!submit.disabled)
+   await act(async()=>submit.click())
+   assert.equal(posts,1)
+   assert.match(app.host.textContent,/GitHub 写入结果未知/)
+   submit=app.host.querySelector('button[type="submit"]')
+   assert.ok(submit.disabled)
+   await act(async()=>submit.click())
+   assert.equal(posts,1)
+   await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
+   await flush()
+   assert.equal(app.host.querySelector('button[type="submit"]').disabled,true)
+   await act(async()=>app.host.querySelector('button[type="submit"]').click())
+   assert.equal(posts,1)
+  }finally{await app.close()}
+ }
+})
+test('#86 B1: malformed 200 Config Sync blocks retry after capability refresh',async()=>{
+ const {createRepoConfigApi}=await server.ssrLoadModule('/plugins/repo-config/src/service.ts')
+ const fixture=configFixture(new URLSearchParams({configCase:'changes'}))
+ let posts=0
+ const wire=createRepoConfigApi(async()=>{posts++;return new Response(
+  JSON.stringify({state:'unexpected'}),{status:200,
+   headers:{'Content-Type':'application/json'}})})
+ const api={...fixture,sync:(...args)=>wire.sync(...args)}
+ const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
+  {api,owner:'sample',repo:'repo'},p=>p.owner+'/'+p.repo)
+ try{
+  await act(async()=>app.host.querySelector('input[type="checkbox"]').click())
+  let button=[...app.host.querySelectorAll('button')].find(b=>b.textContent.includes('确认并执行 Label 同步'))
+  assert.ok(button&&!button.disabled)
+  await act(async()=>button.click())
+  assert.equal(posts,1)
+  assert.match(app.host.textContent,/GitHub 写入结果未知/)
+  assert.equal(button.disabled,true)
+  await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
+  await flush()
+  button=[...app.host.querySelectorAll('button')].find(b=>b.textContent.includes('确认并执行 Label 同步'))
+  assert.ok(button.disabled)
+  await act(async()=>button.click())
+  assert.equal(posts,1)
+ }finally{await app.close()}
+})
