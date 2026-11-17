@@ -269,7 +269,11 @@ export function createRepoConfigApi(request:RequestFn=browserRequest):Readonly<R
       body:JSON.stringify({action:'save_config',owner,repo,branch:'main',content,
         expectedHeadSha:head,expectedFileSha:file}),
     })
-    return parseAction(body)
+    try { return parseAction(body) }
+    catch (error) {
+      throw requestFailure(error instanceof Error ? error.message : 'Config 写入响应无效',
+        502, { outcomeUnknown: true })
+    }
   }
   async function sync(owner:string,repo:string,previewId:string,confirmed:boolean,
     signal:AbortSignal){
@@ -278,7 +282,11 @@ export function createRepoConfigApi(request:RequestFn=browserRequest):Readonly<R
       body:JSON.stringify({action:'sync_labels',owner,repo,branch:'main',previewId,
         confirmRemovals:confirmed}),
     })
-    return parseAction(body)
+    try { return parseAction(body) }
+    catch (error) {
+      throw requestFailure(error instanceof Error ? error.message : 'Config 同步响应无效',
+        502, { outcomeUnknown: true })
+    }
   }
   return Object.freeze({get,save,sync})
 }
