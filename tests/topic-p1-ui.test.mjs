@@ -139,7 +139,7 @@ test('#83 Reviewer P2: delayed successful snapshot and failed reload preserve di
   assert.equal(existing,prior,'failing GET must not mutate an existing dirty draft')
   const source=readFileSync(resolve(root,'plugins/topic-page/src/TopicPageContainer.tsx'),'utf8')
   assert.match(source,/draftDirty\.current=true/)
-  assert.match(source,/setDraft\(previous => reconcileTopicDraft\(previous,meta\.configText,draftDirty\.current\)\)/)
+  assert.match(source,/setDraft\(previous => reconcileTopicDraft\(previous,incomingConfigText,draftDirty\.current\)\)/)
   assert.doesNotMatch(source,/setDraft\(meta\.configText \?\?/)
   assert.doesNotMatch(source,/setConfigUncertain\(false\).*setDraft/)
 })
