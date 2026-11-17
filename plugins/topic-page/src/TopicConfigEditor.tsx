@@ -3,12 +3,14 @@ import styles from './topic-page.module.css'
 
 /** @summary Keep missing Topic YAML editable but never write before user confirmation. */
 export default function TopicConfigEditor({snapshot, draft, authenticated, pending,
-  uncertain, error, result, loginUrl, onChange, onSave, onConfirmUnknown}:{
+  uncertain, awaitingMerge, error, result, loginUrl,
+  onChange, onSave, onConfirmUnknown, onRecheck}:{
   readonly snapshot:TopicSnapshot;readonly draft:string;readonly authenticated:boolean
-  readonly pending:boolean;readonly uncertain:boolean;readonly error:string
+  readonly pending:boolean;readonly uncertain:boolean;readonly awaitingMerge:boolean
+  readonly error:string
   readonly result:TopicConfigResult|null;readonly loginUrl:string
   readonly onChange:(value:string)=>void;readonly onSave:()=>void
-  readonly onConfirmUnknown:()=>void
+  readonly onConfirmUnknown:()=>void;readonly onRecheck:()=>void
 }){
   return <section className={styles.configPanel} aria-labelledby="topic-config-heading">
     <div className={styles.sectionHeading}>
@@ -23,15 +25,19 @@ export default function TopicConfigEditor({snapshot, draft, authenticated, pendi
       spellCheck={false} rows={5} value={draft}
       onChange={event=>onChange(event.target.value)} disabled={pending}/>
     <div className={styles.configActions}>
-      {authenticated?<button type="button" disabled={pending||uncertain}
+      {authenticated?<button type="button" disabled={pending||uncertain||awaitingMerge}
         onClick={onSave}>{pending?'正在提交…':'确认提交配置'}</button>:
         <a href={loginUrl}>登录 GitHub 后提交配置</a>}
+      {awaitingMerge&&<button type="button" disabled={pending} onClick={onRecheck}>
+        重新检查默认分支配置
+      </button>}
       {uncertain&&<button type="button" onClick={onConfirmUnknown}>
         我已在 GitHub 核查，允许再次提交</button>}
     </div>
     {error&&<p className={styles.errorText} role="alert">{error}</p>}
     {result?.state==='committed'&&<p role="status">配置已提交并从默认分支回读。</p>}
     {result?.state==='unchanged'&&<p role="status">配置没有变化。</p>}
+    {awaitingMerge&&<p role="status">已有待合并维护 PR，重复提交已锁定；需重新检查默认分支。</p>}
     {result?.state==='pending_pr'&&<p role="status">
       已创建维护 PR；合并前继续使用默认分支原配置。
       {result.prUrl&&<a href={result.prUrl} target="_blank" rel="noopener noreferrer">
