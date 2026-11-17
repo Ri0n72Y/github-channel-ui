@@ -1,6 +1,7 @@
 import { requireTopicTarget, github, topicConfig, topicError, reply,
   publicRepository, TopicFetchError } from './_topic.mjs'
 import { resolveInstalledRepository, ProbeError } from './_installation-probe.mjs'
+import { loadTopicWhitelist } from './_topic-whitelist.mjs'
 
 const BATCH = 25
 const WORKERS = 5
@@ -108,6 +109,10 @@ export function createTopicProjectsEndpoint({
         const offset = Number(rawOffset), args = { fetcher }
         await publicRepository(owner, repo, args)
         const config = await topicConfig(owner, repo, args)
+        // Whitelist constrains already-installed candidates; disabling it never
+        // disables the App Installation check or public repository verification.
+        const sourceAllow = await loadTopicWhitelist(owner,repo,config,{fetcher})
+        const allowedNames = sourceAllow ? new Set(sourceAllow) : null
         const data = await github('/search/repositories?q=topic:' +
           encodeURIComponent(config.topic) + '&sort=updated&order=desc&per_page=100&page=' +
           page, { ...args, stage: 'topic-search' })
@@ -117,7 +122,9 @@ export function createTopicProjectsEndpoint({
         if (data.incomplete_results === true) throw new TopicFetchError(
           'GitHub Topic Search 结果不完整，请重试读取', 502, 'topic-search')
         const accessible = Math.min(data.total_count, 1000)
-        const candidates = data.items.slice(offset, offset + BATCH)
+        const candidates = data.items.slice(offset, offset + BATCH).filter(item=>
+          !allowedNames || (typeof item?.full_name==='string' &&
+            allowedNames.has(item.full_name.toLowerCase())))
         // Missing or invalid metadata is never grounds to infer an installation.
         const items = await verifyBatch(candidates, {
           fetcher, env, installationResolver,
