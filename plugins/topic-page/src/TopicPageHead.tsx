@@ -9,10 +9,10 @@ export default function TopicPageHead({ snapshot }: { snapshot: TopicSnapshot })
     {snapshot.coverUrl && <img src={snapshot.coverUrl} alt=""
       onError={e => { e.currentTarget.hidden = true }}/>}
     <div className={styles.headCopy}>
-      <span className={styles.eyebrow}>TOPIC / {snapshot.config.topic}</span>
+      <span className={styles.eyebrow}>TOPIC / {snapshot.config?.topic || '尚未初始化'}</span>
       <h1>{title}</h1>
       {description && <p className={styles.description}>{description}</p>}
-      <p className={styles.sourceHint}>公开 GitHub Topic 候选，未核验 LabourChain Installation。</p>
+      <p className={styles.sourceHint}>仅展示已通过当前 GitHub App Installation 核验的公开仓库。</p>
       <a href={snapshot.repository.html_url} target="_blank" rel="noopener noreferrer">
         查看官方仓库
       </a>
