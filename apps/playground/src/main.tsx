@@ -6,6 +6,9 @@ import { startRuntime } from './runtime'
 import './style.css'
 
 const root = createRoot(document.getElementById('root')!)
-void startRuntime()
+const runtime = new URLSearchParams(window.location.search).has('plugin')
+  ? import('./single-plugin-runtime').then(module => module.startSinglePluginRuntime())
+  : startRuntime()
+void runtime
   .then(({ ui, sessionRequest }) => root.render(<StrictMode><BrowserRouter><App ui={ui} sessionRequest={sessionRequest} /></BrowserRouter></StrictMode>))
   .catch(console.error)
