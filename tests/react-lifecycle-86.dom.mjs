@@ -307,3 +307,44 @@ test('#86 Config: session change during write releases busy, preserves unknown o
   assert.equal(sends,1)
  } finally {await app.close()}
 })
+
+test('#86 Repo: stale A response after B navigation never leaks A data into B links',async()=>{
+ const first=deferred()
+ const api={
+  getHome:(o,r,b)=>r==='alpha'?first.promise:Promise.resolve({
+   repository:{name:'beta',full_name:'sample/beta',description:'Beta confirmed'},
+   branch:b,team:{state:'empty',members:[]},readme:{state:'missing'}}),
+  getFeed:async(o,r,page)=>({page,hasMore:false,items:r==='beta'?[{
+   id:2,number:2,title:'Beta issue',state:'open',updated_at:'2026-11-17T00:00:00Z'}]:[]}),
+  getCapability:async()=>{throw Error('denied')}
+ }
+ const app=await mount('/sample/alpha','/:owner/:repo',Home,{api},p=>p.owner+'/'+p.repo)
+ try{
+  await app.go('/sample/beta')
+  first.resolve({repository:{name:'alpha',full_name:'sample/alpha',description:'Alpha stale'},
+   branch:'main',team:{state:'empty',members:[]},readme:{state:'missing'}})
+  await flush()
+  assert.doesNotMatch(app.host.textContent,/Alpha stale/)
+  assert.match(app.host.textContent,/Beta confirmed/)
+  assert.ok([...app.host.querySelectorAll('a')].some(a=>a.getAttribute('href')?.includes('/sample/beta/issues/2')))
+ } finally {await app.close()}
+})
+test('#86 Config: unmount aborts active GitHub write without hidden retry',async()=>{
+ const pending=deferred()
+ let signal, calls=0
+ const source=configFixture(new URLSearchParams({configCase:'changes'}))
+ const api={...source,save:(_o,_r,_yaml,_head,_file,currentSignal)=>{
+  calls++;signal=currentSignal;return pending.promise
+ }}
+ const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
+  {api,owner:'sample',repo:'repo'},p=>p.owner+'/'+p.repo)
+ await act(async()=>input(app.host.querySelector('textarea'),
+  app.host.querySelector('textarea').value+'\n# async write'))
+ await act(async()=>app.host.querySelector('button[type="submit"]').click())
+ assert.equal(calls,1)
+ await app.close()
+ assert.equal(signal.aborted,true)
+ pending.resolve({state:'ready'})
+ await flush()
+ assert.equal(calls,1)
+})
