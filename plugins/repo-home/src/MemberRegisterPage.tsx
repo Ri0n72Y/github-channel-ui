@@ -51,6 +51,7 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
   const fieldRefs = useRef<Partial<Record<FieldKey, HTMLInputElement | HTMLTextAreaElement | null>>>({})
   const [pending, setPending] = useState(false)
   const [result, setResult] = useState<MemberSubmitResult | null>(null)
+  const [writeOutcomeUnknown, setWriteOutcomeUnknown] = useState(false)
   const [revision, setRevision] = useState(0)
   const pendingController = useRef<AbortController | null>(null)
   useEffect(() => subscribeSessionChanged(() => {
@@ -59,7 +60,7 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
       pendingController.current = null
       write.abort()
       setPending(false)
-      setError('提交已因身份变化中断，GitHub 可能已经接收请求。请先在 GitHub 核查，勿盲目重试。')
+      setWriteOutcomeUnknown(true)
     }
     setCapability(null)
     setRevision(n => n + 1)
@@ -125,6 +126,7 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
     <p className={styles.muted}>目标：{owner}/{repo} · 提交到 <strong>{branch}</strong></p>
     {authStatus === null && !capability && <p role="status">正在验证操作者和仓库写权限…</p>}
     {error && <p role="alert">{error}</p>}
+    {writeOutcomeUnknown && <p role="alert">提交已因身份变化中断，GitHub 可能已经接收请求。请先在 GitHub 核查，勿盲目重试。</p>}
     {submitAttempted && Object.keys(fieldErrors).length > 0 &&
       <p role="alert">请修正标记的字段后重新提交。</p>}
     {authStatus === 401 && <a href={login}>登录 GitHub 后返回此表单</a>}
