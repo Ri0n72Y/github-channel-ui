@@ -159,7 +159,7 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
         ...previous, fetchingMore: false, pageError: asIssueError(error).message,
       }))
     } finally {
-      if (pageInFlight.current === page) pageInFlight.current = null
+      if (current === revision.current && pageInFlight.current === page) pageInFlight.current = null
     }
   }
 
