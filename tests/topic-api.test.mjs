@@ -35,7 +35,7 @@ function fixture(options = {}) {
       projectFileCalls++; return respond(200, data('repository: Member/Project\n'))
     }
     if (u.pathname === ROOT + '/contents/projects/broken.yml') {
-      projectFileCalls++; return respond(503, { message: 'failure' })
+      projectFileCalls++; return respond(200, data('unrecognized: broken\n'))
     }
     if (u.pathname === '/search/repositories') {
       if (options.rateLimit) return respond(403, {}, { 'x-ratelimit-remaining': '0' })
