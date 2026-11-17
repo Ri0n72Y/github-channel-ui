@@ -139,6 +139,9 @@ export async function loadInstalledTopicBatch(meta, getPage, signal, cursor = { 
     if (signal?.aborted) throw new Error('Topic query aborted')
     const page = await getPage(next.page, next.offset)
     if (signal?.aborted) throw new Error('Topic query aborted')
+    if (page?.incompleteResults === true) throw Object.assign(
+      new Error('GitHub Topic Search 结果不完整，请重试读取'),
+      { stage: 'topic-search', status: 502 })
     if (!page || page.page !== next.page || page.offset !== next.offset ||
         page.perPage !== 100 || !Array.isArray(page.items) ||
         typeof page.hasNext !== 'boolean' ||
