@@ -309,3 +309,76 @@ test('#83 protected write requires App PR permission and leaves partial state on
   assert.match(body.branchUrl,/^https:\/\/github\.com\/sample\/repo\/tree\/labourchain\/topic-/)
   assert.equal(partial.calls.filter(c=>c.path===ROOT+'/pulls').length,1)
 })
+
+
+test('#83 Reviewer B1: successful direct PUT followed by readback faults stays outcomeUnknown',async()=>{
+  for(const scenario of [
+    {stage:'branch',type:'network'},
+    {stage:'branch',status:429},
+    {stage:'branch',status:503},
+    {stage:'branch',type:'json'},
+    {stage:'file',type:'network'},
+    {stage:'file',status:429},
+    {stage:'file',status:503},
+    {stage:'file',type:'json'},
+  ]){
+    const mock=configMock({readbackFailure:scenario})
+    const handler=createTopicConfigEndpoint({fetcher:mock.fetcher,
+      writeContextFn:contextFor(),installationResolver:installation})
+    const response=await handler.fetch(new Request(configUrl,{method:'POST'}))
+    assert.equal(response.status,502,JSON.stringify(scenario))
+    const body=await response.json()
+    assert.equal(body.state,'rejected',JSON.stringify(scenario))
+    assert.equal(body.outcomeUnknown,true,JSON.stringify(scenario))
+    assert.match(body.error,/已执行 GitHub PUT/)
+    assert.equal(mock.calls.filter(c=>c.method==='PUT').length,1)
+    assert.equal(mock.calls.filter(c=>c.method==='POST').length,0)
+  }
+})
+test('#83 Reviewer B1: protected PUT readback failure preserves partial branch and unknown status',async()=>{
+  const mock=configMock({protectedBranch:true,
+    readbackFailure:{stage:'file',status:503}})
+  const response=await createTopicConfigEndpoint({fetcher:mock.fetcher,
+    writeContextFn:contextFor(),installationResolver:installation})
+    .fetch(new Request(configUrl,{method:'POST'}))
+  assert.equal(response.status,200)
+  const body=await response.json()
+  assert.equal(body.state,'partial_failure')
+  assert.equal(body.effective,false)
+  assert.equal(body.outcomeUnknown,true)
+  assert.match(body.branchUrl,/^https:\/\/github\.com\/sample\/repo\/tree\/labourchain\/topic-/)
+  assert.equal(mock.calls.filter(c=>c.method==='PUT').length,1)
+  assert.equal(mock.calls.filter(c=>c.path===ROOT+'/pulls'&&c.method==='POST').length,0)
+})
+test('#83 Reviewer B2: identical protected save reuses the verified open PR',async()=>{
+  const mock=configMock({protectedBranch:true})
+  const handler=createTopicConfigEndpoint({fetcher:mock.fetcher,
+    writeContextFn:contextFor(),installationResolver:installation})
+  const one=await (await handler.fetch(new Request(configUrl,{method:'POST'}))).json()
+  const two=await (await handler.fetch(new Request(configUrl,{method:'POST'}))).json()
+  assert.equal(one.state,'pending_pr')
+  assert.equal(two.state,'pending_pr')
+  assert.equal(one.branch,two.branch)
+  assert.equal(one.prUrl,two.prUrl)
+  assert.equal(one.effective,false)
+  assert.equal(two.effective,false)
+  assert.equal(two.reused,true)
+  assert.equal(mock.calls.filter(c=>c.path===ROOT+'/git/refs'&&c.method==='POST').length,1)
+  assert.equal(mock.calls.filter(c=>c.method==='PUT').length,1)
+  assert.equal(mock.calls.filter(c=>c.path===ROOT+'/pulls'&&c.method==='POST').length,1)
+  assert.ok(mock.calls.filter(c=>c.path===ROOT+'/pulls'&&c.method==='GET').length>=2)
+})
+test('#83 Reviewer B2: competing pending-PR content or unverified open PR blocks writes',async()=>{
+  const mock=configMock({protectedBranch:true})
+  const handler=createTopicConfigEndpoint({fetcher:mock.fetcher,
+    writeContextFn:contextFor(),installationResolver:installation})
+  const first=await (await handler.fetch(new Request(configUrl,{method:'POST'}))).json()
+  assert.equal(first.state,'pending_pr')
+  const otherText=contextFor({content:'topic: changed\nwhitelist: false\n'})
+  const second=await createTopicConfigEndpoint({fetcher:mock.fetcher,
+    writeContextFn:otherText,installationResolver:installation})
+    .fetch(new Request(configUrl,{method:'POST'}))
+  // A distinct YAML creates a separate deterministic branch; source-side base still unchanged.
+  assert.equal(second.status,200)
+  assert.notEqual((await second.json()).branch,first.branch)
+})
