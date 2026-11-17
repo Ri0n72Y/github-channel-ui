@@ -36,6 +36,7 @@ type Props = {
   canSave: boolean
   canSync: boolean
   dirty: boolean
+  draftStale: boolean
   onRefresh(): void
   onContentChange(value: string): void
   onConfirmRemovalsChange(value: boolean): void
@@ -46,7 +47,7 @@ type Props = {
 /** @summary Render Config state and controls from props; business state and requests live in ConfigPage. */
 export default function ConfigView(props: Props) {
   const { owner, repo, base, login, snapshot, content, loading, busy, error,
-    result, confirmRemovals, validationState, editorEnabled, canSave, canSync, dirty,
+    result, confirmRemovals, validationState, editorEnabled, canSave, canSync, dirty, draftStale,
     onRefresh, onContentChange, onConfirmRemovalsChange, onSave, onSync } = props
   const capability = snapshot?.capability
   const plan = snapshot?.plan || null
@@ -63,6 +64,7 @@ export default function ConfigView(props: Props) {
 
     {loading && <p role="status">正在读取 main、Config 与 Label 差异…</p>}
     {error && <p className={styles.error} role="alert">{error}</p>}
+    {draftStale && <p className={styles.error} role="alert">GitHub 配置版本已变化，草稿仍保留。请先复制草稿并确认刷新，重新核对后才能提交。</p>}
     {snapshot && <section className={styles.panel} aria-labelledby="state-heading">
       <div className={styles.panelHead}>
         <div><h2 id="state-heading">当前状态</h2>
