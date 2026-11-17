@@ -15,6 +15,7 @@ export type TopicPageViewProps = {
   sentinelRef?: RefObject<HTMLDivElement | null>; onLoadMore?: () => void;
   draft?: string; authenticated?: boolean; configPending?: boolean;
   configError?: string; configResult?: TopicConfigResult | null; configUncertain?: boolean;
+  configAwaitingMerge?: boolean; onConfigRecheck?: () => void;
   onDraftChange?: (value: string) => void; onConfigSave?: () => void;
   onConfirmConfigUnknown?: () => void;
   report: { open: boolean; title: string; body: string; pending: boolean;
@@ -39,6 +40,8 @@ export default function TopicPageView(props: TopicPageViewProps) {
       snapshot={props.snapshot} draft={props.draft ?? props.snapshot.configText ?? ''}
       authenticated={props.authenticated === true}
       pending={props.configPending === true} uncertain={props.configUncertain === true}
+      awaitingMerge={props.configAwaitingMerge === true}
+      onRecheck={props.onConfigRecheck ?? (()=>{})}
       error={props.configError ?? ''} result={props.configResult ?? null}
       loginUrl={login} onChange={props.onDraftChange ?? (() => {})}
       onSave={props.onConfigSave ?? (() => {})}
