@@ -8,6 +8,7 @@ import endpoint7 from './_repo-channels.mjs'
 import topicPage from './_topic-page.mjs'
 import topicProjects from './_topic-projects.mjs'
 import topicReport from './_topic-report.mjs'
+import topicConfig from './_topic-config.mjs'
 
 const handlers = Object.freeze({
   'repo-home': endpoint1,
@@ -20,6 +21,7 @@ const handlers = Object.freeze({
   'topic-page': topicPage,
   'topic-projects': topicProjects,
   'topic-report': topicReport,
+  'topic-config': topicConfig,
 })
 
 /** @summary Preserve each original API handler while sharing one Vercel Function slot. */

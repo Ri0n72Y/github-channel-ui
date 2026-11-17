@@ -7,7 +7,7 @@ import githubSession from '../api/github-session.mjs'
 
 const issueRoutes = ['issue-detail', 'issue-comments', 'issue-config']
 const repoRoutes = ['repo-home', 'repo-feed', 'repo-member-permission',
-  'repo-member-register', 'github-installation-probe', 'repo-config', 'repo-channels', 'topic-page', 'topic-projects', 'topic-report']
+  'repo-member-register', 'github-installation-probe', 'repo-config', 'repo-channels', 'topic-page', 'topic-projects', 'topic-report', 'topic-config']
 
 const url = (gateway, route, query = '') =>
   'https://example.test/api/' + gateway + '?__lc_route=' + route + (query ? '&' + query : '')
@@ -30,7 +30,7 @@ test('Vercel rewrites retain each established public URL and the original SPA fa
   assert.equal(spa.destination, '/index.html')
   assert.equal(new RegExp('^' + spa.source + '$').test('/api/issue-detail'), false)
   assert.equal(new RegExp('^' + spa.source + '$').test('/octocat/repo/issues/1'), true)
-  assert.equal(rewrites.length, 14)
+  assert.equal(rewrites.length, 15)
   assert.deepEqual(rewrites.find(r => r.source === '/api/github-logout'),
     { source: '/api/github-logout', destination: '/api/github-session?__lc_route=logout' })
   for (const name of issueRoutes) {
@@ -54,7 +54,7 @@ test('grouped Issue handlers preserve their original method guard without GitHub
 test('grouped Repo handlers retain method restrictions, including protected writes', async () => {
   for (const name of repoRoutes.filter(name => name !== 'repo-config')) {
     const method = name === 'repo-member-register' ? 'GET' :
-      name === 'topic-report' ? 'OPTIONS' : 'POST'
+      name === 'topic-report' || name === 'topic-config' ? 'OPTIONS' : 'POST'
     const response = await repoAccess.fetch(new Request(url('repo-access', name), { method }))
     assert.equal(response.status, 405, name)
   }

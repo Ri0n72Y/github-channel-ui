@@ -337,3 +337,31 @@
 @media (prefers-reduced-motion:reduce) {
   .projectCard,.skeleton {animation-duration:.01ms;transition-duration:.01ms}
 }
+
+.configPanel {
+  margin: 0 0 36px; padding: 24px; background: var(--lc-surface);
+  border: 1px solid var(--lc-stroke); border-radius: 14px;
+  display: grid; gap: 14px;
+}
+.configPanel h2 {font-size: 24px; margin:0}
+.configPanel .note {line-height:1.6;margin:0}
+.configLabel {font-weight:700;color:var(--lc-text)}
+.configEditor {
+  display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;
+  background:var(--lc-surface-input);color:var(--lc-text);
+  border:1px solid var(--lc-stroke-strong);border-radius:10px;
+  padding:14px;font:14px/1.55 ui-monospace,monospace;
+  min-height:125px;resize:vertical;
+}
+.configActions{display:flex;align-items:center;flex-wrap:wrap;gap:12px}
+.configActions button,.loadMore button {
+  min-height:44px;border:1px solid var(--lc-stroke-strong);border-radius:9px;
+  background:var(--lc-primary);color:var(--lc-on-primary);
+  padding:10px 16px;cursor:pointer;font:inherit;font-weight:700;
+}
+.configActions button:disabled,.loadMore button:disabled{opacity:.6;cursor:default}
+.configActions a,.configPanel a{color:var(--lc-link);font-weight:700}
+.configPanel button:focus-visible,.configPanel textarea:focus-visible,
+.loadMore button:focus-visible {outline:3px solid var(--lc-focus);outline-offset:3px}
+.loadMore{display:flex;justify-content:center;padding:24px 0}
+@media(max-width:700px){.configPanel{padding:16px}.configActions button{width:100%}}

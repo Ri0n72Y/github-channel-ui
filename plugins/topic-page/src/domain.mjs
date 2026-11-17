@@ -82,7 +82,7 @@ export function accumulateTopicProjects(meta, pages, minimum = 10) {
           typeof project.html_url !== 'string') continue
       const name = project.full_name.toLowerCase()
       if (seen.has(name) || name === meta.repository.full_name.toLowerCase() ||
-          meta.config.whitelist && !allowed.has(name)) continue
+          meta.config?.whitelist && !allowed.has(name)) continue
       seen.add(name)
       items.push(project)
     }
@@ -124,4 +124,51 @@ export async function loadTopicProjectCandidates(meta, getPage, signal, minimum 
   }
   throw Object.assign(new Error('GitHub Search 分页超出安全读取上限'),
     { stage: 'topic-search', status: 502 })
+}
+
+
+/** @summary Drain bounded, installation-verified cursor batches until minimum visible cards. */
+export async function loadInstalledTopicBatch(meta, getPage, signal, cursor = { page: 1, offset: 0 },
+  existingIds = [], minimum = 10) {
+  const seen = new Set(existingIds), names = new Set()
+  const allowed = new Set((meta.allowedRepositories || []).map(name => name.toLowerCase()))
+  const source = meta.repository.full_name.toLowerCase()
+  const items = []
+  let next = cursor, ended = false, windowExhausted = false, slicesRead = 0
+  while (next && slicesRead < 40 && items.length < minimum) {
+    if (signal?.aborted) throw new Error('Topic query aborted')
+    const page = await getPage(next.page, next.offset)
+    if (signal?.aborted) throw new Error('Topic query aborted')
+    if (page?.incompleteResults === true) throw Object.assign(
+      new Error('GitHub Topic Search 结果不完整，请重试读取'),
+      { stage: 'topic-search', status: 502 })
+    if (!page || page.page !== next.page || page.offset !== next.offset ||
+        page.perPage !== 100 || !Array.isArray(page.items) ||
+        typeof page.hasNext !== 'boolean' ||
+        page.hasNext && (!Number.isInteger(page.nextPage) ||
+          ![0,25,50,75].includes(page.nextOffset) ||
+          page.nextPage < next.page || page.nextPage > 10 ||
+          page.nextPage === next.page && page.nextOffset <= next.offset) ||
+        page.windowExhausted && page.hasNext) {
+      throw Object.assign(new Error('Topic Search 游标无效'),
+        { stage: 'topic-search', status: 502 })
+    }
+    for (const project of page.items) {
+      if (!Number.isSafeInteger(project?.id) || project.id <= 0 ||
+          typeof project.full_name !== 'string') throw Object.assign(
+        new Error('Topic Search 仓库 ID 无效'), { stage: 'topic-search', status: 502 })
+      const name = project.full_name.toLowerCase()
+      if (seen.has(project.id) || names.has(name) || name === source ||
+          meta.config?.whitelist && !allowed.has(name)) continue
+      seen.add(project.id)
+      names.add(name)
+      items.push(project)
+    }
+    slicesRead++
+    next = page.hasNext ? { page: page.nextPage, offset: page.nextOffset } : null
+    if (!next) { ended = true; windowExhausted = Boolean(page.windowExhausted) }
+  }
+  if (next && slicesRead === 40 && items.length < minimum) throw Object.assign(
+    new Error('Topic Search 超出安全游标范围'), { stage: 'topic-search', status: 502 })
+  return { items, cursor: next, ended, windowExhausted, slicesRead }
 }
