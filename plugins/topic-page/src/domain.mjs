@@ -82,7 +82,7 @@ export function accumulateTopicProjects(meta, pages, minimum = 10) {
           typeof project.html_url !== 'string') continue
       const name = project.full_name.toLowerCase()
       if (seen.has(name) || name === meta.repository.full_name.toLowerCase() ||
-          meta.config.whitelist && !allowed.has(name)) continue
+          meta.config?.whitelist && !allowed.has(name)) continue
       seen.add(name)
       items.push(project)
     }
@@ -156,7 +156,7 @@ export async function loadInstalledTopicBatch(meta, getPage, signal, cursor = { 
         new Error('Topic Search 仓库 ID 无效'), { stage: 'topic-search', status: 502 })
       const name = project.full_name.toLowerCase()
       if (seen.has(project.id) || names.has(name) || name === source ||
-          meta.config.whitelist && !allowed.has(name)) continue
+          meta.config?.whitelist && !allowed.has(name)) continue
       seen.add(project.id)
       names.add(name)
       items.push(project)
