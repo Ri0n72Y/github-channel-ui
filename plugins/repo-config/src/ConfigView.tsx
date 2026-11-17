@@ -37,6 +37,8 @@ type Props = {
   canSync: boolean
   dirty: boolean
   draftStale: boolean
+  retainedDraft: boolean
+  writeOutcomeUnknown: boolean
   onRefresh(): void
   onContentChange(value: string): void
   onConfirmRemovalsChange(value: boolean): void
@@ -48,6 +50,7 @@ type Props = {
 export default function ConfigView(props: Props) {
   const { owner, repo, base, login, snapshot, content, loading, busy, error,
     result, confirmRemovals, validationState, editorEnabled, canSave, canSync, dirty, draftStale,
+    retainedDraft, writeOutcomeUnknown,
     onRefresh, onContentChange, onConfirmRemovalsChange, onSave, onSync } = props
   const capability = snapshot?.capability
   const plan = snapshot?.plan || null
@@ -65,6 +68,12 @@ export default function ConfigView(props: Props) {
     {loading && <p role="status">正在读取 main、Config 与 Label 差异…</p>}
     {error && <p className={styles.error} role="alert">{error}</p>}
     {draftStale && <p className={styles.error} role="alert">GitHub 配置版本已变化，草稿仍保留。请先复制草稿并确认刷新，重新核对后才能提交。</p>}
+    {writeOutcomeUnknown && <p className={styles.error} role="alert">此前提交在会话变化后被中断，GitHub 写入结果可能未知。请先核查仓库，不要直接重复提交。</p>}
+    {retainedDraft && <section className={styles.panel}>
+      <h2>保留的本地 Config 草稿</h2>
+      <p>权限和配置快照正在重新校验，草稿可复制，暂不可提交。</p>
+      <textarea aria-label="保留的本地 Config 草稿" className={styles.editor} value={content} readOnly rows={12} />
+    </section>}
     {snapshot && <section className={styles.panel} aria-labelledby="state-heading">
       <div className={styles.panelHead}>
         <div><h2 id="state-heading">当前状态</h2>
