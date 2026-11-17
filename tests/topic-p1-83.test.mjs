@@ -224,3 +224,34 @@ test('#83 invalid YAML, stale HEAD, App/User denial and missing OAuth never writ
   assert.equal((await auth.fetch(new Request(configUrl,{method:'POST'}))).status,401)
   assert.equal((await auth.fetch(new Request(configUrl))).status,405)
 })
+
+
+test('#83 source projects whitelist intersects installed results on the server',async()=>{
+  const base=searchMock({items:[candidate(1),candidate(2)],total:2,config:source})
+  const calls=[]
+  const fetcher=async(url,init)=>{
+    const pathname=new URL(url).pathname
+    if(pathname===ROOT+'/contents/projects')
+      return reply(200,[{name:'p1.yaml',path:'projects/p1.yaml'}])
+    if(pathname===ROOT+'/contents/projects/p1.yaml')
+      return reply(200,file('repository: member/p1\n'))
+    return base.fetcher(url,init)
+  }
+  const endpoint=createTopicProjectsEndpoint({fetcher,
+    installationResolver:async({repo})=>{
+      calls.push(repo)
+      return {installationId:17,repositoryId:Number(repo.slice(1))}
+    }})
+  const result=await endpoint.fetch(new Request('https://labour.test'+address))
+  assert.equal(result.status,200)
+  assert.deepEqual((await result.json()).items.map(item=>item.id),[1])
+  assert.deepEqual(calls,['p1'],'not-whitelisted candidates are not installation-probed')
+  const failing=createTopicProjectsEndpoint({
+    fetcher:async(url,init)=>new URL(url).pathname===ROOT+'/contents/projects'?
+      reply(503,{message:'unavailable'}):base.fetcher(url,init),
+    installationResolver:async()=>{throw Error('should not probe')},
+  })
+  const failure=await failing.fetch(new Request('https://labour.test'+address))
+  assert.equal(failure.status,502)
+  assert.equal((await failure.json()).stage,'whitelist')
+})
