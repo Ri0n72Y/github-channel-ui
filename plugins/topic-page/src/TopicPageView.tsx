@@ -1,4 +1,4 @@
-import type { FormEvent } from 'react'
+import type { FormEvent, RefObject } from 'react'
 import TopicPageHead from './TopicPageHead'
 import TopicProjectCard from './TopicProjectCard'
 import TopicStatus from './TopicStatus'
@@ -10,6 +10,8 @@ export type TopicPageViewProps = {
   owner: string; repo: string; snapshot: TopicSnapshot | null;
   projects: TopicRepository[]; loading: boolean;
   error: TopicPageError | null; windowExhausted: boolean;
+  canLoadMore?: boolean; loadingMore?: boolean; moreError?: TopicPageError | null;
+  sentinelRef?: RefObject<HTMLDivElement | null>; onLoadMore?: () => void;
   report: { open: boolean; title: string; body: string; pending: boolean;
     checking: boolean; uncertain: boolean; message: string; url: string };
   writeEnabled: boolean; canReport: boolean;
@@ -44,7 +46,16 @@ export default function TopicPageView(props: TopicPageViewProps) {
         <div className={styles.empty}>当前可访问搜索范围没有符合配置的项目。</div>}
       {props.projects.length > 0 && <div className={styles.grid}>
         {props.projects.map(project => <TopicProjectCard
-          key={project.full_name.toLowerCase()} project={project}/>)}
+          key={project.id || project.full_name.toLowerCase()} project={project}/>)}
+      </div>}
+      {props.moreError && <p role="alert" className={styles.errorText}>
+        加载更多失败：{props.moreError.message}
+      </p>}
+      {props.canLoadMore && <div className={styles.loadMore} ref={props.sentinelRef}>
+        <button type="button" onClick={props.onLoadMore} disabled={props.loadingMore}>
+          {props.loadingMore ? '正在加载更多…' :
+            props.moreError ? '重试加载更多' : '加载更多项目'}
+        </button>
       </div>}
     </section>
     {props.report.open && <TopicReportDialog
