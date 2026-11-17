@@ -16,7 +16,7 @@ const candidate=(id)=>({id,full_name:'member/p'+id,name:'p'+id,
   owner:{login:'member'},private:false,
   html_url:'https://github.com/member/p'+id,stargazers_count:id,language:null})
 function searchMock({items=Array.from({length:100},(_,i)=>candidate(i+1)),
-  total=250, config=source,incomplete=false}={}){
+  total=250, config='topic: labourchain\nwhitelist: false\n',incomplete=false}={}){
   const calls=[]
   const fetcher=async(url,init={})=>{
     const u=new URL(url)
