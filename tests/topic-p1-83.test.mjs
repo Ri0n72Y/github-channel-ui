@@ -181,7 +181,10 @@ function configMock({protectedBranch=false,appWrite=true,appPrWrite=true,
       savedByBranch.set(req.body.branch,saved)
       return reply(201,{commit:{sha:'f'.repeat(40)},content:{sha:saved.sha}})
     }
-    if(path===base+'/pulls'&&method==='GET')return reply(200,pendingPR?[pendingPR]:[])
+    if(path===base+'/pulls'&&method==='GET'){
+      const head=new URL(url).searchParams.get('head')
+      return reply(200,pendingPR&&head==='sample:'+pendingPR.head.ref?[pendingPR]:[])
+    }
     if(path===base+'/pulls'&&method==='POST'){
       if(prFailure)return reply(503,{error:'unavailable'})
       pendingPR={number:81,html_url:'https://github.com/sample/repo/pull/81',
@@ -307,7 +310,7 @@ test('#83 protected write requires App PR permission and leaves partial state on
   assert.equal(body.effective,false)
   assert.equal(body.outcomeUnknown,true)
   assert.match(body.branchUrl,/^https:\/\/github\.com\/sample\/repo\/tree\/labourchain\/topic-/)
-  assert.equal(partial.calls.filter(c=>c.path===ROOT+'/pulls').length,1)
+  assert.equal(partial.calls.filter(c=>c.path===ROOT+'/pulls'&&c.method==='POST').length,1)
 })
 
 
@@ -368,7 +371,7 @@ test('#83 Reviewer B2: identical protected save reuses the verified open PR',asy
   assert.equal(mock.calls.filter(c=>c.path===ROOT+'/pulls'&&c.method==='POST').length,1)
   assert.ok(mock.calls.filter(c=>c.path===ROOT+'/pulls'&&c.method==='GET').length>=2)
 })
-test('#83 Reviewer B2: competing pending-PR content or unverified open PR blocks writes',async()=>{
+test('#83 Reviewer B2: changed YAML hashes to another branch; same-content PR remains deduplicated',async()=>{
   const mock=configMock({protectedBranch:true})
   const handler=createTopicConfigEndpoint({fetcher:mock.fetcher,
     writeContextFn:contextFor(),installationResolver:installation})
