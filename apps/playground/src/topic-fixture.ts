@@ -36,7 +36,12 @@ export function createTopicFixtureService(query: URLSearchParams): TopicPageApi 
           full_name: 'sample/repo', html_url: 'https://github.com/sample/repo' },
         readme: '封面说明（必须排除）\n# Topic 样例活动\n第一段简介\n第二段简介\nemail: team@example.org\ndatetime: 2026-11-12\n',
         coverUrl: null,
-        config: { topic: 'labourchain', whitelist: mode !== 'no-whitelist' },
+        config: mode === 'config-missing' ? null :
+          { topic: 'labourchain', whitelist: mode !== 'no-whitelist' },
+        configState: mode === 'config-missing' ? 'missing' : 'ready',
+        configText: mode === 'config-missing' ? null : 'topic: labourchain\nwhitelist: true\n',
+        configSha: mode === 'config-missing' ? null : 'a'.repeat(40),
+        headSha: 'b'.repeat(40), defaultBranch: 'main',
         allowedRepositories: Array.from({ length: 12 }, (_, i) => 'member/project-' + (i + 1)),
       }
     },
@@ -72,6 +77,27 @@ export function createTopicFixtureService(query: URLSearchParams): TopicPageApi 
           project('MEMBER/PROJECT-1'), project('sample/repo'),
         ] : Array.from({ length: 11 }, (_, i) => project('member/project-' + (i + 2))),
       }
+    },
+    async saveConfig(route, content, headSha, configSha, signal) {
+      await wait(signal); routeCheck(route)
+      if (!authenticated) throw Object.assign(new Error('请先登录 GitHub'), {
+        status:401,stage:'config-write',
+      })
+      if(headSha!=='b'.repeat(40) ||
+          (mode==='config-missing'?configSha!==null:configSha!=='a'.repeat(40)))
+        throw Object.assign(new Error('配置 HEAD 已改变'), {status:409,stage:'config-write'})
+      if (!/^topic:\\s+[a-z\\d-]+/m.test(content))
+        throw Object.assign(new Error('配置无效'), {status:422,stage:'config-write'})
+      if (mode==='config-denied')throw Object.assign(new Error('Contents 写权限不足'),
+        {status:403,stage:'config-write'})
+      if (mode==='config-unknown')throw Object.assign(new Error('响应未知，请先核查 GitHub'),
+        {status:502,stage:'config-write',outcomeUnknown:true})
+      if (mode==='config-pr')return {
+        state:'pending_pr' as const,effective:false,branch:'labourchain/topic-fixture',
+        prUrl:'https://github.com/sample/repo/pull/81',
+      }
+      return {state:'committed' as const,effective:true,branch:'main',
+        commitSha:'c'.repeat(40)}
     },
     async getSession(signal) { await wait(signal); return authenticated },
     async getReportTarget(route: TopicRoute, signal: AbortSignal) {
