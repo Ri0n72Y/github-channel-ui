@@ -84,7 +84,8 @@ test('#77 Config, Issue, Channel and Topic preserve read models and explicit OAu
       headSha:'a'.repeat(40),fileSha:null,configText:null,
       config:{state:'config_missing',defaultPreview:'namespaces: {}'},
       capability:{state:'unauthenticated',canSaveConfig:false}}},
-    'POST /api/repo-config':{value:{state:'saved',commitSha:'a'.repeat(40)}},
+    'POST /api/repo-config':{value:{state:'ready',noChanges:true,
+      createdLabels:[],removedAssociations:0}},
   })
   const api=services['repo-config'].createRepoConfigApi(config.request)
   const snapshot=await api.get('sample','repo',signal())
