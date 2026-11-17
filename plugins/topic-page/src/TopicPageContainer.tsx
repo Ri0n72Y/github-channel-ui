@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { validTopicRepository, loadInstalledTopicBatch, parseTopicYaml } from './domain.mjs'
+import { reconcileTopicDraft, sameTopicConfigBase, type TopicConfigBase } from './topic-config-draft'
 import type { TopicPageApi, TopicRoute, TopicPageError, TopicRepository,
   TopicSnapshot, TopicConfigResult } from './service'
 import TopicPageView from './TopicPageView'
@@ -52,6 +53,8 @@ export default function TopicPageContainer({ owner, repo, api }: {
   const [savingConfig,setSavingConfig] = useState(false)
   const [configUncertain,setConfigUncertain] = useState(false)
   const configAbort = useRef<AbortController|null>(null)
+  const draftDirty = useRef(false)
+  const pendingConfigBase = useRef<TopicConfigBase|null>(null)
   const writeAbort = useRef<AbortController | null>(null)
   const proofAbort = useRef<AbortController | null>(null)
   const moreAbort = useRef<AbortController | null>(null)
@@ -77,8 +80,12 @@ export default function TopicPageContainer({ owner, repo, api }: {
         meta = await api.getSnapshot({ owner, repo }, abort.signal)
         if (abort.signal.aborted) return
         setState(prev => ({ ...prev, snapshot: meta }))
-        setDraft(meta.configText ?? 'topic: your-topic\nwhitelist: true\n')
-        setConfigResult(null); setConfigError(''); setConfigUncertain(false)
+        setDraft(previous => reconcileTopicDraft(previous,meta.configText,draftDirty.current))
+        if (pendingConfigBase.current &&
+            !sameTopicConfigBase(pendingConfigBase.current,meta)) {
+          pendingConfigBase.current = null
+          setConfigResult(null)
+        }
         if (meta.configState === 'missing') {
           setState({snapshot:meta,projects:[],loading:false,loadingMore:false,
             error:null,moreError:null,cursor:null,windowExhausted:false})
@@ -164,7 +171,7 @@ export default function TopicPageContainer({ owner, repo, api }: {
   async function saveTopicConfig() {
     const snapshot = state.snapshot
     if (!snapshot || !authenticated || savingConfig || configAbort.current ||
-        configUncertain) return
+        configUncertain || pendingConfigBase.current !== null) return
     try { parseTopicYaml(draft) }
     catch {setConfigError('Topic YAML 只能包含有效 topic 和 whitelist');return}
     if (!window.confirm('确认以当前 GitHub 账号维护 topics.config.yaml？受保护分支将创建 PR。')) return
@@ -177,7 +184,13 @@ export default function TopicPageContainer({ owner, repo, api }: {
       if(abort.signal.aborted)return
       setConfigResult(outcome)
       if(outcome.outcomeUnknown)setConfigUncertain(true)
-      if(outcome.state==='committed')setRevision(value=>value+1)
+      if(outcome.state==='pending_pr') pendingConfigBase.current={
+        headSha:snapshot.headSha,configSha:snapshot.configSha,
+      }
+      if(outcome.state==='committed'){
+        draftDirty.current=false
+        setRevision(value=>value+1)
+      }
     } catch(error) {
       if(!abort.signal.aborted) {
         const failure=asError(error,'config-write')
@@ -267,9 +280,14 @@ export default function TopicPageContainer({ owner, repo, api }: {
     canLoadMore={!!state.cursor} loadingMore={state.loadingMore}
     moreError={state.moreError} sentinelRef={sentinelRef}
     onLoadMore={() => { void loadMore() }}
-    draft={draft} onDraftChange={setDraft} authenticated={authenticated}
+    draft={draft} onDraftChange={next => {
+      draftDirty.current=true
+      setDraft(next)
+    }} authenticated={authenticated}
     configPending={savingConfig} configError={configError} configResult={configResult}
     configUncertain={configUncertain}
+    configAwaitingMerge={pendingConfigBase.current !== null}
+    onConfigRecheck={() => setRevision(value=>value+1)}
     onConfigSave={() => { void saveTopicConfig() }}
     onConfirmConfigUnknown={() => {
       setConfigUncertain(false);setConfigError('');setConfigResult(null)
