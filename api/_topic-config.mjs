@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { writeContext } from './_issue-interaction.mjs'
 import { resolveInstalledRepository, ProbeError, isGitHubRateLimited } from './_installation-probe.mjs'
 import { parseTopicYaml } from '../plugins/topic-page/src/domain.mjs'
@@ -131,12 +131,18 @@ async function putYaml(fetcher, base, branch, text, token, oldFile) {
   const fileSha = assertSha(result?.content?.sha, '写入文件 SHA')
   return { commitSha: result.commit.sha, fileSha }
 }
+/** @summary Any read/parse/rate-limit failure after a successful PUT is an unknown write outcome. */
 async function verifyWritten(fetcher, base, branch, token, sha, text) {
-  const state = await sourceState(fetcher, base, branch, token)
-  if (state.file?.sha !== sha || state.file.text !== text)
-    throw error('已提交但回读不一致；请先手工核验 GitHub', 502,
-      'config-write', true)
-  return state
+  try {
+    const state = await sourceState(fetcher, base, branch, token)
+    if (state.file?.sha !== sha || state.file.text !== text)
+      throw error('已提交但回读不一致；请先手工核验 GitHub', 502,
+        'config-write', true)
+    return state
+  } catch {
+    throw error('已执行 GitHub PUT，但回读无法确认；请先检查 GitHub 后再继续',
+      502, 'config-write', true)
+  }
 }
 function safePR(value, owner, repo) {
   if (!Number.isSafeInteger(value?.number) || value.number <= 0 ||
@@ -147,6 +153,32 @@ function safePR(value, owner, repo) {
       url.pathname.toLowerCase() === ('/' + owner + '/' + repo + '/pull/' +
         value.number).toLowerCase()
   } catch { return false }
+}
+/** @summary Stable branch names serialize same base version and YAML across retries. */
+function topicWorkBranch(owner, repo, baseBranch, headSha, fileSha, yaml) {
+  const key = JSON.stringify([owner.toLowerCase(), repo.toLowerCase(), baseBranch,
+    headSha, fileSha, yaml])
+  return 'labourchain/topic-' + createHash('sha256').update(key).digest('hex').slice(0,24)
+}
+/** @summary An existing open PR is reusable only after its branch YAML is revalidated. */
+async function findPendingTopicPull(fetcher, base, owner, repo, branch, workBranch,
+  text, token) {
+  const query = new URLSearchParams({
+    state:'open', head:owner+':'+workBranch, base:branch, per_page:'100', page:'1',
+  })
+  const pulls = await requestGitHub(fetcher, base+'/pulls?'+query, token)
+  if (!Array.isArray(pulls) || pulls.length>1)
+    throw error('无法可靠核验已有 Topic 维护 PR', 502)
+  if (!pulls.length) return null
+  const pr = pulls[0]
+  if (!safePR(pr,owner,repo) || pr.state!=='open' ||
+      pr.head?.ref!==workBranch || pr.base?.ref!==branch ||
+      pr.head?.repo?.full_name?.toLowerCase()!==(owner+'/'+repo).toLowerCase())
+    throw error('已有 Topic 维护 PR 身份不匹配，拒绝重复创建', 409)
+  const saved = await sourceState(fetcher,base,workBranch,token)
+  if (saved.file?.text !== text)
+    throw error('已有维护 PR 的文件与当前草稿不同，拒绝重复创建', 409)
+  return {pr,fileSha:saved.file.sha}
 }
 /** @summary Direct commit only on verified unprotected branches; PR elsewhere. */
 async function save({ body, token, fetcher, installationResolver }) {
@@ -178,17 +210,25 @@ async function save({ body, token, fetcher, installationResolver }) {
   }
   if (appPermissions.pull_requests !== 'write')
     throw error('App Installation 尚无 Pull requests:write 授权', 403)
-  const workBranch = 'labourchain/topic-' + randomUUID()
+  const workBranch = topicWorkBranch(body.owner,body.repo,branch,
+    current.headSha,current.file?.sha || null,text)
   const branchUrl = 'https://github.com/' + body.owner + '/' + body.repo +
     '/tree/' + workBranch
-  const created = await requestGitHub(fetcher, base + '/git/refs', token, {
-    method:'POST', headers:{ 'Content-Type':'application/json' },
-    body:JSON.stringify({ ref:'refs/heads/' + workBranch, sha:current.headSha }),
-  })
-  if (created?.ref !== 'refs/heads/' + workBranch)
-    throw error('维护分支创建状态未知；请先检查 GitHub', 502,
-      'config-write', true)
+  const existing = await findPendingTopicPull(fetcher,base,body.owner,body.repo,
+    branch,workBranch,text,token)
+  if (existing) return {state:'pending_pr',effective:false,branch:workBranch,
+    branchUrl,prUrl:existing.pr.html_url,prNumber:existing.pr.number,
+    fileSha:existing.fileSha,config:parsed,reused:true}
+  let branchCreated = false
   try {
+    const created = await requestGitHub(fetcher, base + '/git/refs', token, {
+      method:'POST', headers:{ 'Content-Type':'application/json' },
+      body:JSON.stringify({ ref:'refs/heads/' + workBranch, sha:current.headSha }),
+    })
+    if (created?.ref !== 'refs/heads/' + workBranch)
+      throw error('维护分支创建状态未知；请先检查 GitHub', 502,
+        'config-write', true)
+    branchCreated = true
     const workRules = await effectiveRules(fetcher, base, workBranch, token)
     if (workRules.length > 0) throw error('维护分支也受到规则保护', 409)
     const headNow = await sourceState(fetcher, base, branch, token)
@@ -212,7 +252,8 @@ async function save({ body, token, fetcher, installationResolver }) {
   } catch (caught) {
     const failure = caught instanceof Error ? caught.message : '未知写入结果'
     return { state:'partial_failure', effective:false, branch:workBranch,
-      branchUrl, error:failure, outcomeUnknown:Boolean(caught?.outcomeUnknown) }
+      branchUrl, error:failure,
+      outcomeUnknown:branchCreated || Boolean(caught?.outcomeUnknown) }
   }
 }
 /** @summary Reuse one grouped Function and existing user OAuth installation checks. */
