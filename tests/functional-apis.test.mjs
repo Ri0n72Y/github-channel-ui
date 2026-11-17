@@ -122,6 +122,8 @@ test('#77 Config, Issue, Channel and Topic preserve read models and explicit OAu
     'GET /api/topic-page':{value:{repository:{owner:'sample',name:'repo',
       full_name:'sample/repo',html_url:'https://github.com/sample/repo'},
       readme:'abc',coverUrl:null,config:{topic:'sample',whitelist:false},
+      configState:'ready',configText:'topic: sample',configSha:'a'.repeat(40),
+      headSha:'b'.repeat(40),defaultBranch:'main',
       allowedRepositories:[]}},
     'GET /api/topic-projects':{value:{page:1,perPage:20,totalCount:0,
       hasNext:false,windowExhausted:false,items:[]}},
