@@ -1,6 +1,6 @@
 export type TopicRoute = { owner: string; repo: string }
 export type TopicRepository = {
-  full_name: string; name: string; owner: string | null;
+  id: number; full_name: string; name: string; owner: string | null;
   description: string; html_url: string; stargazers_count: number;
   language: string | null;
   /** Optional URL supplied and host-validated from GitHub Search; never synthesized. */
@@ -13,15 +13,16 @@ export type TopicSnapshot = {
   allowedRepositories: readonly string[]
 }
 export type TopicProjectsPage = {
-  page: number; perPage: number; totalCount: number;
-  hasNext: boolean; windowExhausted: boolean; items: readonly TopicRepository[]
+  page: number; offset: number; perPage: number; totalCount: number;
+  hasNext: boolean; nextPage: number | null; nextOffset: number | null;
+  windowExhausted: boolean; items: readonly TopicRepository[]
 }
 export type TopicPageError = Error & { stage?: string; status?: number; retryable?: boolean; observedAt?: string; outcomeUnknown?: boolean }
 export type ReportIssue = { title: string; body: string }
 export interface TopicPageApi {
   readonly reportAvailable: boolean
   getSnapshot(route: TopicRoute, signal: AbortSignal): Promise<TopicSnapshot>
-  getProjects(route: TopicRoute, page: number, signal: AbortSignal): Promise<TopicProjectsPage>
+  getProjects(route: TopicRoute, page: number, signal: AbortSignal, offset?: number): Promise<TopicProjectsPage>
   getSession(signal: AbortSignal): Promise<boolean>
   getReportTarget(route: TopicRoute, signal: AbortSignal): Promise<string>
   submitReport(route: TopicRoute, report: ReportIssue, proof: string, signal: AbortSignal): Promise<string>
@@ -34,8 +35,8 @@ function topicError(message:string,status:number,stage='source',
   outcomeUnknown=false):TopicPageError{
   return Object.assign(new Error(message),{status,stage,retryable:!outcomeUnknown,outcomeUnknown})
 }
-function query(route:TopicRoute,page?:number){
-  return new URLSearchParams(page===undefined?route:{...route,page:String(page)}).toString()
+function query(route:TopicRoute,page?:number,offset?:number){
+  return new URLSearchParams(page===undefined?route:{...route,page:String(page),offset:String(offset||0)}).toString()
 }
 async function read(request:RequestFn,url:string,signal:AbortSignal):Promise<unknown>{
   const response=await request(url,{cache:'no-store',signal,credentials:'same-origin'})
@@ -75,7 +76,9 @@ function parseProject(value:unknown):TopicRepository{
     (p.owner!==null&&typeof p.owner!=='string')||
     (p.language!==null&&typeof p.language!=='string'))
     throw topicError('Topic 项目字段无效',502)
-  const result:TopicRepository={full_name:required(p.full_name,'full_name'),
+  if(!Number.isSafeInteger(p.id)||typeof p.id!=='number'||p.id<=0)
+    throw topicError('Topic 项目仓库 ID 无效',502)
+  const result:TopicRepository={id:p.id,full_name:required(p.full_name,'full_name'),
     name:required(p.name,'name'),owner:p.owner as string|null,
     description:required(p.description,'description'),
     html_url:required(p.html_url,'html_url'),
@@ -88,11 +91,18 @@ function parseProject(value:unknown):TopicRepository{
 function parsePage(value:unknown):TopicProjectsPage{
   const p=responseObject(value)
   if(!Array.isArray(p.items)||!Number.isSafeInteger(p.page)||
-    !Number.isSafeInteger(p.perPage)||!Number.isSafeInteger(p.totalCount)||
-    typeof p.hasNext!=='boolean'||typeof p.windowExhausted!=='boolean')
-    throw topicError('Topic 搜索分页数据无效',502,'topic-search')
-  return {page:p.page as number,perPage:p.perPage as number,
+    !Number.isSafeInteger(p.offset)||![0,25,50,75].includes(p.offset as number)||
+    !Number.isSafeInteger(p.perPage)||p.perPage!==100||
+    !Number.isSafeInteger(p.totalCount)||typeof p.hasNext!=='boolean'||
+    typeof p.windowExhausted!=='boolean'||
+    (p.hasNext && (!Number.isSafeInteger(p.nextPage)||
+      ![0,25,50,75].includes(p.nextOffset as number)))||
+    (!p.hasNext && (p.nextPage!==null||p.nextOffset!==null))||
+    p.hasNext && p.windowExhausted)
+    throw topicError('Topic 搜索分页游标无效',502,'topic-search')
+  return {page:p.page as number,offset:p.offset as number,perPage:100,
     totalCount:p.totalCount as number,hasNext:p.hasNext,
+    nextPage:p.nextPage as number|null,nextOffset:p.nextOffset as number|null,
     windowExhausted:p.windowExhausted,items:p.items.map(parseProject)}
 }
 /** @summary Provide a stable, no-Class Topic API with explicit OAuth Issue report writes. */
@@ -100,8 +110,8 @@ export function createTopicPageApi(request:RequestFn=browserRequest):Readonly<To
   async function getSnapshot(route:TopicRoute,signal:AbortSignal){
     return parseSnapshot(await read(request,'/api/topic-page?'+query(route),signal))
   }
-  async function getProjects(route:TopicRoute,page:number,signal:AbortSignal){
-    return parsePage(await read(request,'/api/topic-projects?'+query(route,page),signal))
+  async function getProjects(route:TopicRoute,page:number,signal:AbortSignal,offset=0){
+    return parsePage(await read(request,'/api/topic-projects?'+query(route,page,offset),signal))
   }
   async function getSession(signal:AbortSignal){
     return responseObject(await read(request,'/api/github-session',signal)).authenticated===true
