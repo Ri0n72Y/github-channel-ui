@@ -80,7 +80,8 @@ export default function TopicPageContainer({ owner, repo, api }: {
         meta = await api.getSnapshot({ owner, repo }, abort.signal)
         if (abort.signal.aborted) return
         setState(prev => ({ ...prev, snapshot: meta }))
-        setDraft(previous => reconcileTopicDraft(previous,meta.configText,draftDirty.current))
+        const incomingConfigText = meta.configText
+        setDraft(previous => reconcileTopicDraft(previous,incomingConfigText,draftDirty.current))
         if (pendingConfigBase.current &&
             !sameTopicConfigBase(pendingConfigBase.current,meta)) {
           pendingConfigBase.current = null
