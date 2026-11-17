@@ -30,11 +30,12 @@ test('#47 B1-1: A and B same-route params receive distinct React Control keys', 
 
 test('#47 B1-1: A in-flight load/save/sync cannot commit into remounted B Control', () => {
   // Static contract plus key isolation: no DOM runner is bundled in the repository.
-  assert.match(page, /useEffect\(\(\) => \(\) => \{[\s\S]*?active\.current\?\.abort\(\)/)
+  assert.match(page, /readController\.current\?\.abort\(\)/)
+  assert.match(page, /writeController\.current\?\.abort\(\)/)
   assert.match(page, /controller\.abort\(\)/)
   assert.match(page, /if \(signal\.aborted\) return/)
-  assert.match(page, /if \(controller\.signal\.aborted\) return/)
-  assert.match(page, /if \(!controller\.signal\.aborted\) \{/)
+  assert.match(page, /controller\.signal\.aborted \|\| writeController\.current !== controller/)
+  assert.match(page, /if \(!controller\.signal\.aborted && writeController\.current === controller\) \{/)
   assert.match(page, /const pendingPr = useRef/)
   assert.match(page, /const \[snapshot, setSnapshot\] = useState<ConfigSnapshot \| null>\(null\)/)
   assert.match(page, /const \[content, setContent\] = useState\(''\)/)
