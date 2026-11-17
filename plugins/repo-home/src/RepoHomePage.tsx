@@ -31,12 +31,6 @@ export default function RepoHomePage({ api, theme }: { api: RepoHomeApi; theme?:
   const nextPage = useRef(1), pendingPage = useRef<AbortController | null>(null), stopped = useRef(false)
   const controllers = useRef<Set<AbortController>>(new Set())
   const sentinel = useRef<HTMLDivElement>(null)
-  const key = owner + '/' + repo
-
-  useEffect(() => {
-    setBranch(readDisplayBranch(owner, repo))
-    setDraft(readDisplayBranch(owner, repo))
-  }, [key])
   useEffect(() => {
     const controller = new AbortController()
     setHomeLoading(true); setHomeError(''); setData(null)
