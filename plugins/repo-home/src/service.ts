@@ -167,7 +167,11 @@ export function createRepoHomeApi(request:RequestFn=browserRequest):Readonly<Rep
       method:'POST',headers:{'Content-Type':'application/json','X-LabourChain-Write':'1'},
       body:JSON.stringify({owner,repo,branch,member}),
     })
-    return parseRegistration(body)
+    try { return parseRegistration(body) }
+    catch (error) {
+      throw requestFailure(error instanceof Error ? error.message : '成员写入响应无效',
+        502, { outcomeUnknown: true })
+    }
   }
   return Object.freeze({getHome,getFeed,getCapability,register})
 }
