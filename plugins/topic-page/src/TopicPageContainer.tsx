@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { validTopicRepository, loadInstalledTopicBatch } from './domain.mjs'
+import { validTopicRepository, loadInstalledTopicBatch, parseTopicYaml } from './domain.mjs'
 import type { TopicPageApi, TopicRoute, TopicPageError, TopicRepository,
-  TopicSnapshot } from './service'
+  TopicSnapshot, TopicConfigResult } from './service'
 import TopicPageView from './TopicPageView'
 import { subscribeSessionChanged } from '../../shared/src/session-change'
 
@@ -46,6 +46,12 @@ export default function TopicPageContainer({ owner, repo, api }: {
     setSessionRevision(n => n + 1)
   }), [])
   const [report, setReport] = useState<ReportState>(EMPTY_REPORT)
+  const [draft,setDraft] = useState('')
+  const [configResult,setConfigResult] = useState<TopicConfigResult|null>(null)
+  const [configError,setConfigError] = useState('')
+  const [savingConfig,setSavingConfig] = useState(false)
+  const [configUncertain,setConfigUncertain] = useState(false)
+  const configAbort = useRef<AbortController|null>(null)
   const writeAbort = useRef<AbortController | null>(null)
   const proofAbort = useRef<AbortController | null>(null)
   const moreAbort = useRef<AbortController | null>(null)
@@ -71,6 +77,13 @@ export default function TopicPageContainer({ owner, repo, api }: {
         meta = await api.getSnapshot({ owner, repo }, abort.signal)
         if (abort.signal.aborted) return
         setState(prev => ({ ...prev, snapshot: meta }))
+        setDraft(meta.configText ?? 'topic: your-topic\nwhitelist: true\n')
+        setConfigResult(null); setConfigError(''); setConfigUncertain(false)
+        if (meta.configState === 'missing') {
+          setState({snapshot:meta,projects:[],loading:false,loadingMore:false,
+            error:null,moreError:null,cursor:null,windowExhausted:false})
+          return
+        }
         const result = await loadInstalledTopicBatch(meta, (page: number, offset: number) =>
           api.getProjects({ owner, repo }, page, abort.signal, offset), abort.signal)
         if (abort.signal.aborted) return
@@ -143,7 +156,37 @@ export default function TopicPageContainer({ owner, repo, api }: {
   useEffect(() => () => {
     writeAbort.current?.abort()
     proofAbort.current?.abort()
+    configAbort.current?.abort()
   }, [])
+
+  async function saveTopicConfig() {
+    const snapshot = state.snapshot
+    if (!snapshot || !authenticated || savingConfig || configAbort.current ||
+        configUncertain) return
+    try { parseTopicYaml(draft) }
+    catch {setConfigError('Topic YAML 只能包含有效 topic 和 whitelist');return}
+    if (!window.confirm('确认以当前 GitHub 账号维护 topics.config.yaml？受保护分支将创建 PR。')) return
+    const abort=new AbortController()
+    configAbort.current=abort
+    setSavingConfig(true);setConfigError('');setConfigResult(null)
+    try {
+      const outcome=await api.saveConfig({owner,repo},draft,snapshot.headSha,
+        snapshot.configSha,abort.signal)
+      if(abort.signal.aborted)return
+      setConfigResult(outcome)
+      if(outcome.outcomeUnknown)setConfigUncertain(true)
+      if(outcome.state==='committed')setRevision(value=>value+1)
+    } catch(error) {
+      if(!abort.signal.aborted) {
+        const failure=asError(error,'config-write')
+        setConfigError(failure.message)
+        if(failure.outcomeUnknown)setConfigUncertain(true)
+      }
+    } finally {
+      if(configAbort.current===abort)configAbort.current=null
+      if(!abort.signal.aborted)setSavingConfig(false)
+    }
+  }
 
   async function checkReportTarget() {
     proofAbort.current?.abort()
@@ -222,6 +265,13 @@ export default function TopicPageContainer({ owner, repo, api }: {
     canLoadMore={!!state.cursor} loadingMore={state.loadingMore}
     moreError={state.moreError} sentinelRef={sentinelRef}
     onLoadMore={() => { void loadMore() }}
+    draft={draft} onDraftChange={setDraft} authenticated={authenticated}
+    configPending={savingConfig} configError={configError} configResult={configResult}
+    configUncertain={configUncertain}
+    onConfigSave={() => { void saveTopicConfig() }}
+    onConfirmConfigUnknown={() => {
+      setConfigUncertain(false);setConfigError('');setConfigResult(null)
+    }}
     report={report} canReport={authenticated && Boolean(state.error)}
     writeEnabled={api.reportAvailable && !!report.proof &&
       !report.uncertain && !report.checking}
