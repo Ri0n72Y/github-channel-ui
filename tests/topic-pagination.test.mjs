@@ -20,6 +20,10 @@ function backend({totalCount=1400,failPage=0,incompletePage=0,
       private:false,full_name:'sample/repo'})
     if(u.pathname==='/repos/sample/repo/contents/topics.config.yaml')
       return Response.json(file(config))
+    if(u.pathname==='/repos/sample/repo/contents/projects')
+      return Response.json([{name:'first.yaml',path:'projects/first.yaml'}])
+    if(u.pathname==='/repos/sample/repo/contents/projects/first.yaml')
+      return Response.json(file('repository: member/project-1\n'))
     if(u.pathname==='/search/repositories'){
       const page=Number(u.searchParams.get('page'))
       calls.push({page,perPage:u.searchParams.get('per_page'),
