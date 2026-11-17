@@ -4,6 +4,7 @@ import type { ConfigActionResult, ConfigSnapshot, RepoConfigApi } from './servic
 import { configState } from './service'
 import ConfigView from './ConfigView'
 import { subscribeSessionChanged } from '../../shared/src/session-change'
+import { uncertainWriteResult } from '../../shared/src/browser-http'
 
 /** @summary Own Config requests, validation, confirmations and state transitions; the View only renders props. */
 export default function ConfigPage({ api, owner, repo }: {
@@ -25,6 +26,7 @@ export default function ConfigPage({ api, owner, repo }: {
   const writeController = useRef<AbortController | null>(null)
   const edited = useRef(false)
   const draftBase = useRef<{ head: string | null; file: string | null } | null>(null)
+  const discardOnRefresh = useRef(false)
   const [draftStale, setDraftStale] = useState(false)
   const [writeOutcomeUnknown, setWriteOutcomeUnknown] = useState(false)
   useEffect(() => subscribeSessionChanged(() => {
@@ -46,11 +48,16 @@ export default function ConfigPage({ api, owner, repo }: {
     writeController.current = null
   }, [])
 
-  const load = useCallback(async (signal: AbortSignal) => {
+  const load = useCallback(async (signal: AbortSignal, discardDraft: boolean) => {
+    setSnapshot(null)
     setLoading(true)
     try {
       let next = await api.get(owner, repo, signal)
       if (signal.aborted) return
+      if (discardDraft) {
+        edited.current = false
+        draftBase.current = null
+      }
       const pending = pendingPr.current
       if (pending) {
         if (next.configText != null && next.configText.replace(/\r\n/g, '\n') ===
@@ -83,7 +90,9 @@ export default function ConfigPage({ api, owner, repo }: {
   useEffect(() => {
     const controller = new AbortController()
     readController.current = controller
-    void load(controller.signal)
+    const discardDraft = discardOnRefresh.current
+    discardOnRefresh.current = false
+    void load(controller.signal, discardDraft)
     return () => {
       controller.abort()
       if (readController.current === controller) readController.current = null
@@ -98,9 +107,9 @@ export default function ConfigPage({ api, owner, repo }: {
   const dirty = snapshot?.state === 'config_missing' ||
     (snapshot?.configText != null &&
       content.replace(/\r\n/g, '\n') !== snapshot.configText.replace(/\r\n/g, '\n'))
-  const canSave = Boolean(!loading && !busy && !draftStale && editorEnabled && dirty && snapshot?.headSha &&
+  const canSave = Boolean(!loading && !busy && !draftStale && !writeOutcomeUnknown && editorEnabled && dirty && snapshot?.headSha &&
     validation.state === 'ready' && capability?.canSaveConfig)
-  const canSync = Boolean(!loading && !busy && !draftStale && snapshot?.state === 'sync_pending' && snapshot.snapshotId &&
+  const canSync = Boolean(!loading && !busy && !draftStale && !writeOutcomeUnknown && snapshot?.state === 'sync_pending' && snapshot.snapshotId &&
     plan?.hasChanges &&
     (!plan.createLabels.length || capability?.canCreateLabels) &&
     (!plan.removeIssueLabels.length || capability?.canRemoveLabels) &&
@@ -108,12 +117,23 @@ export default function ConfigPage({ api, owner, repo }: {
 
   function refresh() {
     if (busy || loading) return
-    if (edited.current && !window.confirm('放弃未保存的 Config 草稿并重新读取 GitHub？')) return
-    edited.current = false
-    draftBase.current = null
+    if (edited.current && !window.confirm('重新读取成功后将放弃本地草稿；读取失败则保留草稿。继续吗？')) return
+    discardOnRefresh.current = edited.current
+    setSnapshot(null)
     setDraftStale(false)
     setError('')
     setResult(null)
+    setRevision(value => value + 1)
+  }
+
+  function unlockUnknownWrite() {
+    if (busy || loading || !writeOutcomeUnknown || !window.confirm(
+      '请确认已在 GitHub 检查 Config、Labels 和可能的维护 PR，确定可以安全重新操作。解除锁定后将重新读取权限与快照，继续吗？'
+    )) return
+    setWriteOutcomeUnknown(false)
+    setSnapshot(null)
+    setConfirmRemovals(false)
+    setError('')
     setRevision(value => value + 1)
   }
 
@@ -127,7 +147,7 @@ export default function ConfigPage({ api, owner, repo }: {
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!snapshot?.headSha || !canSave || busy || loading || draftStale || writeController.current) return
+    if (!snapshot?.headSha || !canSave || busy || loading || draftStale || writeOutcomeUnknown || writeController.current) return
     if (validation.state !== 'ready') {
       setError('当前 v1 仅支持已校验的 namespaces 列表；未知字段不会被覆盖。')
       return
@@ -142,6 +162,7 @@ export default function ConfigPage({ api, owner, repo }: {
         snapshot.fileSha ?? null, controller.signal)
       if (controller.signal.aborted || writeController.current !== controller) return
       setResult(saved)
+      if (saved.state === 'partial_failure') setWriteOutcomeUnknown(true)
       if (saved.state === 'awaiting_pr_merge' && saved.prUrl) {
         pendingPr.current = { url: saved.prUrl, content }
         edited.current = false
@@ -159,6 +180,7 @@ export default function ConfigPage({ api, owner, repo }: {
     } catch (e) {
       if (!controller.signal.aborted && writeController.current === controller) {
         setError(e instanceof Error ? e.message : 'Config 提交失败')
+        if (uncertainWriteResult(e)) setWriteOutcomeUnknown(true)
         if (configState(e) === 'stale_preview') {
           setRevision(value => value + 1)
         }
@@ -172,7 +194,7 @@ export default function ConfigPage({ api, owner, repo }: {
   }
 
   async function sync() {
-    if (!snapshot?.snapshotId || !canSync || busy || loading || draftStale || writeController.current) return
+    if (!snapshot?.snapshotId || !canSync || busy || loading || draftStale || writeOutcomeUnknown || writeController.current) return
     const controller = new AbortController()
     writeController.current = controller
     setBusy(true)
@@ -183,10 +205,12 @@ export default function ConfigPage({ api, owner, repo }: {
         confirmRemovals, controller.signal)
       if (controller.signal.aborted || writeController.current !== controller) return
       setResult(synced)
+      if (synced.state === 'partial_failure') setWriteOutcomeUnknown(true)
       setRevision(value => value + 1)
     } catch (e) {
       if (!controller.signal.aborted && writeController.current === controller) {
         setError(e instanceof Error ? e.message : 'Label 同步失败')
+        if (uncertainWriteResult(e)) setWriteOutcomeUnknown(true)
         if (configState(e) === 'stale_preview') {
           setRevision(value => value + 1)
         }
@@ -217,9 +241,10 @@ export default function ConfigPage({ api, owner, repo }: {
     canSync={canSync}
     dirty={Boolean(dirty)}
     draftStale={draftStale}
-    retainedDraft={edited.current && !snapshot}
+    retainedDraft={!snapshot && Boolean(content)}
     writeOutcomeUnknown={writeOutcomeUnknown}
     onRefresh={refresh}
+    onUnlockUnknownWrite={unlockUnknownWrite}
     onContentChange={changeContent}
     onConfirmRemovalsChange={setConfirmRemovals}
     onSave={save}
