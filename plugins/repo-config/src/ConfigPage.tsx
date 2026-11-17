@@ -26,12 +26,13 @@ export default function ConfigPage({ api, owner, repo }: {
   const edited = useRef(false)
   const draftBase = useRef<{ head: string | null; file: string | null } | null>(null)
   const [draftStale, setDraftStale] = useState(false)
+  const [writeOutcomeUnknown, setWriteOutcomeUnknown] = useState(false)
   useEffect(() => subscribeSessionChanged(() => {
     if (writeController.current) {
       writeController.current.abort()
       writeController.current = null
       setBusy(false)
-      setError('身份变化已中止提交；写入结果可能未知。请先到 GitHub 核查，不要盲目重试。')
+      setWriteOutcomeUnknown(true)
     }
     setSnapshot(null)
     setRevision(n => n + 1)
@@ -55,6 +56,8 @@ export default function ConfigPage({ api, owner, repo }: {
         if (next.configText != null && next.configText.replace(/\r\n/g, '\n') ===
             pending.content.replace(/\r\n/g, '\n')) {
           pendingPr.current = null
+          edited.current = false
+          draftBase.current = null
         } else {
           next = { ...next, state: 'awaiting_pr_merge', prUrl: pending.url }
         }
@@ -141,6 +144,9 @@ export default function ConfigPage({ api, owner, repo }: {
       setResult(saved)
       if (saved.state === 'awaiting_pr_merge' && saved.prUrl) {
         pendingPr.current = { url: saved.prUrl, content }
+        edited.current = false
+        draftBase.current = null
+        setDraftStale(false)
         setSnapshot(current => current ? {
           ...current, state: 'awaiting_pr_merge', prUrl: saved.prUrl,
         } : current)
@@ -211,6 +217,8 @@ export default function ConfigPage({ api, owner, repo }: {
     canSync={canSync}
     dirty={Boolean(dirty)}
     draftStale={draftStale}
+    retainedDraft={edited.current && !snapshot}
+    writeOutcomeUnknown={writeOutcomeUnknown}
     onRefresh={refresh}
     onContentChange={changeContent}
     onConfirmRemovalsChange={setConfirmRemovals}
