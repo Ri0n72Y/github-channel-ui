@@ -123,8 +123,9 @@ test('#83 installed batch fills sparse pages, dedups stable ID and distinguishes
   await assert.rejects(loadInstalledTopicBatch(meta,getPage,aborted.signal))
 })
 
-function configMock({protectedBranch=false,appWrite=true,userPush=true,sha=null,
-  actual='topic: labourchain\nwhitelist: true\n',mismatch=false}={}){
+function configMock({protectedBranch=false,appWrite=true,appPrWrite=true,
+  userPush=true,sha=null,actual='topic: labourchain\nwhitelist: true\n',
+  mismatch=false,prFailure=false,rulesFailure=false}={}){
   const calls=[]
   const base=ROOT
   let saved=null
@@ -135,7 +136,7 @@ function configMock({protectedBranch=false,appWrite=true,userPush=true,sha=null,
     calls.push(req)
     if(path==='/app/installations/17')return reply(200,{
       id:17,account:{login:'sample'},permissions:{
-        contents:appWrite?'write':'read',pull_requests:'write'},
+        contents:appWrite?'write':'read',pull_requests:appPrWrite?'write':'read'},
       suspended_at:null})
     if(path==='/user')return reply(200,{id:42,login:'sample'})
     if(path===base&&method==='GET')return reply(200,{
@@ -146,6 +147,8 @@ function configMock({protectedBranch=false,appWrite=true,userPush=true,sha=null,
     if(path.startsWith(base+'/branches/labourchain%2Ftopic-'))return reply(200,{
       name:decodeURIComponent(path.split('/').slice(-1)[0]),
       commit:{sha:'c'.repeat(40)},protected:false})
+    if(path===base+'/rules/branches/main'&&rulesFailure)
+      return reply(403,{error:'Forbidden'})
     if(path===base+'/rules/branches/main')return reply(200,
       protectedBranch?[{type:'pull_request'}]:[])
     if(path.startsWith(base+'/rules/branches/labourchain%2Ftopic-'))
@@ -161,7 +164,8 @@ function configMock({protectedBranch=false,appWrite=true,userPush=true,sha=null,
       return reply(201,{commit:{sha:'f'.repeat(40)},content:{sha:saved.sha}})
     }
     if(path===base+'/pulls'&&method==='POST')
-      return reply(201,{number:81,html_url:'https://github.com/sample/repo/pull/81'})
+      return prFailure?reply(503,{error:'unavailable'}):
+        reply(201,{number:81,html_url:'https://github.com/sample/repo/pull/81'})
     throw Error('unexpected '+method+' '+path)
   }
   return {fetcher,calls}
@@ -254,4 +258,31 @@ test('#83 source projects whitelist intersects installed results on the server',
   const failure=await failing.fetch(new Request('https://labour.test'+address))
   assert.equal(failure.status,502)
   assert.equal((await failure.json()).stage,'whitelist')
+})
+
+
+test('#83 protected write requires App PR permission and leaves partial state on uncertain PR creation',async()=>{
+  const missing=configMock({protectedBranch:true,appPrWrite:false})
+  const denied=await createTopicConfigEndpoint({fetcher:missing.fetcher,
+    writeContextFn:contextFor(),installationResolver:installation})
+    .fetch(new Request(configUrl,{method:'POST'}))
+  assert.equal(denied.status,403)
+  assert.equal(missing.calls.filter(c=>c.method!=='GET').length,0)
+  const blocked=configMock({rulesFailure:true})
+  const badRules=await createTopicConfigEndpoint({fetcher:blocked.fetcher,
+    writeContextFn:contextFor(),installationResolver:installation})
+    .fetch(new Request(configUrl,{method:'POST'}))
+  assert.equal(badRules.status,403)
+  assert.equal(blocked.calls.filter(c=>c.method!=='GET').length,0)
+  const partial=configMock({protectedBranch:true,prFailure:true})
+  const handler=createTopicConfigEndpoint({fetcher:partial.fetcher,
+    writeContextFn:contextFor(),installationResolver:installation})
+  const response=await handler.fetch(new Request(configUrl,{method:'POST'}))
+  assert.equal(response.status,200)
+  const body=await response.json()
+  assert.equal(body.state,'partial_failure')
+  assert.equal(body.effective,false)
+  assert.equal(body.outcomeUnknown,true)
+  assert.match(body.branchUrl,/^https:\/\/github\.com\/sample\/repo\/tree\/labourchain\/topic-/)
+  assert.equal(partial.calls.filter(c=>c.path===ROOT+'/pulls').length,1)
 })
