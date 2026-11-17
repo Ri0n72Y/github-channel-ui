@@ -127,8 +127,10 @@ export default function TopicPageContainer({ owner, repo, api }: {
       if (!abort.signal.aborted) setState(prev =>
         ({ ...prev, loadingMore: false, moreError: asError(error, 'topic-search') }))
     } finally {
-      if (moreAbort.current === abort) moreAbort.current = null
-      moreLoading.current = false
+      if (moreAbort.current === abort) {
+        moreAbort.current = null
+        moreLoading.current = false
+      }
     }
   }, [api, owner, repo, state.cursor, state.snapshot, state.loading, state.projects])
 
