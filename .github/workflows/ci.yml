@@ -6,6 +6,20 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      full_regression:
+        description: Run public Node regression (Lead/Owner approval required)
+        required: true
+        type: boolean
+        default: false
+      approval_reference:
+        description: Link to specific Lead/Owner approval
+        required: true
+        type: string
+
+concurrency:
+  group: public-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -13,10 +27,13 @@ permissions:
 jobs:
   checks:
     name: Build & test
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.full_regression }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -39,3 +56,26 @@ jobs:
           else
             echo "Router tests not present on this ref; skipped."
           fi
+
+      - name: CI policy tests
+        run: node --test tests/ci-policy.test.mjs
+
+  full-regression:
+    name: Approved full regression
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.full_regression && inputs.approval_reference != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record approved request
+        env:
+          APPROVAL_REFERENCE: ${{ inputs.approval_reference }}
+        run: |
+          printf 'Approval reference: %s\n' "$APPROVAL_REFERENCE" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-audit --no-fund
+      - name: Full Node regression
+        run: node --test tests/*.test.mjs
