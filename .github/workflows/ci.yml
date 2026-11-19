@@ -49,6 +49,12 @@ jobs:
       - name: Installation tests
         run: npm run test:installation
 
+      - name: Critical business tests
+        run: npm run test:critical
+
+      - name: React lifecycle DOM tests
+        run: npm run test:dom
+
       - name: Router tests
         run: |
           if [ -f tests/router-fallback.test.mjs ]; then
@@ -78,4 +84,6 @@ jobs:
           node-version: '22'
       - run: npm install --no-audit --no-fund
       - name: Full Node regression
-        run: node --test tests/*.test.mjs
+        run: npm run test:full
+      - name: Full React lifecycle DOM regression
+        run: npm run test:dom
