@@ -243,6 +243,37 @@ test('#86 Config: maintenance PR keeps the draft awaiting merge and disallows an
  }finally{await app.close()}
 })
 
+
+test('#47 Config: reused verified maintenance PR remains pending after reload without resubmission',async()=>{
+  let saves=0,reads=0
+  const original=configFixture(new URLSearchParams({configCase:'changes'}))
+  const api={...original,
+    get:async(...args)=>{reads++;return original.get(...args)},
+    save:async()=>{saves++;return {state:'awaiting_pr_merge',reused:true,
+      prUrl:'https://github.com/sample/repo/pull/88'}}}
+  const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
+    {api,owner:'sample',repo:'repo'},p=>p.owner+'/'+p.repo)
+  try{
+    await act(async()=>input(app.host.querySelector('textarea'),
+      app.host.querySelector('textarea').value+'\n# already pending'))
+    const submit=[...app.host.querySelectorAll('button')].find(b=>b.type==='submit')
+    assert.ok(submit&&!submit.disabled)
+    await act(async()=>submit.click())
+    assert.equal(saves,1)
+    assert.match(app.host.textContent,/已复用 GitHub 上同版本、同内容的维护 PR/)
+    assert.match(app.host.textContent,/等待 GitHub 审核与合并/)
+    const refresh=[...app.host.querySelectorAll('button')].find(b=>b.textContent.includes('合并后重新检查 main'))
+    assert.ok(refresh)
+    await act(async()=>refresh.click())
+    await flush()
+    assert.ok(reads>=2)
+    assert.equal(saves,1)
+    assert.match(app.host.textContent,/等待 GitHub 审核与合并/)
+    assert.match(app.host.innerHTML,/github.com\/sample\/repo\/pull\/88/)
+    assert.equal(app.host.querySelector('button[type="submit"]'),null)
+  }finally{await app.close()}
+})
+
 test('#86 Config: remote HEAD change preserves dirty content but blocks stale writes',async()=>{
  const original=configFixture(new URLSearchParams({configCase:'changes'}))
  let revision=0,attempts=0

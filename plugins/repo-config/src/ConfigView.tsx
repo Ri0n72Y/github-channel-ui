@@ -192,6 +192,7 @@ export default function ConfigView(props: Props) {
     {result && <section className={styles.panel} aria-live="polite">
       <h2>最近一次操作</h2>
       <p>{stateText[result.state] || result.state}</p>
+      {result.reused && <p>已复用 GitHub 上同版本、同内容的维护 PR，未创建新分支或 PR。</p>}
       {result.prUrl && <a href={result.prUrl} target="_blank" rel="noopener noreferrer">查看维护 PR</a>}
       {result.branchUrl && <a href={result.branchUrl} target="_blank" rel="noopener noreferrer">查看维护分支</a>}
       {result.commitSha && <p>Commit：<code>{shaText(result.commitSha)}</code></p>}

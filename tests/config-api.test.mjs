@@ -60,6 +60,7 @@ function mockFetcher(options = {}) {
   let labels = options.labels || [{ name: 'foo:old' }]
   let currentIssue = options.issue || issue()
   const branches = new Map()
+  const pulls = []
   let createdLabelsCount = 0
   let removedLabelsCount = 0
   let completedPutCount = 0
@@ -114,6 +115,7 @@ function mockFetcher(options = {}) {
     if (path === BASE + '/git/refs' && method === 'POST') {
       const body = JSON.parse(init.body)
       const name = body.ref.replace('refs/heads/', '')
+      if (branches.has(name)) return respond(422, { message: 'Reference already exists' })
       branches.set(name, { content: mainContent, fileSha: mainFileSha, head: body.sha })
       return respond(201, { ref: body.ref, object: { sha: body.sha } })
     }
@@ -135,8 +137,30 @@ function mockFetcher(options = {}) {
       completedPutCount++
       return respond(200, { commit: { sha: COMMIT_SHA }, content: { sha: NEW_FILE_SHA } })
     }
+    if (path === BASE + '/pulls' && method === 'GET') {
+      if (options.failPullLookup) return respond(503, { message: 'PR lookup unavailable' })
+      if (options.malformedPullLookup) return respond(200, { items: [] })
+      const head = parsed.searchParams.get('head')
+      const base = parsed.searchParams.get('base')
+      const found = pulls.filter(pr => pr.state === 'open' &&
+        pr.head.ref && OWNER + ':' + pr.head.ref === head && pr.base.ref === base)
+      if (options.incompletePullLookup) return respond(200, found, {
+        link: '<https://api.github.com/repos/octocat/demo/pulls?page=2>; rel="next"',
+      })
+      if (options.duplicatePullLookup && found.length) return respond(200, [...found, found[0]])
+      return respond(200, found)
+    }
     if (path === BASE + '/pulls' && method === 'POST') {
-      return respond(201, { number: 88, html_url: 'https://github.com/octocat/demo/pull/88' })
+      if (options.failPrBeforePersist) return respond(503, { message: 'PR creation unavailable' })
+      const body = JSON.parse(init.body)
+      const number = 88 + pulls.length
+      const pr = { number, html_url: 'https://github.com/octocat/demo/pull/' + number,
+        state: 'open', head: { ref: body.head, repo: { full_name: OWNER + '/' + REPO } },
+        base: { ref: body.base } }
+      pulls.push(pr)
+      if (options.failPrAfterPersist) return respond(503, { message: 'response lost after create' })
+      if (options.invalidPrResponse) return respond(201, { number, html_url: 'https://evil.example/pull/' + number })
+      return respond(201, pr)
     }
     if (path === BASE + '/labels' && method === 'GET') return respond(200, labels)
     if (path === BASE + '/labels' && method === 'POST') {
@@ -161,7 +185,7 @@ function mockFetcher(options = {}) {
     }
     return respond(404, { message: 'Unexpected ' + method + ' ' + path })
   }
-  return { fetcher, calls, getIssue: () => currentIssue,
+  return { fetcher, calls, getIssue: () => currentIssue, pulls, branches,
     getLabels: () => labels, getMainContent: () => mainContent }
 }
 
@@ -498,4 +522,125 @@ test('#47 B1-2: post-PUT direct main verification 503 keeps commit evidence', as
   assert.equal(data.failed[0].kind, 'verify_main_commit')
   assert.equal(data.requiresRefresh, true)
   assert.equal(mock.calls.filter(call => call.method === 'PUT').length, 1)
+})
+
+
+async function configSaveRequest(mock, extra = {}) {
+  writeContext.body = {
+    owner: OWNER, repo: REPO, action: 'save_config', branch: 'main',
+    content: NEXT_CONFIG, expectedHeadSha: HEAD, expectedFileSha: FILE_SHA, ...extra,
+  }
+  const handler = createRepoConfigHandler({
+    fetcher: mock.fetcher, resolveInstalledRepository: resolve, writeContext,
+  })
+  const response = await handler.fetch(new Request('https://example.test/api/repo-config', {
+    method: 'POST', headers: { origin: 'https://example.test' },
+  }))
+  return { response, data: await response.json() }
+}
+
+const countWrites = mock => mock.calls.filter(call => call.method !== 'GET').length
+const countAt = (mock, path, method) => mock.calls.filter(call =>
+  call.path === path && call.method === method).length
+
+test('#47 PR reuse: same main HEAD, blob and Config produce one verified maintenance PR', async () => {
+  const mock = mockFetcher()
+  const first = await configSaveRequest(mock)
+  const second = await configSaveRequest(mock)
+  assert.equal(first.response.status, 200)
+  assert.equal(second.response.status, 200)
+  assert.equal(first.data.state, 'awaiting_pr_merge')
+  assert.equal(second.data.state, 'awaiting_pr_merge')
+  assert.equal(second.data.reused, true)
+  assert.equal(first.data.branch, second.data.branch)
+  assert.equal(first.data.prUrl, second.data.prUrl)
+  assert.equal(first.data.fileSha, second.data.fileSha)
+  assert.equal(countAt(mock, BASE + '/git/refs', 'POST'), 1)
+  assert.equal(countAt(mock, BASE + '/contents/labourchain.config.yaml', 'PUT'), 1)
+  assert.equal(countAt(mock, BASE + '/pulls', 'POST'), 1)
+  assert.equal(mock.getMainContent(), CONFIG)
+})
+
+test('#47 PR reuse: a changed valid YAML draft gets a separate branch; unchanged draft remains reusable', async () => {
+  const mock = mockFetcher()
+  const first = (await configSaveRequest(mock)).data
+  const revised = NEXT_CONFIG.replace('    - done', '    - done\n    - later')
+  const second = (await configSaveRequest(mock, { content: revised })).data
+  const third = (await configSaveRequest(mock)).data
+  assert.equal(second.state, 'awaiting_pr_merge')
+  assert.notEqual(first.branch, second.branch)
+  assert.notEqual(first.prUrl, second.prUrl)
+  assert.equal(third.prUrl, first.prUrl)
+  assert.equal(third.reused, true)
+  assert.equal(countAt(mock, BASE + '/pulls', 'POST'), 2)
+  assert.equal(countAt(mock, BASE + '/git/refs', 'POST'), 2)
+})
+
+test('#47 PR reuse: altered maintenance YAML, PR identity and untrusted URL fail closed', async () => {
+  for (const tamper of [
+    (mock, branch) => { mock.branches.get(branch).content = CONFIG },
+    mock => { mock.pulls[0].head.repo.full_name = 'other/repo' },
+    mock => { mock.pulls[0].html_url = 'https://evil.example/octocat/demo/pull/88' },
+    mock => { mock.pulls[0].base.ref = 'feature' },
+  ]) {
+    const mock = mockFetcher()
+    const first = (await configSaveRequest(mock)).data
+    tamper(mock, first.branch)
+    const before = countWrites(mock)
+    const result = await configSaveRequest(mock)
+    assert.notEqual(result.data.state, 'awaiting_pr_merge')
+    assert.ok(result.response.status >= 400 || result.data.state === 'partial_failure')
+    assert.equal(countWrites(mock), before, 'rejected PR must not cause any GitHub write')
+  }
+})
+
+test('#47 PR reuse: incomplete, malformed and throttled PR queries cannot create a branch', async () => {
+  for (const options of [
+    { failPullLookup: true }, { malformedPullLookup: true },
+    { incompletePullLookup: true },
+  ]) {
+    const mock = mockFetcher(options)
+    const result = await configSaveRequest(mock)
+    assert.notEqual(result.data.state, 'awaiting_pr_merge')
+    assert.equal(result.response.status >= 400, true)
+    assert.equal(countWrites(mock), 0)
+  }
+  const mock = mockFetcher({ duplicatePullLookup: true })
+  await configSaveRequest(mock)
+  const before = countWrites(mock)
+  const result = await configSaveRequest(mock)
+  assert.equal(result.response.status, 502)
+  assert.equal(result.data.state, 'partial_failure')
+  assert.equal(countWrites(mock), before)
+})
+
+test('#47 PR reuse: lost successful PR creation response is reconciled without another POST', async () => {
+  for (const options of [{ failPrAfterPersist: true }, { invalidPrResponse: true }]) {
+    const mock = mockFetcher(options)
+    const first = await configSaveRequest(mock)
+    assert.equal(first.response.status, 200)
+    assert.equal(first.data.state, 'awaiting_pr_merge')
+    assert.equal(first.data.reused, true)
+    const second = await configSaveRequest(mock)
+    assert.equal(second.data.state, 'awaiting_pr_merge')
+    assert.equal(second.data.prUrl, first.data.prUrl)
+    assert.equal(countAt(mock, BASE + '/pulls', 'POST'), 1)
+    assert.equal(countAt(mock, BASE + '/git/refs', 'POST'), 1)
+    assert.equal(mock.getMainContent(), CONFIG)
+  }
+})
+
+test('#47 PR reuse: PR creation failure leaves a deterministic branch blocked for manual check', async () => {
+  const mock = mockFetcher({ failPrBeforePersist: true })
+  const first = await configSaveRequest(mock)
+  assert.equal(first.data.state, 'partial_failure')
+  assert.equal(first.data.requiresRefresh, undefined)
+  const before = countWrites(mock)
+  const second = await configSaveRequest(mock)
+  assert.equal(second.data.state, 'partial_failure')
+  assert.equal(second.data.requiresRefresh, true)
+  assert.equal(second.response.status, 200)
+  assert.equal(countWrites(mock), before)
+  assert.equal(countAt(mock, BASE + '/pulls', 'POST'), 1)
+  assert.equal(countAt(mock, BASE + '/contents/labourchain.config.yaml', 'PUT'), 1)
 })

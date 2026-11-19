@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { readSession } from '../../github-access/server/_oauth.mjs'
 import { resolveInstalledRepository, isGitHubRateLimited, ProbeError } from '../../github-access/server/_installation-probe.mjs'
 import { writeContext } from '../../github-access/server/_issue-interaction.mjs'
@@ -264,17 +264,50 @@ async function putConfig({ owner, repo, token, fetcher, branch, current, content
   return { commitSha: result.data.commit.sha, fileSha: result.data.content.sha }
 }
 
-async function findExistingPullRequest({ owner, repo, branch, token, fetcher }) {
+/** @summary Stable ref for one repository, main HEAD/blob and normalized Config draft. */
+function configWorkBranch(owner, repo, headSha, fileSha, content) {
+  const key = JSON.stringify([owner.toLowerCase(), repo.toLowerCase(), 'main',
+    headSha, fileSha, content])
+  return 'labourchain/config-' + createHash('sha256').update(key).digest('hex').slice(0, 24)
+}
+
+function validConfigPull(pr, owner, repo, branch) {
+  if (!Number.isSafeInteger(pr?.number) || pr.number <= 0 || pr.state !== 'open' ||
+      pr.head?.ref !== branch || pr.base?.ref !== 'main' ||
+      pr.head?.repo?.full_name?.toLowerCase() !== (owner + '/' + repo).toLowerCase() ||
+      typeof pr.html_url !== 'string') return false
+  try {
+    const url = new URL(pr.html_url)
+    return url.origin === 'https://github.com' && !url.search && !url.hash &&
+      !url.username && !url.password &&
+      url.pathname.toLowerCase() === ('/' + owner + '/' + repo + '/pull/' +
+        pr.number).toLowerCase()
+  } catch { return false }
+}
+
+/** @summary A pending PR is reusable only after exact identity and branch YAML validation. */
+async function findExistingPullRequest({ owner, repo, branch, token, fetcher, content }) {
   const query = new URLSearchParams({
-    state: 'open', head: owner + ':' + branch, base: 'main', per_page: '100',
+    state: 'open', head: owner + ':' + branch, base: 'main', per_page: '100', page: '1',
   })
   const result = await githubRequest(fetcher, token,
     pathFor(owner, repo) + '/pulls?' + query.toString())
-  if (!Array.isArray(result.data)) return null
-  const pr = result.data.find(item => item.base?.ref === 'main' &&
-    item.head?.ref === branch &&
-    item.head?.repo?.full_name?.toLowerCase() === (owner + '/' + repo).toLowerCase())
-  return pr?.html_url ? { url: pr.html_url, number: pr.number } : null
+  if (!Array.isArray(result.data) || NEXT.test(result.link) || result.data.length > 1) {
+    deny('无法可靠核验已有 Config 维护 PR；不会重复创建', 502, 'partial_failure')
+  }
+  if (!result.data.length) return null
+  const pr = result.data[0]
+  if (!validConfigPull(pr, owner, repo, branch)) {
+    deny('已有 Config 维护 PR 身份与预期不一致；不会重复创建', 409, 'partial_failure')
+  }
+  const saved = await readCurrentConfig({ owner, repo, branch, token, fetcher })
+  if (saved.state !== 'ready' || !SHA.test(saved.fileSha || '') ||
+      normalizedText(saved.content) !== content) {
+    deny('已有 Config 维护 PR 的分支文件与本次草稿不同；不会复用或覆盖', 409,
+      'partial_failure')
+  }
+  return { url: pr.html_url, number: pr.number, commitSha: saved.headSha,
+    fileSha: saved.fileSha }
 }
 
 /** @summary Commit Config as the OAuth user, using a maintenance PR whenever main is protected. */
@@ -325,27 +358,48 @@ async function saveConfig({ body, token, fetcher, resolve }) {
 
   const base = pathFor(body.owner, body.repo)
   if (capability.protectedBranch) {
-    const branch = 'labourchain/config-' + randomUUID()
+    const branch = configWorkBranch(body.owner, body.repo, current.headSha,
+      current.fileSha, content)
     const branchUrl = 'https://github.com/' + body.owner + '/' + body.repo +
       '/tree/' + branch
+    const existing = await findExistingPullRequest({
+      owner: body.owner, repo: body.repo, branch, token, fetcher, content,
+    })
+    if (existing) return { state: 'awaiting_pr_merge', prUrl: existing.url,
+      prNumber: existing.number, branch, branchUrl, commitSha: existing.commitSha,
+      fileSha: existing.fileSha, requestedBy: capability.user.login, reused: true }
+    // Existing ref without a verified open PR may be a partially committed attempt.
+    // Never overwrite it or create another PR without explicit reconciliation.
+    const priorRef = await githubRequest(fetcher, token,
+      base + '/git/ref/heads/' + encodeURIComponent(branch), {}, true)
+    if (priorRef) return { state: 'partial_failure', branchUrl,
+      error: '同版本 Config 维护分支已存在，但未能核验开放 PR；请先在 GitHub 人工检查',
+      requiresRefresh: true }
     // GitHub can only report effective branch rules after the new ref exists.
     // Ref creation never writes Config content. Check the newly created ref before PUT.
     try {
-      await githubRequest(fetcher, token, base + '/git/refs', {
+      const created = await githubRequest(fetcher, token, base + '/git/refs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ref: 'refs/heads/' + branch, sha: current.headSha }),
       })
-    } catch (error) {
-      try {
-        const existing = await githubRequest(fetcher, token,
-          base + '/git/ref/heads/' + encodeURIComponent(branch), {}, true)
-        if (existing?.data?.object?.sha !== current.headSha) {
-          return { state: 'partial_failure', error: error.message, branchUrl }
-        }
-      } catch {
-        return { state: 'partial_failure', error: error.message, branchUrl }
+      if (created.data?.ref !== 'refs/heads/' + branch ||
+          created.data?.object?.sha !== current.headSha) {
+        deny('维护分支创建回执无法确认；不会继续写入 Config', 502, 'partial_failure')
       }
+    } catch (error) {
+      // A racing request may already have opened the exact PR: reconcile read-only.
+      let pending = null
+      try {
+        pending = await findExistingPullRequest({
+          owner: body.owner, repo: body.repo, branch, token, fetcher, content,
+        })
+      } catch { /* The branch/PR outcome remains uncertain. */ }
+      if (pending) return { state: 'awaiting_pr_merge', prUrl: pending.url,
+        prNumber: pending.number, branch, branchUrl, commitSha: pending.commitSha,
+        fileSha: pending.fileSha, requestedBy: capability.user.login, reused: true }
+      return { state: 'partial_failure', error: error.message, branchUrl,
+        requiresRefresh: true }
     }
 
     let branchRules
@@ -425,20 +479,20 @@ async function saveConfig({ body, token, fetcher, resolve }) {
           draft: false,
         }),
       })
-      if (!created.data?.html_url || !Number.isSafeInteger(created.data?.number)) {
-        deny('GitHub Pull Request 响应无效', 502, 'partial_failure')
+      if (!validConfigPull(created.data, body.owner, body.repo, branch)) {
+        deny('GitHub Pull Request 响应无效，需重新核验', 502, 'partial_failure')
       }
       return { state: 'awaiting_pr_merge', prUrl: created.data.html_url,
-        prNumber: created.data.number, branch, commitSha: saved.commitSha,
+        prNumber: created.data.number, branch, branchUrl, commitSha: saved.commitSha,
         fileSha: saved.fileSha, requestedBy: capability.user.login }
     } catch (error) {
       try {
         const existing = await findExistingPullRequest({
-          owner: body.owner, repo: body.repo, branch, token, fetcher,
+          owner: body.owner, repo: body.repo, branch, token, fetcher, content,
         })
         if (existing) return { state: 'awaiting_pr_merge', prUrl: existing.url,
-          prNumber: existing.number, branch, commitSha: saved.commitSha,
-          fileSha: saved.fileSha, requestedBy: capability.user.login }
+          prNumber: existing.number, branch, branchUrl, commitSha: existing.commitSha,
+          fileSha: existing.fileSha, requestedBy: capability.user.login, reused: true }
       } catch { /* The PR creation result remains unknown. */ }
       return { state: 'partial_failure', error: 'Config 已提交到维护分支，但 PR 状态未确认：' +
         error.message, branchUrl: 'https://github.com/' + body.owner + '/' + body.repo +
