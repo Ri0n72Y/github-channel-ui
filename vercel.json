@@ -65,5 +65,11 @@
       "source": "/api/github-logout",
       "destination": "/api/github-session?__lc_route=logout"
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "ci-governance-budget-20261118": false,
+      "refactor/public-plugin-source-c4": false
+    }
+  }
 }
