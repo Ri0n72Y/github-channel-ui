@@ -56,7 +56,7 @@ test('#69 B+C retain established page structures while applying real responsive 
 
 test('#69 B+C only changes presentation data for cover/avatar, not GitHub write contracts', () => {
   const project = read('plugins/topic-page/src/TopicProjectCard.tsx')
-  const api = read('api/_topic-projects.mjs')
+  const api = read('plugins/topic-page/server/_topic-projects.mjs')
   assert.match(project, /暂无可用项目封面/)
   assert.match(project, /project\.owner_avatar_url/)
   assert.match(project, /project\.cover_url/)

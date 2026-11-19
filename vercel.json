@@ -68,7 +68,8 @@
   ],
   "git": {
     "deploymentEnabled": {
-      "ci-governance-budget-20261118": false
+      "ci-governance-budget-20261118": false,
+      "refactor/public-plugin-source-c4": false
     }
   }
 }
