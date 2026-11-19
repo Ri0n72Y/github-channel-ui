@@ -54,6 +54,7 @@ export type ConfigActionResult = {
   requiresRefresh?: boolean
   noChanges?: boolean
   reconciled?: boolean
+  reused?: boolean
 }
 
 import { browserRequest, readResponse, record, requestFailure, requestState,
@@ -247,7 +248,7 @@ function parseAction(value:unknown,action:'save_config'|'sync_labels'):ConfigAct
   }
   const retryAfter=nullableActionString(data.retryAfter,'retryAfter')
   if(retryAfter!==undefined)Object.assign(result,{retryAfter})
-  for(const key of ['noChanges','reconciled','requiresRefresh'] as const){
+  for(const key of ['noChanges','reconciled','reused','requiresRefresh'] as const){
     const value=optionalBool(data[key],key)
     if(value!==undefined)Object.assign(result,{[key]:value})
   }
