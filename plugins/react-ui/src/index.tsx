@@ -1,6 +1,6 @@
 import { Service, type Context } from '@deepseek-ai/cordis'
 import { useState, useSyncExternalStore, type ComponentType } from 'react'
-import { Link, useRoutes } from 'react-router'
+import { Link, useLocation, useRoutes } from 'react-router'
 import styles from './App.module.css'
 import { persistTheme, readStoredTheme, type ThemeMode } from './theme'
 import './theme.css'
@@ -79,13 +79,17 @@ function NotFound() {
 }
 
 /** @summary Match plugin-registered pages inside the application's single React Router. */
-export function App({ ui, sessionRequest }: {ui:ReactUIService;sessionRequest?:RequestFn}) {
+export function App({ ui, sessionRequest, initialPath }: {ui:ReactUIService;sessionRequest?:RequestFn;initialPath?:string}) {
   const [theme, setTheme] = useState<ThemeMode>(readStoredTheme)
   const entries = useSyncExternalStore(ui.subscribe, ui.getSnapshot, ui.getSnapshot)
   const routes = entries.flatMap(entry => 'path' in entry
     ? [{ path: entry.path, element: <entry.Component key={entry.id} /> }]
     : [])
-  const page = useRoutes([...routes, { path: '*', element: <NotFound /> }])
+  const location = useLocation()
+  // Only the Public Playground selects a plugin entry at its stable root URL.
+  // Hosted and legacy routes keep the normal browser location unchanged.
+  const page = useRoutes([...routes, { path: '*', element: <NotFound /> }],
+    initialPath && location.pathname === '/' ? initialPath : undefined)
   const next = theme === 'dark' ? 'light' : 'dark'
   const currentLabel = theme === 'dark' ? '深色' : '浅色'
   const nextLabel = next === 'dark' ? '深色' : '浅色'
