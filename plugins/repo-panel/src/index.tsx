@@ -1,5 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis'
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react'
 import type { RepoIssueStore } from '../../repo-issues/src/index'
 import type { Verification as GithubVerification } from '../../repo-issues/src/api'
 import { subscribeSessionChanged } from '../../shared/src/session-change'
@@ -16,15 +16,17 @@ export function RepoPanel({ store }: { store: RepoIssueStore }) {
   const verifyRevision = useRef(0)
   const verifyAbort = useRef<AbortController|null>(null)
   const [sessionRevision,setSessionRevision]=useState(0)
+  const [repositoryUrl,setRepositoryUrl]=useState('')
   useEffect(()=>subscribeSessionChanged(()=>{
     setSessionRevision(n=>n+1);setVerification({status:'idle'})
   }),[])
 
-  function selectRepo(fullName: string) {
+  function submitRepository(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
     verifyRevision.current++
     verifyAbort.current?.abort()
     setVerification({ status: 'idle' })
-    void store.select(fullName)
+    void store.connect(repositoryUrl)
   }
 
   async function verifyUserAndRepo() {
@@ -69,17 +71,26 @@ export function RepoPanel({ store }: { store: RepoIssueStore }) {
           : session === 'error'
             ? <button type="button" onClick={()=>setSessionRevision(n=>n+1)}>登录状态检查失败，重试</button>
             : <span className={styles.sessionStatus}>请使用顶部 GitHub 登录</span>}
-      <button type="button" disabled={s.loading} onClick={() => {
+      <button type="button" disabled={!s.targetUrl || s.loading} onClick={() => {
         verifyRevision.current++
+        verifyAbort.current?.abort()
         setVerification({ status: 'idle' })
         void store.refresh()
-      }}>刷新</button>
+      }}>重新核验</button>
     </div></header>
-    <p>已安装授权的公开 GitHub 仓库（只读）</p>
-    <label>仓库 <select value={s.selected} disabled={s.loading || !s.repos.length} onChange={e => selectRepo(e.target.value)}>
-      <option value="">选择仓库</option>
-      {s.repos.map(repo => <option key={repo.full_name} value={repo.full_name}>{repo.full_name}</option>)}
-    </select></label>
+    <p>输入要查看的公开 GitHub 仓库 URL。系统只核验该仓库当前的 App Installation，不枚举其他仓库。</p>
+    <form className={styles.repoForm} onSubmit={submitRepository}>
+      <label htmlFor="lc-repo-url">GitHub 仓库 URL</label>
+      <input id="lc-repo-url" className={styles.repoInput} type="url"
+        autoComplete="url" required value={repositoryUrl}
+        placeholder="https://github.com/owner/repo"
+        onChange={event => setRepositoryUrl(event.target.value)} />
+      <button type="submit">检查授权并打开</button>
+    </form>
+    {s.availability === 'checking' && <p role="status">正在核验公开仓库与 GitHub App 授权…</p>}
+    {s.availability === 'connected' && <p role="status">已验证公开仓库：{s.selected}</p>}
+    {s.actionUrl && <p><a href={s.actionUrl} target="_blank" rel="noopener noreferrer">
+      前往 GitHub 安装或管理授权</a></p>}
     {session === 'connected' && <section className={styles.verification}>
       <button type="button" disabled={!s.selected || verification.status === 'loading'}
         onClick={() => void verifyUserAndRepo()}>验证 GitHub 身份与仓库权限</button>
@@ -97,14 +108,14 @@ export function RepoPanel({ store }: { store: RepoIssueStore }) {
         <small>此处只验证读取和 GitHub 返回的权限信息，不代表 Issue 写入已经授权或测试。</small>
       </div>}
     </section>}
-    {s.loading && <p role="status">加载中…</p>}
-    {s.error && <p role="alert">读取失败：{s.error}</p>}
+    {s.loading && s.availability === 'connected' && <p role="status">正在读取该仓库的 Issues…</p>}
+    {s.error && <p role="alert">{s.error}</p>}
     {s.repos.find(repo => repo.full_name === s.selected) && <IssueWorkspace
         key={s.selected}
         repo={s.repos.find(repo => repo.full_name === s.selected)!}
         issues={s.issues}
         loggedIn={session === 'connected'} api={store.api} />}
-    <footer>Issue 读取使用安装授权；创建和评论使用已登录的 GitHub 用户身份，不使用 Bot 写入。</footer>
+    <footer>仓库必须公开且已授权给当前 GitHub App。匿名用户可浏览；创建 Issue 或评论需 GitHub OAuth 和独立写入授权。</footer>
   </div>
 }
 

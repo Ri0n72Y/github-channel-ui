@@ -2,6 +2,7 @@ import { browserRequest, readResponse, record, requestFailure,
   responseObject, type RequestFn } from '../../shared/src/browser-http'
 
 export interface Repo { readonly owner:string; readonly name:string; readonly full_name:string }
+export type RepoLookupError = Error & { readonly status:number; readonly state?:string; readonly actionUrl?:string }
 export interface Issue { readonly number:number; readonly title:string;
   readonly html_url:string; readonly comments:number }
 export interface Verification {
@@ -11,7 +12,8 @@ export interface Verification {
       triage:boolean;pull:boolean}>|null}
 }
 export interface RepoIssuesApi {
-  readonly getRepositories:(signal:AbortSignal)=>Promise<readonly Repo[]>
+  /** Read only the explicitly selected public target; no global Installation listing. */
+  readonly getRepositories:(signal:AbortSignal,target?:Repo)=>Promise<readonly Repo[]>
   readonly getIssues:(owner:string,repo:string,signal:AbortSignal)=>Promise<readonly Issue[]>
   readonly getSession:(signal:AbortSignal)=>Promise<boolean>
   readonly verify:(owner:string,repo:string,signal:AbortSignal)=>Promise<Verification>
@@ -27,15 +29,44 @@ function number(value:unknown,name:string):number {
     throw requestFailure('GitHub 响应数字字段无效：'+name,502)
   return value
 }
-function parseRepos(value:unknown):readonly Repo[] {
-  const data=responseObject(value,'仓库响应无效')
-  if(!Array.isArray(data.repositories))throw requestFailure('仓库列表无效',502)
-  return data.repositories.map(item=>{
-    const row=responseObject(item)
-    return {owner:requiredString(row.owner,'owner'),name:requiredString(row.name,'name'),
-      full_name:requiredString(row.full_name,'full_name')}
-  })
+const allowedStates = new Set(['repository_unavailable', 'installation_suspended',
+  'needs_installation', 'needs_repository_authorization'])
+function officialActionUrl(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  try {
+    const url = new URL(value)
+    if (url.origin !== 'https://github.com' || url.username || url.password ||
+        url.search || url.hash) return undefined
+    if (/^\/apps\/[a-z\d-]{1,100}\/installations\/new$/i.test(url.pathname) ||
+        /^\/(?:settings|organizations\/[a-z\d-]{1,39}\/settings)\/installations\/[1-9]\d*\/?$/i.test(url.pathname)) return url.href
+  } catch { /* Never render a server-supplied unsafe management link. */ }
+  return undefined
 }
+function parseScopedRepository(value:unknown,target:Repo):readonly Repo[] {
+  const data=responseObject(value,'仓库安装状态响应无效')
+  if (data.state === 'connected') {
+    const row=responseObject(data.repository,'仓库身份响应无效')
+    const owner=requiredString(row.owner,'owner')
+    const name=requiredString(row.name,'name')
+    const full_name=requiredString(row.full_name,'full_name')
+    if (full_name !== owner + '/' + name ||
+        full_name.toLowerCase() !== target.full_name.toLowerCase()) {
+      throw requestFailure('GitHub Installation 仓库身份不匹配',502)
+    }
+    return [{ owner,name,full_name }]
+  }
+  if (allowedStates.has(data.state as string)) {
+    const state=data.state as string
+    const message=state === 'needs_installation' ? '此公开仓库尚未安装 GitHub App' :
+      state === 'needs_repository_authorization' ? '此仓库未包含在 GitHub App 的当前授权范围' :
+      state === 'installation_suspended' ? '此仓库的 GitHub App Installation 已暂停' :
+      '目标仓库不存在或不是公开仓库'
+    throw Object.assign(requestFailure(message,state==='repository_unavailable'?404:403,
+      {state}), {actionUrl:officialActionUrl(data.action_url)}) as RepoLookupError
+  }
+  throw requestFailure('GitHub Installation 状态无法确认',502)
+}
+
 function parseIssues(value:unknown):readonly Issue[] {
   const data=responseObject(value)
   if(!Array.isArray(data.issues))throw requestFailure('Issue 列表无效',502)
@@ -58,9 +89,12 @@ function parseVerification(value:unknown):Verification {
 }
 /** @summary Consolidate the root Repo panel HTTP surface into a stable, readonly API. */
 export function createRepoIssuesApi(request:RequestFn=browserRequest):Readonly<RepoIssuesApi>{
-  async function getRepositories(signal:AbortSignal){
-    const {body}=await readResponse(request,'/api/repos',signal)
-    return parseRepos(body)
+  async function getRepositories(signal:AbortSignal,target?:Repo){
+    if (!target) throw requestFailure('请先输入完整的 GitHub 仓库 URL',400,
+      {state:'target_required'})
+    const {body}=await readResponse(request,
+      '/api/repos?'+new URLSearchParams({owner:target.owner,repo:target.name}),signal)
+    return parseScopedRepository(body,target)
   }
   async function getIssues(owner:string,repo:string,signal:AbortSignal){
     const {body}=await readResponse(request,
