@@ -43,6 +43,17 @@ async function mounted(element) {
   } }
 }
 
+async function expectLoaded(host, matcher, label) {
+  for (let i = 0; i < 40; i++) {
+    if (matcher.test(host.textContent) &&
+        !host.textContent.includes('页面不存在或暂未提供')) return
+    await act(async () => { await sleep(50) })
+  }
+  assert.match(host.textContent, matcher, 'Fixture did not load: ' + label)
+  assert.doesNotMatch(host.textContent, /页面不存在或暂未提供/,
+    'Plugin route not registered: ' + label)
+}
+
 test('#94 public catalog renders six independent deep links and a working directory return', async () => {
   const view = await mounted(h(catalog.PlaygroundCatalog))
   try {
@@ -83,7 +94,7 @@ const visible = {
   'repo-config': /仓库配置与 Labels/,
   'issue-detail': /受控 Issue|Issue #1|Issue 详情/,
   'channel': /频道/,
-  'topic-page': /Topic 样例活动|Topic/,
+  'topic-page': /Topic 样例活动/,
 }
 
 for (const plugin of PLAYGROUND_PLUGINS) {
@@ -100,15 +111,7 @@ for (const plugin of PLAYGROUND_PLUGINS) {
       }, h(App, { ui: runtime.ui, sessionRequest: runtime.sessionRequest,
         initialPath: plugin.initialPath })))
       try {
-        for (let i = 0; i < 12; i++) {
-          if (visible[plugin.slug].test(view.host.textContent) &&
-              !view.host.textContent.includes('页面不存在或暂未提供')) break
-          await act(async () => { await sleep(30) })
-        }
-        assert.match(view.host.textContent, visible[plugin.slug],
-          'plugin page not rendered: ' + plugin.slug)
-        assert.doesNotMatch(view.host.textContent, /页面不存在或暂未提供/,
-          'selected route is unresolved: ' + plugin.slug)
+        await expectLoaded(view.host, visible[plugin.slug], 'root ' + plugin.slug)
       } finally { await view.close() }
 
       const deepLink = '/playground/' + plugin.slug +
@@ -118,10 +121,7 @@ for (const plugin of PLAYGROUND_PLUGINS) {
       }, h(App, { ui: runtime.ui, sessionRequest: runtime.sessionRequest,
         initialPath: plugin.initialPath })))
       try {
-        await act(async () => { await sleep(70) })
-        assert.doesNotMatch(deep.host.textContent, /页面不存在或暂未提供/,
-          'nested refresh could not render: ' + plugin.slug)
-        assert.match(deep.host.textContent, visible[plugin.slug])
+        await expectLoaded(deep.host, visible[plugin.slug], 'refresh ' + plugin.slug)
       } finally { await deep.close() }
     } finally { await runtime.dispose() }
   })
