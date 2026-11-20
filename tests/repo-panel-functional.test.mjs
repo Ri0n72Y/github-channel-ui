@@ -289,7 +289,7 @@ test('#96 anonymous Issue read is scoped to the exact public repo; PR entries ne
     readAccess: async input => { readCalls.push(input); return {token:'scoped-read'} },
     githubGet: async (_access,path) => {
       getCalls.push(path)
-      if (path.includes('page=1')) return {
+      if (new URL('https://api.github.com' + path).searchParams.get('page') === '1') return {
         data:[sampleIssue(1),sampleIssue(100,{pull_request:{url:'https://api.github.com/pulls/100'}})],
         link:'<https://api.github.com/repos/sample/repo/issues?page=2>; rel="next"',
       }
