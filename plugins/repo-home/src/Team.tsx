@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { safeHttps, type Member } from './domain.mjs'
 import type { Team } from './service'
@@ -45,29 +45,49 @@ export function MemberProfile({ member }: { member: Member }) {
     </div>
   </div>
 }
-/** @summary Provide one scrollable avatar row and a shared hover/focus/tap anchored popover. */
+/** @summary Keep each member's identity visible and position the popover by its measured height. */
 export function TeamStrip({ members, base }: { members: readonly Member[]; base: string }) {
   const [active, setActive] = useState<number | null>(null)
   const [position, setPosition] = useState({ left: 12, top: 64, maxHeight: 360 })
   const root = useRef<HTMLDivElement>(null)
+  const popover = useRef<HTMLDivElement>(null)
+  const anchors = useRef<Map<number, HTMLButtonElement>>(new Map())
   const pointer = useRef(false)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const cancel = () => { if (timer.current) clearTimeout(timer.current); timer.current = null }
-  const open = (i: number, button: HTMLButtonElement) => {
-    const rect = button.getBoundingClientRect()
-    const width = Math.min(300, window.innerWidth - 24)
-    const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12))
-    const below = window.innerHeight - rect.bottom - 12
-    const above = rect.top - 12
-    const top = below >= Math.min(280, window.innerHeight / 2) || below >= above
-      ? rect.bottom + 8 : Math.max(8, rect.top - Math.min(360, above) - 8)
-    setPosition({ left, top, maxHeight: Math.max(80, Math.min(360, window.innerHeight - top - 12)) })
-    setActive(i)
-  }
-  const delayOpen = (i: number, button: HTMLButtonElement) => {
-    cancel(); timer.current = setTimeout(() => open(i, button), 120)
+  const open = (i: number) => { cancel(); setActive(i) }
+  const delayOpen = (i: number) => {
+    cancel(); timer.current = setTimeout(() => open(i), 120)
   }
   const delayClose = () => { cancel(); timer.current = setTimeout(() => setActive(null), 180) }
+
+  useLayoutEffect(() => {
+    if (active === null) return
+    const button = anchors.current.get(active), panel = popover.current
+    if (!button || !panel) return
+    const measure = () => {
+      const rect = button.getBoundingClientRect()
+      const width = Math.min(300, window.innerWidth - 24)
+      const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12))
+      const below = Math.max(0, window.innerHeight - rect.bottom - 20)
+      const above = Math.max(0, rect.top - 20)
+      const naturalHeight = Math.min(panel.scrollHeight, 360)
+      const placeAbove = below < naturalHeight && above > below
+      const available = placeAbove ? above : below
+      const maxHeight = Math.min(360, Math.max(48, available))
+      const height = Math.min(panel.scrollHeight, maxHeight)
+      const desiredTop = placeAbove ? rect.top - height - 8 : rect.bottom + 8
+      const top = Math.max(12, Math.min(desiredTop, window.innerHeight - height - 12))
+      setPosition(previous => previous.left === left && previous.top === top &&
+        previous.maxHeight === maxHeight ? previous : { left, top, maxHeight })
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(panel)
+    return () => observer.disconnect()
+  }, [active, members])
+
   useEffect(() => {
     const onDown = (event: PointerEvent) => {
       if (!root.current?.contains(event.target as Node)) setActive(null)
@@ -76,25 +96,45 @@ export function TeamStrip({ members, base }: { members: readonly Member[]; base:
       if (event.key === 'Escape') { setActive(null); cancel() }
       if (event.key === 'Tab') pointer.current = false
     }
-    const onResize = () => setActive(null)
-    window.addEventListener('resize', onResize)
+    const onViewportChange = () => { cancel(); setActive(null) }
+    const onScroll = (event: Event) => {
+      if (event.target instanceof Node && popover.current?.contains(event.target)) return
+      onViewportChange()
+    }
+    window.addEventListener('resize', onViewportChange)
+    window.addEventListener('scroll', onScroll, true)
     document.addEventListener('pointerdown', onDown)
     document.addEventListener('keydown', onKey)
-    return () => { cancel(); window.removeEventListener('resize', onResize); document.removeEventListener('pointerdown', onDown); document.removeEventListener('keydown', onKey) }
+    return () => {
+      cancel()
+      window.removeEventListener('resize', onViewportChange)
+      window.removeEventListener('scroll', onScroll, true)
+      document.removeEventListener('pointerdown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
   }, [])
-  return <div className={styles.strip} ref={root} aria-label="团队成员头像" onScroll={() => setActive(null)}>
+
+  return <div className={styles.strip} ref={root} aria-label="团队成员"
+    onScroll={() => { cancel(); setActive(null) }}>
     {members.map((member, index) => <div key={member.id} className={styles.avatarItem}
-      onPointerEnter={e => { if (e.pointerType !== 'touch') delayOpen(index, e.currentTarget.querySelector('button')!) }}
+      onPointerEnter={e => { if (e.pointerType !== 'touch') delayOpen(index) }}
       onPointerLeave={delayClose}
-      onFocus={e => { cancel(); if (!pointer.current && e.target instanceof HTMLButtonElement) open(index, e.target) }}
+      onFocus={e => { cancel(); if (!pointer.current && e.target instanceof HTMLButtonElement) open(index) }}
       onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) delayClose() }}>
-      <button type="button" className={styles.avatarButton} aria-label={member.name}
+      <button ref={node => { if (node) anchors.current.set(index, node); else anchors.current.delete(index) }}
+        type="button" className={styles.avatarButton}
+        aria-label={member.role ? member.name + ' · ' + member.role : member.name}
         aria-expanded={active === index} aria-controls={'team-popover-' + index}
         onPointerDown={() => { pointer.current = true }}
-        onClick={e => { cancel(); if (active === index) setActive(null); else open(index, e.currentTarget) }}>
+        onClick={() => { cancel(); if (active === index) setActive(null); else open(index) }}>
         <MemberAvatar member={member} />
+        <span className={styles.memberIdentity}>
+          <strong>{member.name}</strong>
+          {member.role && <small>{member.role}</small>}
+        </span>
       </button>
-      {active === index && <div id={'team-popover-' + index} className={styles.popover}
+      {active === index && <div ref={popover} id={'team-popover-' + index}
+        className={styles.popover}
         style={{ left: position.left, top: position.top, maxHeight: position.maxHeight }}
         onPointerEnter={cancel} onPointerLeave={delayClose}>
         <MemberProfile member={member} />

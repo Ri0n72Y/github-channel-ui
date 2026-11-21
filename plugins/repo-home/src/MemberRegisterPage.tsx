@@ -13,6 +13,27 @@ const initial = (): Fields => ({ name: '', githubUsername: '', role: '', bio: ''
 type FieldKey = keyof Omit<Fields, 'links'> | `links.${number}.label` | `links.${number}.url`
 type FieldErrors = Partial<Record<FieldKey, string>>
 
+/** Trust only the current repository's GitHub PR/Commit link before presenting the primary CTA. */
+export function trustedMemberResultUrl(
+  result: MemberSubmitResult, owner: string, repo: string,
+): string | null {
+  try {
+    const url = new URL(result.url)
+    if (url.protocol !== 'https:' || url.hostname !== 'github.com' ||
+        url.username || url.password || url.search || url.hash || url.port) return null
+    const parts = url.pathname.split('/')
+    if (parts.length !== 5 || parts[0] !== '' ||
+        parts[1].toLowerCase() !== owner.toLowerCase() ||
+        parts[2].toLowerCase() !== repo.toLowerCase()) return null
+    if (result.status === 'pending_pr') {
+      if (parts[3] !== 'pull' || !/^[1-9]\d*$/.test(parts[4])) return null
+    } else if (parts[3] !== 'commit' || !/^[a-f\d]{40}$/i.test(parts[4])) return null
+    return url.toString()
+  } catch { return null }
+}
+
+
+
 /** @summary Map existing domain field constraints to actionable form errors without weakening API validation. */
 export function validateVisibleFields(fields: Fields): FieldErrors {
   const errors: FieldErrors = {}
@@ -52,9 +73,11 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
   const fieldRefs = useRef<Partial<Record<FieldKey, HTMLInputElement | HTMLTextAreaElement | null>>>({})
   const [pending, setPending] = useState(false)
   const [result, setResult] = useState<MemberSubmitResult | null>(null)
+  const resultHeading = useRef<HTMLHeadingElement>(null)
   const [writeOutcomeUnknown, setWriteOutcomeUnknown] = useState(false)
   const [revision, setRevision] = useState(0)
   const pendingController = useRef<AbortController | null>(null)
+  useEffect(() => { if (result) resultHeading.current?.focus() }, [result])
   useEffect(() => subscribeSessionChanged(() => {
     const write = pendingController.current
     if (write) {
@@ -84,7 +107,7 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
   }, [api, owner, repo, branch, revision])
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!capability || pending || writeOutcomeUnknown || pendingController.current) return
+    if (!capability || pending || result?.status === 'pending_pr' || writeOutcomeUnknown || pendingController.current) return
     setSubmitAttempted(true)
     const first = Object.keys(validateVisibleFields(fields))[0] as FieldKey | undefined
     if (first) {
@@ -131,10 +154,26 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
     setFields(previous => ({ ...previous, links: previous.links.map((entry, i) =>
       i === index ? { ...entry, [key]: value } : entry) }))
   }
+  const resultUrl = result ? trustedMemberResultUrl(result, owner, repo) : null
   return <section className={styles.page}>
     <p><Link to={base}>项目</Link> / <Link to={base + '/members'}>团队成员</Link> / 添加成员</p>
     <h1>添加团队成员</h1>
     <p className={styles.muted}>目标：{owner}/{repo} · 提交到 <strong>{branch}</strong></p>
+    {result && <section className={styles.submitResult} role="status" aria-live="polite">
+      <h2 ref={resultHeading} tabIndex={-1}>
+        {result.status === 'pending_pr' ? '维护 PR 已创建' : '成员资料已提交'}
+      </h2>
+      <p>{result.status === 'pending_pr'
+        ? '审核合并 GitHub 维护 PR 后，新成员才会出现在团队列表中。'
+        : 'GitHub Commit 已提交，返回团队成员页面后可重新加载查看。'}</p>
+      <div className={styles.resultActions}>
+        {resultUrl ? <a className={styles.resultPrimary} href={resultUrl}
+          target="_blank" rel="noopener noreferrer">
+          {result.status === 'pending_pr' ? '前往 GitHub PR（新标签）' : '查看 GitHub Commit（新标签）'}
+        </a> : <p role="alert">提交已返回结果，但 GitHub 来源链接未通过校验。请自行核查仓库中的记录，勿重复提交。</p>}
+        <Link to={base + '/members'}>查看成员列表</Link>
+      </div>
+    </section>}
     {authStatus === null && !capability && <p role="status">正在验证操作者和仓库写权限…</p>}
     {error && <p role="alert">{error}</p>}
     {writeOutcomeUnknown && <div role="alert">
@@ -210,13 +249,9 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
             </div>
           })}
         </fieldset>
-        <div className={styles.actions}><button type="submit" disabled={pending || writeOutcomeUnknown}>
+        <div className={styles.actions}><button type="submit" disabled={pending || writeOutcomeUnknown || result?.status === 'pending_pr'}>
           {pending ? '正在提交…' : '提交成员资料'}</button><Link to={base + '/members'}>取消</Link></div>
       </form></>}
-    {result && <p role="status">{result.status === 'pending_pr' ?
-      '维护 PR 已创建，合并前成员列表保持不变。' : '成员资料 Commit 已提交，请刷新成员列表。'}
-      <a href={result.url} target="_blank" rel="noopener noreferrer">查看 GitHub {result.status === 'pending_pr' ? 'PR' : 'Commit'}</a>
-      <Link to={base + '/members'}>查看成员</Link>
-    </p>}
+
   </section>
 }

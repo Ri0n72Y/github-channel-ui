@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { summarizeReadme } from './domain.mjs'
 import type { RepoHomeApi, RepoHomeData, RepoFeedIssue } from './service'
-import { readDisplayBranch, displayBranchKey } from './service'
+import { readDisplayBranch } from './service'
 import { MemberManagementLink, TeamStrip, TeamStatus } from './Team'
 import { useMemberWriteAccess } from './useMemberWriteAccess'
 import { RepoIssueActivityCard } from './RepoIssueActivityCard'
@@ -17,8 +17,8 @@ export type RepoHomeTheme = 'dark' | 'light'
 /** @summary Orchestrate independent hero/team loading and one-at-a-time cancellable issue pagination. */
 export default function RepoHomePage({ api, theme }: { api: RepoHomeApi; theme?: RepoHomeTheme }) {
   const { owner = '', repo = '' } = useParams<'owner' | 'repo'>()
-  const [branch, setBranch] = useState(() => readDisplayBranch(owner, repo))
-  const [draft, setDraft] = useState(branch)
+  // A local viewing preference. GitHub repository-wide configuration is managed separately.
+  const branch = readDisplayBranch(owner, repo)
   const memberWrite = useMemberWriteAccess(api, owner, repo, branch)
   const [data, setData] = useState<RepoHomeData | null>(null)
   const [homeError, setHomeError] = useState('')
@@ -38,7 +38,6 @@ export default function RepoHomePage({ api, theme }: { api: RepoHomeApi; theme?:
       void api.getHome(owner, repo, branch, controller.signal).then(result => {
         if (controller.signal.aborted) return
         setData(result)
-        try { localStorage.setItem(displayBranchKey(owner, repo), branch) } catch { /* optional preference */ }
       }).catch(e => { if (!controller.signal.aborted) setHomeError(errorText(e)) })
         .finally(() => { if (!controller.signal.aborted) setHomeLoading(false) })
     } else { setHomeLoading(false); setHomeError('仓库 URL 参数无效') }
@@ -109,26 +108,31 @@ export default function RepoHomePage({ api, theme }: { api: RepoHomeApi; theme?:
     (data?.readme.state === 'ready' ? summarizeReadme(data.readme.content || '', data.repository.name) : '')
   return <section className={[styles.page, styles.homePage].join(' ')} data-lc-theme={theme}>
     <div className={styles.homeLayout}>
-    <p><Link to="/">平台首页</Link></p>
     {homeLoading && <p role="status">正在读取项目介绍与团队…</p>}
     {homeError && <p role="alert">{homeError} <button type="button" onClick={() => setGeneration(n => n + 1)}>重试介绍</button></p>}
     {data && <header className={styles.hero}>
-      <p className={styles.eyebrow}>{data.repository.full_name}</p>
-      <h1>{data.repository.name}</h1>
-      {description ? <p className={styles.intro}>{description}</p> :
-        <p className={styles.muted}>暂无项目简介。</p>}
-      <div className={styles.actions}>
-        {readmeUrl && <a href={readmeUrl} target="_blank" rel="noopener noreferrer">完整 README</a>}
-        <a className={styles.primaryLink} href={data.repository.html_url} target="_blank" rel="noopener noreferrer">GitHub 仓库</a>
-        <Link to={base + '/config'}>仓库配置与 Labels</Link>
-        <Link to={base + '/channels'}>项目频道</Link>
+      <div className={styles.heroCopy}>
+        <p className={styles.eyebrow}>{data.repository.full_name}</p>
+        <h1>{data.repository.name}</h1>
+        {description ? <p className={styles.intro}>{description}</p> :
+          <p className={styles.muted}>暂无项目简介。</p>}
+        <div className={styles.actions}>
+          <a className={styles.primaryLink} href={data.repository.html_url}
+            target="_blank" rel="noopener noreferrer">GitHub 仓库</a>
+          {readmeUrl && <a href={readmeUrl} target="_blank" rel="noopener noreferrer">完整 README</a>}
+          <Link to={base + '/config'}>仓库配置与 Labels</Link>
+          <Link to={base + '/channels'}>项目频道</Link>
+        </div>
+        <p className={styles.branchNote}>当前展示分支：<code>{branch}</code> ·
+          <Link to={base + '/config'}>本机偏好设置</Link></p>
+        {data.readme.state === 'error' && <p role="status">
+          README 读取失败：{data.readme.error} <button type="button" onClick={() => setGeneration(n => n + 1)}>重试</button>
+        </p>}
       </div>
-      {data.readme.state === 'error' && <p role="status">README 读取失败：{data.readme.error} <button type="button" onClick={() => setGeneration(n => n + 1)}>重试</button></p>}
-      <form className={styles.branch} onSubmit={e => { e.preventDefault(); if (draft.trim()) setBranch(draft.trim()) }}>
-        <label htmlFor="home-branch">展示分支</label>
-        <input id="home-branch" value={draft} onChange={e => setDraft(e.target.value)} maxLength={180} />
-        <button type="submit">应用分支</button>
-      </form>
+      <div className={styles.heroVisual} aria-hidden="true">
+        <span className={styles.heroGlyph}>LC</span>
+        <span className={styles.heroBrand}>LabourChain</span>
+      </div>
     </header>}
     <section className={[styles.section, styles.teamPanel].join(' ')} aria-labelledby="team-heading">
       <div className={styles.sectionHead}><h2 id="team-heading">团队成员</h2>

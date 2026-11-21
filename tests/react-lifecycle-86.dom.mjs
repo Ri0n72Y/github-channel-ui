@@ -668,3 +668,61 @@ test('#96 root RepoPanel: URL target is required, anonymous read works, OAuth wr
   assert.equal(calls.writes,0)
  }finally{await app.close();store.dispose()}
 })
+
+
+test('#99 Member pending PR prioritizes the exact external GitHub link with accessible focus',async()=>{
+ localStorage.removeItem('labourchain:display-branch:sample/repo')
+ let writes=0
+ const api={
+  getCapability:async()=>({user:{login:'operator',id:1},mode:'pr',branch:'main'}),
+  register:async()=>{writes++;return {status:'pending_pr',
+   url:'https://github.com/sample/repo/pull/17',sha:'a'.repeat(40),requestedBy:'operator'}},
+ }
+ const app=await mount('/sample/repo/members/register','/:owner/:repo/members/register',Member,{api})
+ try{
+  const field=app.host.querySelector('input[required]')
+  assert.ok(field)
+  await act(async()=>input(field,'Alice'))
+  await act(async()=>app.host.querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})))
+  await flush()
+  assert.equal(writes,1)
+  const heading=app.host.querySelector('h2[tabindex="-1"]')
+  assert.ok(heading)
+  assert.match(heading.textContent,/维护 PR 已创建/)
+  assert.equal(document.activeElement,heading)
+  const cta=[...app.host.querySelectorAll('a')].find(x=>x.textContent.includes('前往 GitHub PR'))
+  assert.ok(cta)
+  assert.equal(cta.href,'https://github.com/sample/repo/pull/17')
+  assert.equal(cta.target,'_blank')
+  assert.equal(cta.rel,'noopener noreferrer')
+  const submit=app.host.querySelector('button[type="submit"]')
+  assert.ok(submit?.disabled,'pending maintenance PR must block duplicate submit')
+  await act(async()=>app.host.querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})))
+  assert.equal(writes,1)
+  const secondary=[...app.host.querySelectorAll('a')].find(x=>x.textContent.includes('查看成员列表'))
+  assert.ok(secondary)
+  assert.ok(secondary.href.endsWith('/sample/repo/members'))
+  assert.ok(heading.compareDocumentPosition(app.host.querySelector('form')) & Node.DOCUMENT_POSITION_FOLLOWING)
+ }finally{await app.close()}
+})
+
+test('#99 Config display-branch preference stays local and never invokes repository writes',async()=>{
+ const key='labourchain:display-branch:sample/repo'
+ localStorage.removeItem(key)
+ const fixture=configFixture(new URLSearchParams({configCase:'changes'}))
+ let saves=0
+ const api={...fixture,save:async()=>{saves++;throw Error('must not write')}}
+ const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
+  {api,owner:'sample',repo:'repo'},p=>p.owner+'/'+p.repo)
+ try{
+  const inputNode=app.host.querySelector('#display-branch-input')
+  assert.ok(inputNode)
+  await act(async()=>input(inputNode,'feature/docs'))
+  const button=[...app.host.querySelectorAll('button')].find(x=>x.textContent==='保存本机偏好')
+  assert.ok(button)
+  await act(async()=>button.click())
+  assert.equal(localStorage.getItem(key),'feature/docs')
+  assert.equal(saves,0)
+  assert.match(app.host.textContent,/不修改 GitHub 仓库默认分支/)
+ }finally{await app.close();localStorage.removeItem(key)}
+})
