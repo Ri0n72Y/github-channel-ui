@@ -52,3 +52,27 @@
   .shell label{display:flex}
   .shell select{flex:1;min-width:0}
 }
+
+.repoForm {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 18px 0;
+}
+.repoForm label { flex-basis: 100%; font-weight: 600; }
+.repoInput {
+  font: inherit;
+  flex: 1 1 300px;
+  min-width: min(100%, 260px);
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--lc-stroke-strong);
+  color: var(--lc-text);
+  background: var(--lc-surface-input);
+}
+.shell .repoInput:focus-visible { outline: 3px solid var(--lc-focus); outline-offset: 3px; }
+@media (max-width: 540px) {
+  .repoInput, .repoForm button { width: 100%; }
+}

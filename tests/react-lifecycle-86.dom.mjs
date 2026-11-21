@@ -23,7 +23,7 @@ const deferred = () => {
   return {promise,resolve,reject}
 }
 const flush = async () => act(async () => { await new Promise(r => setTimeout(r, 0)) })
-let server, Home, Issue, Member, Config, configFixture
+let server, Home, Issue, Member, Config, configFixture, RepoPanel, makeRepoStore
 before(async () => {
  server=await createServer({root:process.cwd(),configFile:false,logLevel:'silent',plugins:[react()],server:{middlewareMode:true}})
  Home=(await server.ssrLoadModule('/plugins/repo-home/src/RepoHomePage.tsx')).default
@@ -31,6 +31,8 @@ before(async () => {
  Member=(await server.ssrLoadModule('/plugins/repo-home/src/MemberRegisterPage.tsx')).default
  Config=(await server.ssrLoadModule('/plugins/repo-config/src/ConfigPage.tsx')).default
  configFixture=(await server.ssrLoadModule('/apps/playground/src/config-fixture.ts')).createRepoConfigFixtureService
+ RepoPanel=(await server.ssrLoadModule('/plugins/repo-panel/src/index.tsx')).RepoPanel
+ makeRepoStore=(await server.ssrLoadModule('/plugins/repo-issues/src/index.ts')).createRepoIssuesStore
 })
 after(async () => {await server?.close();dom.window.close()})
 async function mount(path, route, Component, prop, keyFor) {
@@ -625,4 +627,44 @@ test('#86 B1: malformed 200 Config Sync blocks retry after capability refresh',a
   await act(async()=>button.click())
   assert.equal(posts,1)
  }finally{await app.close()}
+})
+
+
+test('#96 root RepoPanel: URL target is required, anonymous read works, OAuth write remains disabled',async()=>{
+ const calls={lookups:[],reads:[],writes:0,session:0}
+ const repo={owner:'sample',name:'repo',full_name:'sample/repo'}
+ const api=Object.freeze({
+  getRepositories:async(_signal,target)=>{
+   calls.lookups.push(target.full_name)
+   return [repo]
+  },
+  getIssues:async(owner,name)=>{
+   calls.reads.push(owner+'/'+name)
+   return [{number:1,title:'受控公开 Issue',comments:1,
+     html_url:'https://github.com/sample/repo/issues/1'}]
+  },
+  getSession:async()=>{calls.session++;return false},
+  verify:async()=>{throw Error('OAuth not available')},
+  createIssue:async()=>{calls.writes++;throw Error('OAuth write not allowed')},
+ })
+ const store=makeRepoStore(api)
+ const app=await mount('/','/',RepoPanel,{store})
+ try{
+  assert.deepEqual(calls.lookups,[],'initial root must not enumerate repositories')
+  assert.match(app.host.textContent,/GitHub 仓库 URL/)
+  assert.ok(!app.host.textContent.includes('受控公开 Issue'))
+  const field=app.host.querySelector('input[type="url"]')
+  assert.ok(field)
+  await act(async()=>input(field,'https://github.com/sample/repo'))
+  const form=app.host.querySelector('form')
+  await act(async()=>form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})))
+  await flush()
+  assert.deepEqual(calls.lookups,['sample/repo'])
+  assert.deepEqual(calls.reads,['sample/repo'])
+  assert.match(app.host.textContent,/受控公开 Issue/)
+  assert.match(app.host.textContent,/可匿名阅读/)
+  const create=[...app.host.querySelectorAll('button')].find(x=>x.textContent.includes('新建 Issue'))
+  assert.ok(create?.disabled,'anonymous users must not be able to open the Issue writer')
+  assert.equal(calls.writes,0)
+ }finally{await app.close();store.dispose()}
 })
