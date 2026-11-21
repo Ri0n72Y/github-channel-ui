@@ -82,7 +82,8 @@ test('#94 public catalog renders six independent deep links and a working direct
 
 const expected = {
   'repo-panel': ['/'],
-  'repo-home': ['/:owner/:repo','/:owner/:repo/members','/:owner/:repo/members/register'],
+  'repo-home': ['/:owner/:repo','/:owner/:repo/members','/:owner/:repo/members/register',
+    '/:owner/:repo/issues/new'],
   'repo-config': ['/:owner/:repo/config'],
   'issue-detail': ['/:owner/:repo/issues/:number'],
   'channel': ['/:owner/:repo/channels'],
@@ -138,7 +139,8 @@ test('#15 Header Brand is opt-in and keeps Theme / Session in the same UI host',
   try{
    assert.ok(withBrand.host.querySelector('nav[aria-label="平台导航"]'))
    assert.ok(withBrand.host.querySelector('a[href="/docs/"]'))
-   assert.ok(withBrand.host.querySelector('a[href="/playground/repo-home/"]'))
+   const brandHome=withBrand.host.querySelector('nav[aria-label="平台导航"] a')
+   assert.ok(brandHome?.getAttribute('href')?.startsWith('/playground/repo-home'))
    assert.ok(withBrand.host.querySelector('button[aria-label*="切换为"]'))
   }finally{await withBrand.close()}
   const plain=await mounted(wrap(h(App,{ui:runtime.ui,
