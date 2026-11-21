@@ -107,7 +107,7 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
   }, [api, owner, repo, branch, revision])
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!capability || pending || writeOutcomeUnknown || pendingController.current) return
+    if (!capability || pending || result?.status === 'pending_pr' || writeOutcomeUnknown || pendingController.current) return
     setSubmitAttempted(true)
     const first = Object.keys(validateVisibleFields(fields))[0] as FieldKey | undefined
     if (first) {
@@ -249,7 +249,7 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
             </div>
           })}
         </fieldset>
-        <div className={styles.actions}><button type="submit" disabled={pending || writeOutcomeUnknown}>
+        <div className={styles.actions}><button type="submit" disabled={pending || writeOutcomeUnknown || result?.status === 'pending_pr'}>
           {pending ? '正在提交…' : '提交成员资料'}</button><Link to={base + '/members'}>取消</Link></div>
       </form></>}
 
