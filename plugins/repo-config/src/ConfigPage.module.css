@@ -122,3 +122,21 @@
   .actions { align-items: stretch; flex-direction: column; }
   .actions button { width: 100%; }
 }
+
+/* Device-local display preference, separate from main/Labels administration. */
+.displayPreference {display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:14px}
+.displayPreference label {font-weight:600}
+.displayPreference input {
+  box-sizing:border-box;min-height:44px;min-width:170px;max-width:100%;
+  padding:9px 12px;border:1px solid var(--lc-stroke-strong);border-radius:8px;
+  background:var(--lc-surface-input);color:var(--lc-text);font:inherit;
+}
+.displayPreference button {
+  min-height:44px;border:1px solid transparent;border-radius:8px;padding:9px 14px;
+  background:var(--lc-primary);color:var(--lc-on-primary);font:inherit;font-weight:700;cursor:pointer;
+}
+.displayPreference :is(input,button,a):focus-visible {outline:3px solid var(--lc-focus);outline-offset:3px}
+@media(max-width:600px) {
+  .displayPreference {align-items:stretch;flex-direction:column}
+  .displayPreference input,.displayPreference button {width:100%}
+}

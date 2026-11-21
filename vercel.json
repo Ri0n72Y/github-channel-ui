@@ -68,6 +68,7 @@
   ],
   "git": {
     "deploymentEnabled": {
+      "fix/repo-home-owner-ux-20261121": false,
       "ci-governance-budget-20261118": false,
       "refactor/public-plugin-source-c4": false,
       "fix/public-ci-test-coverage-20261119": false,

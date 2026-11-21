@@ -2,6 +2,7 @@ import type { FormEvent } from 'react'
 import { Link } from 'react-router'
 import type { ConfigActionResult, ConfigSnapshot } from './service'
 import styles from './ConfigPage.module.css'
+import DisplayBranchPreference from './DisplayBranchPreference'
 
 const stateText: Record<string, string> = {
   config_missing: '尚未初始化配置',
@@ -204,5 +205,6 @@ export default function ConfigView(props: Props) {
         <ul>{result.failed.map((item, index) => <li key={index}>{item.kind}：{item.error}
           {item.retryAfter ? ' · Retry-After ' + item.retryAfter : ''}</li>)}</ul>}
     </section>}
+    <DisplayBranchPreference owner={owner} repo={repo} base={base} />
   </section>
 }
