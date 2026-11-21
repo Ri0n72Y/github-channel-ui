@@ -98,7 +98,8 @@ export function TeamStrip({ members, base }: { members: readonly Member[]; base:
     }
     const onViewportChange = () => { cancel(); setActive(null) }
     const onScroll = (event: Event) => {
-      if (!popover.current?.contains(event.target as Node)) onViewportChange()
+      if (event.target instanceof Node && popover.current?.contains(event.target)) return
+      onViewportChange()
     }
     window.addEventListener('resize', onViewportChange)
     window.addEventListener('scroll', onScroll, true)
