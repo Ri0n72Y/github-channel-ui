@@ -72,3 +72,30 @@
 @media (max-width: 375px) {
   .toolbar { justify-content: space-between; }
 }
+
+/* Hosted branding is opt-in; Public Playground retains its existing root UI. */
+.toolbarWithBrand {justify-content:space-between;gap:12px}
+.brandNavigation {display:flex;align-items:center;min-width:0;gap:10px 18px;flex-wrap:wrap}
+.brandLink {
+  display:inline-flex;align-items:center;min-height:44px;
+  color:var(--lc-text);font-weight:800;font-size:17px;text-decoration:none;
+  letter-spacing:-.02em;
+}
+.brandNavLink {
+  display:inline-flex;align-items:center;min-height:44px;padding:7px 3px;
+  color:var(--lc-link);text-decoration:none;font-weight:600;
+}
+.brandLink:hover,.brandNavLink:hover {text-decoration:underline}
+.brandNavigation :is(a):focus-visible {outline:3px solid var(--lc-focus);outline-offset:3px}
+.toolbarControls {display:flex;align-items:center;justify-content:flex-end;gap:10px 16px;min-width:0}
+@media (max-width:680px) {
+  .toolbarWithBrand {gap:8px;flex-wrap:wrap}
+  .brandNavigation {gap:8px 12px}
+  .brandLink {font-size:15px}
+  .toolbarControls {gap:8px;flex-wrap:wrap}
+}
+@media (max-width:375px) {
+  .toolbarWithBrand {align-items:flex-start}
+  .brandNavigation {width:100%;justify-content:space-between}
+  .toolbarControls {width:100%;justify-content:space-between}
+}

@@ -9,6 +9,11 @@ import type { RequestFn } from '../../shared/src/browser-http'
 
 type Registration = { id: string; Component: ComponentType }
 export type PageRegistration = Registration & { path: string }
+export type HeaderBrand = Readonly<{
+  label: string
+  home: string
+  links?: readonly Readonly<{ label: string; href: string }>[]
+}>
 type UIRegistration = Registration | PageRegistration
 
 declare module '@deepseek-ai/cordis' {
@@ -70,16 +75,19 @@ export class ReactUIService extends Service {
 }
 
 /** @summary Explain unmatched paths, including routes removed when a plugin unloads. */
-function NotFound() {
+function NotFound({ branded = false }: { branded?: boolean }) {
   return <section className={styles.notFound}>
     <h1>页面不存在或暂未提供</h1>
     <p>此 URL 没有可用页面。对应插件可能尚未装配或已卸载。</p>
-    <Link to="/">返回 Playground</Link>
+    <Link to="/">{branded ? '返回平台首页' : '返回 Playground'}</Link>
   </section>
 }
 
 /** @summary Match plugin-registered pages inside the application's single React Router. */
-export function App({ ui, sessionRequest, initialPath }: {ui:ReactUIService;sessionRequest?:RequestFn;initialPath?:string}) {
+export function App({ ui, sessionRequest, initialPath, headerBrand }: {
+  ui: ReactUIService; sessionRequest?: RequestFn; initialPath?: string
+  headerBrand?: HeaderBrand
+}) {
   const [theme, setTheme] = useState<ThemeMode>(readStoredTheme)
   const entries = useSyncExternalStore(ui.subscribe, ui.getSnapshot, ui.getSnapshot)
   const routes = entries.flatMap(entry => 'path' in entry
@@ -88,7 +96,7 @@ export function App({ ui, sessionRequest, initialPath }: {ui:ReactUIService;sess
   const location = useLocation()
   // Only the Public Playground selects a plugin entry at its stable root URL.
   // Hosted and legacy routes keep the normal browser location unchanged.
-  const page = useRoutes([...routes, { path: '*', element: <NotFound /> }],
+  const page = useRoutes([...routes, { path: '*', element: <NotFound branded={Boolean(headerBrand)} /> }],
     initialPath && location.pathname === '/' ? initialPath : undefined)
   const next = theme === 'dark' ? 'light' : 'dark'
   const currentLabel = theme === 'dark' ? '深色' : '浅色'
@@ -98,13 +106,21 @@ export function App({ ui, sessionRequest, initialPath }: {ui:ReactUIService;sess
     persistTheme(next)
   }
   return <div className={styles.app} data-lc-theme={theme}>
-    <header className={styles.toolbar} aria-label="站点主题和 GitHub 账户">
-      <span className={styles.themeStatus}>当前：{currentLabel}模式</span>
-      <button className={styles.themeButton} type="button" onClick={toggleTheme}
-        aria-label={'当前为' + currentLabel + '模式，切换为' + nextLabel + '模式'}>
-        切换为{nextLabel}模式
-      </button>
-      <SessionMenu request={sessionRequest} />
+    <header className={headerBrand ? styles.toolbar + ' ' + styles.toolbarWithBrand : styles.toolbar}
+      aria-label="站点主题和 GitHub 账户">
+      {headerBrand && <nav className={styles.brandNavigation} aria-label="平台导航">
+        <Link className={styles.brandLink} to={headerBrand.home}>{headerBrand.label}</Link>
+        {headerBrand.links?.map(item => <a key={item.href} className={styles.brandNavLink}
+          href={item.href}>{item.label}</a>)}
+      </nav>}
+      <div className={styles.toolbarControls}>
+        <span className={styles.themeStatus}>当前：{currentLabel}模式</span>
+        <button className={styles.themeButton} type="button" onClick={toggleTheme}
+          aria-label={'当前为' + currentLabel + '模式，切换为' + nextLabel + '模式'}>
+          切换为{nextLabel}模式
+        </button>
+        <SessionMenu request={sessionRequest} />
+      </div>
     </header>
     <main className={styles.content}>{page}</main>
   </div>
