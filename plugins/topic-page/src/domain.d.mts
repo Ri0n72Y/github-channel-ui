@@ -14,6 +14,7 @@ export type TopicCandidateSummary<T extends TopicCandidate> = {
 }
 
 export function validTopicRepository(owner: unknown, repo: unknown): boolean
+export function validTopicSlug(value: unknown): boolean
 
 /** @summary Report the exact validated scalar shape for each YAML document kind. */
 export function parseTopicYaml(source: unknown, kind: 'project'): { repository: string }
@@ -44,6 +45,9 @@ export function loadTopicProjectCandidates<T extends TopicCandidate>(
   minimum?: number
 ): Promise<TopicCandidateSummary<T> & { pagesRead: number }>
 
+export type TopicInstalledMeta = Omit<TopicCandidatesMeta, 'repository'> & {
+  repository: { full_name: string } | null
+}
 export interface TopicInstalledCursor { readonly page:number; readonly offset:number }
 export interface TopicInstalledCandidate extends TopicCandidate {
   readonly id:number
@@ -54,7 +58,7 @@ export interface TopicInstalledPage<T extends TopicInstalledCandidate> {
   readonly windowExhausted:boolean; readonly items:readonly T[]
 }
 export function loadInstalledTopicBatch<T extends TopicInstalledCandidate>(
-  meta: TopicCandidatesMeta,
+  meta: TopicInstalledMeta,
   getPage:(page:number,offset:number)=>Promise<TopicInstalledPage<T>>,
   signal?:AbortSignal,cursor?:TopicInstalledCursor,existingIds?:readonly number[],
   minimum?:number
