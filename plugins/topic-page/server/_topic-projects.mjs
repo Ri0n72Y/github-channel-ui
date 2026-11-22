@@ -2,6 +2,7 @@ import { requireTopicTarget, github, topicConfig, topicError, reply,
   publicRepository, TopicFetchError } from './_topic.mjs'
 import { resolveInstalledRepository, ProbeError } from '../../github-access/server/_installation-probe.mjs'
 import { loadTopicWhitelist } from './_topic-whitelist.mjs'
+import { validTopicSlug } from '../src/domain.mjs'
 
 const BATCH = 25
 const WORKERS = 5
@@ -101,20 +102,39 @@ export function createTopicProjectsEndpoint({
     async fetch(request) {
       if (request.method !== 'GET') return reply({ error: 'Method not allowed' }, 405)
       try {
-        const { owner, repo, page } = requireTopicTarget(request, true)
         const query = new URL(request.url).searchParams
+        const direct = query.get('topic')
+        const directMode = direct !== null
         const rawOffset = query.get('offset') || '0'
         if (!/^(?:0|25|50|75)$/.test(rawOffset)) throw new TopicFetchError(
           '无效的 Topic Search 游标', 400, 'topic-search')
         const offset = Number(rawOffset), args = { fetcher }
-        await publicRepository(owner, repo, args)
-        const config = await topicConfig(owner, repo, args)
-        // Whitelist constrains already-installed candidates; disabling it never
-        // disables the App Installation check or public repository verification.
-        const sourceAllow = await loadTopicWhitelist(owner,repo,config,{fetcher})
-        const allowedNames = sourceAllow ? new Set(sourceAllow) : null
+        let page, topic, allowedNames = null
+        if (directMode) {
+          // Exactly one explicit Topic; no source repository, whitelist or write authority.
+          if (query.getAll('topic').length !== 1 || query.has('owner') ||
+              query.has('repo') || !validTopicSlug(direct)) throw new TopicFetchError(
+            'GitHub Topic slug 无效', 400, 'route')
+          const rawPage = query.get('page') || '1'
+          if (!/^[1-9]\d*$/.test(rawPage) || Number(rawPage) > 10) {
+            throw new TopicFetchError('GitHub Topic Search 仅支持 1000 条可访问结果',
+              400, 'topic-search')
+          }
+          page = Number(rawPage)
+          topic = direct.toLowerCase()
+        } else {
+          const target = requireTopicTarget(request, true)
+          page = target.page
+          await publicRepository(target.owner, target.repo, args)
+          const config = await topicConfig(target.owner, target.repo, args)
+          // Source whitelist constrains installed candidates, never replaces proof.
+          const sourceAllow = await loadTopicWhitelist(target.owner, target.repo,
+            config, { fetcher })
+          allowedNames = sourceAllow ? new Set(sourceAllow) : null
+          topic = config.topic
+        }
         const data = await github('/search/repositories?q=topic:' +
-          encodeURIComponent(config.topic) + '&sort=updated&order=desc&per_page=100&page=' +
+          encodeURIComponent(topic) + '&sort=updated&order=desc&per_page=100&page=' +
           page, { ...args, stage: 'topic-search' })
         if (!data || !Number.isSafeInteger(data.total_count) || data.total_count < 0 ||
             !Array.isArray(data.items) || data.items.length > 100) throw new TopicFetchError(

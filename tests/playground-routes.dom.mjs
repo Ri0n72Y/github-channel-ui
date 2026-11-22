@@ -4,7 +4,7 @@ import { JSDOM } from 'jsdom'
 import React, { act } from 'react'
 import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
-import { MemoryRouter } from 'react-router'
+import { MemoryRouter, matchRoutes, useNavigate } from 'react-router'
 import { PLAYGROUND_PLUGINS } from '../apps/playground/src/playground-paths.mjs'
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
@@ -87,7 +87,7 @@ const expected = {
   'repo-config': ['/:owner/:repo/config'],
   'issue-detail': ['/:owner/:repo/issues/:number'],
   'channel': ['/:owner/:repo/channels'],
-  'topic-page': ['/topic/:owner/:repo'],
+  'topic-page': ['/topic/:owner/:repo', '/topic/:slug'],
 }
 const visible = {
   'repo-panel': /LabourChain/,
@@ -127,6 +127,69 @@ for (const plugin of PLAYGROUND_PLUGINS) {
     } finally { await runtime.dispose() }
   })
 }
+
+
+test('#83 /topic/:slug wins generic repo routing; source route retains specificity', () => {
+  const routes = [{ path: '/:owner/:repo' }, { path: '/topic/:slug' },
+    { path: '/topic/:owner/:repo' }]
+  assert.equal(matchRoutes(routes, '/topic/dsh-plugin')?.at(-1)?.route.path,
+    '/topic/:slug')
+  assert.equal(matchRoutes(routes, '/topic/sample/repo')?.at(-1)?.route.path,
+    '/topic/:owner/:repo')
+})
+
+test('#83 Topic slug direct/refresh/back/forward and invalid slug remain isolated', async () => {
+  const runtime = await start('topic-page')
+  const basename = '/playground/topic-page'
+  const slugPath = basename + '/topic/dsh-plugin'
+  const props = { ui: runtime.ui, sessionRequest: runtime.sessionRequest,
+    initialPath: '/topic/sample/repo' }
+  function Controls() {
+    const navigate = useNavigate()
+    return h('div', null,
+      h('button', { id: 'source-nav',
+        onClick: () => navigate('/topic/sample/repo') }, '来源模式'),
+      h('button', { id: 'back-nav', onClick: () => navigate(-1) }, '上一页'),
+      h('button', { id: 'forward-nav', onClick: () => navigate(1) }, '下一页'))
+  }
+  try {
+    const direct = await mounted(h(MemoryRouter, {
+      initialEntries: [slugPath], basename,
+    }, h(Controls), h(App, props)))
+    try {
+      await expectLoaded(direct.host, /GitHub Topic：dsh-plugin/, 'slug direct')
+      assert.doesNotMatch(direct.host.textContent, /确认提交配置|编辑问题报告/)
+      await act(async () => {
+        direct.host.querySelector('#source-nav').click()
+        await sleep(80)
+      })
+      await expectLoaded(direct.host, /Topic 样例活动/, 'source navigation')
+      await act(async () => {
+        direct.host.querySelector('#back-nav').click()
+        await sleep(80)
+      })
+      await expectLoaded(direct.host, /GitHub Topic：dsh-plugin/, 'back to slug')
+      await act(async () => {
+        direct.host.querySelector('#forward-nav').click()
+        await sleep(80)
+      })
+      await expectLoaded(direct.host, /Topic 样例活动/, 'forward to source')
+    } finally { await direct.close() }
+    const refresh = await mounted(h(MemoryRouter, {
+      initialEntries: [slugPath], basename,
+    }, h(App, props)))
+    try {
+      await expectLoaded(refresh.host, /GitHub Topic：dsh-plugin/, 'slug refresh')
+    } finally { await refresh.close() }
+    const invalid = await mounted(h(MemoryRouter, {
+      initialEntries: [basename + '/topic/bad_slug'], basename,
+    }, h(App, props)))
+    try {
+      await expectLoaded(invalid.host, /GitHub Topic slug 无效/, 'invalid slug')
+      assert.doesNotMatch(invalid.host.textContent, /确认提交配置|编辑问题报告/)
+    } finally { await invalid.close() }
+  } finally { await runtime.dispose() }
+})
 
 test('#15 Header Brand is opt-in and keeps Theme / Session in the same UI host',async()=>{
  const runtime=await start('repo-home')

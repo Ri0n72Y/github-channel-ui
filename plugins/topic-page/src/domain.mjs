@@ -2,6 +2,10 @@ const OWNER = /^[a-z\d-]{1,39}$/i
 const REPO = /^[a-z\d._-]{1,100}$/i
 const TOPIC = /^[a-z\d][a-z\d-]{0,49}$/i
 
+/** @summary Validate a direct GitHub Topic slug without inventing a source repository. */
+export const validTopicSlug = value => typeof value === 'string' &&
+  TOPIC.test(value) && !value.endsWith('-')
+
 /** @summary Check a public TopicPage source name before it reaches GitHub. */
 export function validTopicRepository(owner, repo) {
   return typeof owner === 'string' && OWNER.test(owner) &&
@@ -132,7 +136,8 @@ export async function loadInstalledTopicBatch(meta, getPage, signal, cursor = { 
   existingIds = [], minimum = 10) {
   const seen = new Set(existingIds), names = new Set()
   const allowed = new Set((meta.allowedRepositories || []).map(name => name.toLowerCase()))
-  const source = meta.repository.full_name.toLowerCase()
+  const source = typeof meta.repository?.full_name === 'string' ?
+    meta.repository.full_name.toLowerCase() : ''
   const items = []
   let next = cursor, ended = false, windowExhausted = false, slicesRead = 0
   while (next && slicesRead < 40 && items.length < minimum) {
