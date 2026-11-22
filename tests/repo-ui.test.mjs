@@ -3,12 +3,13 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createElement } from 'react'
+import { MemoryRouter } from 'react-router'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
 
 const root = resolve(import.meta.dirname, '..')
-let server, SafeMarkdown, validateVisibleFields
+let server, SafeMarkdown, validateVisibleFields, trustedMemberResultUrl, TeamStrip
 
 before(async () => {
   server = await createServer({
@@ -16,8 +17,10 @@ before(async () => {
     plugins: [react()], server: { middlewareMode: true },
   })
   SafeMarkdown = (await server.ssrLoadModule('/plugins/repo-home/src/SafeMarkdown.tsx')).SafeMarkdown
-  validateVisibleFields = (await server.ssrLoadModule(
-    '/plugins/repo-home/src/MemberRegisterPage.tsx')).validateVisibleFields
+  const registration = await server.ssrLoadModule('/plugins/repo-home/src/MemberRegisterPage.tsx')
+  validateVisibleFields = registration.validateVisibleFields
+  trustedMemberResultUrl = registration.trustedMemberResultUrl
+  TeamStrip = (await server.ssrLoadModule('/plugins/repo-home/src/Team.tsx')).TeamStrip
 })
 after(async () => { await server?.close() })
 
@@ -92,4 +95,30 @@ test('#51 V2: form keeps inline accessibility links and focuses first invalid in
   assert.match(src, /submitAttempted \? validateVisibleFields\(fields\) : \{\}/)
   assert.doesNotMatch(src, /clearFieldError\(/)
   assert.match(src, /validateMemberInput\(fields\)/)
+})
+
+
+test('#99 Member Strip shows real name and role beside each avatar', () => {
+  const html = renderToStaticMarkup(createElement(MemoryRouter, null,
+    createElement(TeamStrip, {base:'/sample/repo',
+      members:[{id:'alice',name:'Alice',role:'Maintainer'},{id:'bob',name:'Bob'}]})))
+  assert.match(html, /Alice/)
+  assert.match(html, /Maintainer/)
+  assert.match(html, /Bob/)
+  assert.match(html, /全部成员/)
+  assert.doesNotMatch(html, /undefined/)
+})
+
+test('#99 member registration exposes only exact GitHub PR and Commit destinations', () => {
+  const result = {status:'pending_pr',url:'https://github.com/sample/repo/pull/17'}
+  assert.equal(trustedMemberResultUrl(result,'sample','repo'),result.url)
+  const sha = 'a'.repeat(40)
+  const committed = {status:'committed',url:'https://github.com/sample/repo/commit/'+sha}
+  assert.equal(trustedMemberResultUrl(committed,'sample','repo'),committed.url)
+  for(const url of [
+    'https://github.com/other/repo/pull/17','https://github.com/sample/repo/issues/17',
+    'https://github.com.evil.test/sample/repo/pull/17','http://github.com/sample/repo/pull/17',
+    'https://github.com/sample/repo/pull/17?next=other','javascript:alert(1)',
+  ]) assert.equal(trustedMemberResultUrl({...result,url},'sample','repo'),null,url)
+  assert.equal(trustedMemberResultUrl({...committed,url:'https://github.com/sample/repo/commit/a'},'sample','repo'),null)
 })

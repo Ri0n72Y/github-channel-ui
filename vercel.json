@@ -68,12 +68,13 @@
   ],
   "git": {
     "deploymentEnabled": {
-      "feat/repo-scoped-issue-and-header-20261121": false,
+      "fix/repo-home-owner-ux-20261121": false,
       "ci-governance-budget-20261118": false,
       "refactor/public-plugin-source-c4": false,
       "fix/public-ci-test-coverage-20261119": false,
       "feat/public-playground-six-routes-20261120": false,
-      "fix/url-scoped-public-installation-20261120": false
+      "fix/url-scoped-public-installation-20261120": false,
+      "feat/repo-scoped-issue-and-header-20261121": false
     }
   }
 }

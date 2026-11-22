@@ -3,7 +3,7 @@ import { json, github, githubError, repoPath, writeContext } from './_issue-inte
 /** Create an Issue as the signed-in user, never as the App installation bot. */
 export default {
   async fetch(request) {
-    const context = await writeContext(request)
+    const context = await writeContext(request, { dynamicInstallation: true })
     if (context.error) return context.error
     const { body, token } = context
     if (typeof body.title !== 'string' || !body.title.trim() || body.title.length > 256 ||
