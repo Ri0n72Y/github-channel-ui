@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { summarizeReadme } from './domain.mjs'
 import type { RepoHomeApi, RepoHomeData, RepoFeedIssue } from './service'
-import { readDisplayBranch } from './service'
+import { memberWriteBranch, readDisplayBranch } from './service'
 import { MemberManagementLink, TeamStrip, TeamStatus } from './Team'
 import { useMemberWriteAccess } from './useMemberWriteAccess'
 import { RepoIssueActivityCard } from './RepoIssueActivityCard'
@@ -19,7 +19,7 @@ export default function RepoHomePage({ api, theme }: { api: RepoHomeApi; theme?:
   const { owner = '', repo = '' } = useParams<'owner' | 'repo'>()
   // A local viewing preference. GitHub repository-wide configuration is managed separately.
   const branch = readDisplayBranch(owner, repo)
-  const memberWrite = useMemberWriteAccess(api, owner, repo, branch)
+  const memberWrite = useMemberWriteAccess(api, owner, repo, memberWriteBranch)
   const [data, setData] = useState<RepoHomeData | null>(null)
   const [homeError, setHomeError] = useState('')
   const [homeLoading, setHomeLoading] = useState(true)

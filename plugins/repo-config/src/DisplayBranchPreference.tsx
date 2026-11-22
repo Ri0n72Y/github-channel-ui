@@ -39,8 +39,8 @@ export default function DisplayBranchPreference({ owner, repo, base }: {
   }
   return <section className={styles.panel} aria-labelledby="display-branch-heading">
     <h2 id="display-branch-heading">本机展示分支偏好</h2>
-    <p>当前浏览器：<strong>{branch}</strong>。仅影响你在项目主页查看的 README 和成员文件；
-      不修改 GitHub 仓库默认分支、全局平台配置或 Label 同步使用的 main。</p>
+    <p>当前浏览器：<strong>{branch}</strong>。仅影响你在项目主页和成员列表阅读的 README、成员文件；
+      成员登记始终写入 main，不修改 GitHub 仓库默认分支、全局平台配置或 Label 同步使用的 main。</p>
     <div className={styles.displayPreference}>
       <label htmlFor="display-branch-input">查看的 GitHub 分支</label>
       <input id="display-branch-input" value={draft} maxLength={180}

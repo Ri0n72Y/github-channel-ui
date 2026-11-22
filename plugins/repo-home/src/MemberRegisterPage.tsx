@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router'
 import { safeHttps, validLogin, validateMemberInput } from './domain.mjs'
-import { readDisplayBranch, repoHomeStatus, type MemberCapability, type MemberSubmitResult,
+import { memberWriteBranch, repoHomeStatus, type MemberCapability, type MemberSubmitResult,
   type RepoHomeApi } from './service'
 import styles from './RepoHome.module.css'
 import { subscribeSessionChanged } from '../../shared/src/session-change'
@@ -61,7 +61,7 @@ export function validateVisibleFields(fields: Fields): FieldErrors {
 export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
   const { owner = '', repo = '' } = useParams<'owner' | 'repo'>()
   const base = '/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo)
-  const branch = readDisplayBranch(owner, repo)
+  const branch = memberWriteBranch
   const login = '/api/github-login?return_to=' + encodeURIComponent(base + '/members/register')
   const [fields, setFields] = useState<Fields>(initial)
   const [capability, setCapability] = useState<MemberCapability | null>(null)
@@ -97,7 +97,12 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
     const controller = new AbortController()
     setCapability(null); setAuthStatus(null)
     void api.getCapability(owner, repo, branch, controller.signal).then(value => {
-      if (!controller.signal.aborted) setCapability(value)
+      if (!controller.signal.aborted) {
+        if (value.branch !== branch) {
+          setAuthStatus(403)
+          setError('服务器返回的成员写入分支与授权目标不一致，已拒绝提交。')
+        } else setCapability(value)
+      }
     }).catch(e => {
       if (controller.signal.aborted) return
       setAuthStatus(repoHomeStatus(e))
@@ -158,7 +163,7 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
   return <section className={styles.page}>
     <p><Link to={base}>项目</Link> / <Link to={base + '/members'}>团队成员</Link> / 添加成员</p>
     <h1>添加团队成员</h1>
-    <p className={styles.muted}>目标：{owner}/{repo} · 提交到 <strong>{branch}</strong></p>
+    <p className={styles.muted}>目标：{owner}/{repo} · 成员登记写入固定分支 <strong>{branch}</strong>（不受本机展示偏好影响）</p>
     {result && <section className={styles.submitResult} role="status" aria-live="polite">
       <h2 ref={resultHeading} tabIndex={-1}>
         {result.status === 'pending_pr' ? '维护 PR 已创建' : '成员资料已提交'}

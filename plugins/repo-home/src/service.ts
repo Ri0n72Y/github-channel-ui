@@ -37,6 +37,8 @@ export function repoHomeError(message: string, status: number): Error & { readon
   return requestFailure(message, status)
 }
 export function repoHomeStatus(error: unknown): number { return requestStatus(error) }
+/** Member registration remains on the authorized main branch, independent of local read preferences. */
+export const memberWriteBranch = 'main' as const
 export function displayBranchKey(owner: string, repo: string) {
   return 'labourchain:display-branch:' + owner.toLowerCase() + '/' + repo.toLowerCase()
 }

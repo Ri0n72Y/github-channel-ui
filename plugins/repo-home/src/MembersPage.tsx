@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { readDisplayBranch, type RepoHomeApi, type RepoHomeData } from './service'
+import { memberWriteBranch, readDisplayBranch, type RepoHomeApi, type RepoHomeData } from './service'
 import { MemberManagementLink, MemberProfile, TeamStatus } from './Team'
 import styles from './RepoHome.module.css'
 import { useMemberWriteAccess } from './useMemberWriteAccess'
@@ -13,7 +13,7 @@ export default function MembersPage({ api }: { api: RepoHomeApi }) {
   const [loading, setLoading] = useState(true)
   const branch = readDisplayBranch(owner, repo)
   const base = '/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo)
-  const memberWrite = useMemberWriteAccess(api, owner, repo, branch, revision)
+  const memberWrite = useMemberWriteAccess(api, owner, repo, memberWriteBranch, revision)
   useEffect(() => {
     const controller = new AbortController()
     setLoading(true); setError(''); setData(null)
@@ -30,7 +30,7 @@ export default function MembersPage({ api }: { api: RepoHomeApi }) {
       <MemberManagementLink base={base} state={memberWrite.state} />
     </div>
     {memberWrite.capability &&
-      <p className={styles.muted}>已验证操作者 @{memberWrite.capability.user.login}，目标分支 {branch}</p>}
+      <p className={styles.muted}>已验证操作者 @{memberWrite.capability.user.login}，写入分支 {memberWriteBranch}</p>}
     {memberWrite.state === 'denied' &&
       <p className={styles.muted}>当前账号没有成员登记权限。</p>}
     {memberWrite.state === 'error' && <p role="status" className={styles.muted}>

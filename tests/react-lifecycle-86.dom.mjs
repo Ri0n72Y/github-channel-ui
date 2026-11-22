@@ -23,12 +23,13 @@ const deferred = () => {
   return {promise,resolve,reject}
 }
 const flush = async () => act(async () => { await new Promise(r => setTimeout(r, 0)) })
-let server, Home, Issue, Member, Config, configFixture, RepoPanel, makeRepoStore
+let server, Home, Issue, Member, Members, Config, configFixture, RepoPanel, makeRepoStore
 before(async () => {
  server=await createServer({root:process.cwd(),configFile:false,logLevel:'silent',plugins:[react()],server:{middlewareMode:true}})
  Home=(await server.ssrLoadModule('/plugins/repo-home/src/RepoHomePage.tsx')).default
  Issue=(await server.ssrLoadModule('/plugins/issue-detail/src/IssueDetailPage.tsx')).default
  Member=(await server.ssrLoadModule('/plugins/repo-home/src/MemberRegisterPage.tsx')).default
+ Members=(await server.ssrLoadModule('/plugins/repo-home/src/MembersPage.tsx')).default
  Config=(await server.ssrLoadModule('/plugins/repo-config/src/ConfigPage.tsx')).default
  configFixture=(await server.ssrLoadModule('/apps/playground/src/config-fixture.ts')).createRepoConfigFixtureService
  RepoPanel=(await server.ssrLoadModule('/plugins/repo-panel/src/index.tsx')).RepoPanel
@@ -725,4 +726,83 @@ test('#99 Config display-branch preference stays local and never invokes reposit
   assert.equal(saves,0)
   assert.match(app.host.textContent,/不修改 GitHub 仓库默认分支/)
  }finally{await app.close();localStorage.removeItem(key)}
+})
+
+
+test('#99 Config local preview cannot redirect member write branch across pages',async()=>{
+ const key='labourchain:display-branch:sample/repo'
+ localStorage.removeItem(key)
+ const configFixtureApi=configFixture(new URLSearchParams({configCase:'changes'}))
+ let configWrites=0,memberWrites=0
+ const config=await mount('/sample/repo/config','/:owner/:repo/config',Config,
+  {api:{...configFixtureApi,save:async()=>{configWrites++;throw Error('unexpected config write')}},
+   owner:'sample',repo:'repo'},p=>p.owner+'/'+p.repo)
+ try{
+  await act(async()=>input(config.host.querySelector('#display-branch-input'),'feature/docs'))
+  const save=[...config.host.querySelectorAll('button')].find(b=>b.textContent==='保存本机偏好')
+  assert.ok(save)
+  await act(async()=>save.click())
+  assert.equal(localStorage.getItem(key),'feature/docs')
+  assert.equal(configWrites,0)
+ }finally{await config.close()}
+ const reads=[],checks=[],submitted=[]
+ const api={
+  getHome:async(owner,repo,branch)=>{
+   reads.push(branch)
+   return {repository:{full_name:owner+'/'+repo,name:repo,description:'Preview',
+    html_url:'https://github.com/sample/repo',default_branch:'main'},
+    branch,readme:{state:'missing'},team:{state:'empty',members:[]}}
+  },
+  getFeed:async(_owner,_repo,page)=>({page,hasMore:false,items:[]}),
+  getCapability:async(owner,repo,branch)=>{
+   checks.push({owner,repo,branch})
+   return {user:{login:'operator',id:1},branch:'main',mode:'pr',protected:true}
+  },
+  register:async(owner,repo,branch,member)=>{
+   memberWrites++;submitted.push({owner,repo,branch,member})
+   return {status:'pending_pr',url:'https://github.com/sample/repo/pull/42',
+    sha:'a'.repeat(40),requestedBy:'operator'}
+  },
+ }
+ try{
+  const home=await mount('/sample/repo','/:owner/:repo',Home,{api})
+  try{
+   assert.ok(reads.includes('feature/docs'),'preview must still use local preference')
+   assert.ok(checks.every(c=>c.branch==='main'),'home permission may only check authorized main')
+  }finally{await home.close()}
+  const members=await mount('/sample/repo/members','/:owner/:repo/members',Members,{api})
+  try{
+   assert.ok(reads.every(b=>b==='feature/docs'))
+   assert.ok(checks.every(c=>c.branch==='main'))
+   assert.match(members.host.textContent,/写入分支 main/)
+  }finally{await members.close()}
+  const registration=await mount('/sample/repo/members/register','/:owner/:repo/members/register',Member,{api})
+  try{
+   assert.ok(registration.host.querySelector('form'))
+   assert.match(registration.host.textContent,/登记写入固定分支 main/)
+   await act(async()=>input(registration.host.querySelector('input[required]'),'Alice'))
+   await act(async()=>registration.host.querySelector('form').dispatchEvent(
+    new Event('submit',{bubbles:true,cancelable:true})))
+   await flush()
+   assert.equal(memberWrites,1)
+   assert.deepEqual(submitted.map(x=>[x.owner,x.repo,x.branch]),[['sample','repo','main']])
+   assert.ok(checks.every(c=>c.branch==='main'))
+  }finally{await registration.close()}
+ }finally{localStorage.removeItem(key)}
+})
+
+test('#99 member registration fails closed when server capability branch differs from write target',async()=>{
+ const key='labourchain:display-branch:sample/repo'
+ localStorage.setItem(key,'feature/docs')
+ let writes=0
+ const api={
+  getCapability:async()=>({user:{login:'operator',id:1},branch:'feature/docs',mode:'pr'}),
+  register:async()=>{writes++;throw Error('must not send')},
+ }
+ const registration=await mount('/sample/repo/members/register','/:owner/:repo/members/register',Member,{api})
+ try{
+  assert.equal(registration.host.querySelector('form'),null)
+  assert.match(registration.host.textContent,/已拒绝提交/)
+  assert.equal(writes,0)
+ }finally{await registration.close();localStorage.removeItem(key)}
 })
