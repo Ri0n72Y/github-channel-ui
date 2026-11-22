@@ -74,7 +74,8 @@
       "fix/public-ci-test-coverage-20261119": false,
       "feat/public-playground-six-routes-20261120": false,
       "fix/url-scoped-public-installation-20261120": false,
-      "feat/repo-scoped-issue-and-header-20261121": false
+      "feat/repo-scoped-issue-and-header-20261121": false,
+      "feat/topic-page-slug-discovery-20261122": false
     }
   }
 }

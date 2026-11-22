@@ -365,3 +365,70 @@
 .loadMore button:focus-visible {outline:3px solid var(--lc-focus);outline-offset:3px}
 .loadMore{display:flex;justify-content:center;padding:24px 0}
 @media(max-width:700px){.configPanel{padding:16px}.configActions button{width:100%}}
+
+/* #83 source + source-less Topic views: compact, accessible visible-card layout. */
+.page {max-width:1340px;padding:28px 26px 72px}
+.headCard {min-height:0;margin-bottom:22px;align-items:stretch}
+.headCard > img {width:28%;max-height:230px;object-fit:cover}
+.headCopy {padding:22px 28px}
+.headCopy h1 {font-size:clamp(28px,3.7vw,48px);line-height:1.12;margin:8px 0}
+.description {white-space:pre-line;line-height:1.55;margin:8px 0;max-width:80ch}
+.headCopy > a {margin:4px 0 0;min-height:44px;display:inline-flex;align-items:center}
+.headMeta {padding-top:8px;margin-top:10px;gap:8px 16px}
+.sourceHint {margin:6px 0}
+.readmeToggle {
+  align-self:flex-start;min-height:44px;padding:6px 0;
+  border:0;background:transparent;color:var(--lc-link);
+  font:inherit;font-weight:650;cursor:pointer;
+}
+.readmeToggle:focus-visible,.configDisclosure summary:focus-visible {
+  outline:3px solid var(--lc-focus);outline-offset:3px;
+}
+.slugHead {
+  border:1px solid var(--lc-stroke);border-radius:16px;
+  background:var(--lc-surface);box-shadow:var(--lc-shadow);
+  padding:22px 26px;margin-bottom:22px;
+}
+.slugHead h1 {font-size:clamp(28px,4vw,44px);margin:6px 0 8px;overflow-wrap:anywhere}
+.slugHead p {max-width:80ch;margin:0;color:var(--lc-text-secondary);line-height:1.55}
+.sectionHeading {margin-bottom:14px}
+.sectionHeading h2 {font-size:clamp(22px,3vw,28px)}
+.grid {
+  display:grid;grid-template-columns:repeat(5,minmax(0,1fr));
+  gap:14px;align-items:start;
+}
+.projectCard {display:flex;flex-direction:column;min-width:0;max-width:none;width:100%;height:auto}
+.projectCover {aspect-ratio:4 / 3;min-height:0;max-height:none}
+.projectCover img {object-fit:cover}
+.projectContent {padding:12px 13px 16px}
+.projectIdentity {gap:8px;align-items:flex-start}
+.ownerAvatar {width:32px;height:32px;font-size:13px}
+.projectCard h3 {font-size:16px;line-height:1.3;margin:0}
+.projectCard p {min-height:0}
+.projectCard .projectDescription {
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;
+  white-space:normal;overflow:hidden;line-clamp:3;
+  margin:8px 0;line-height:1.5;
+}
+.projectCard .cardMeta {font-size:11px;overflow-wrap:anywhere}
+.projectCard a {display:inline-flex;align-items:center;min-height:44px}
+.configDisclosure {margin-top:28px}
+.configDisclosure > summary {
+  cursor:pointer;display:flex;align-items:center;min-height:48px;
+  padding:10px 16px;border:1px solid var(--lc-stroke-strong);
+  border-radius:12px;background:var(--lc-surface-raised);
+  color:var(--lc-text);font-weight:700;list-style:revert;
+}
+.configDisclosure[open] > summary {margin-bottom:12px}
+.configDisclosure .configPanel {margin-bottom:0}
+@media (max-width:1180px) {.grid {grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media (max-width:860px) {.grid {grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:620px) {.grid {grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:480px) {
+  .page {padding:18px 14px 52px}
+  .grid {grid-template-columns:minmax(0,1fr)}
+  .headCard {display:block}
+  .headCard > img {width:100%;max-height:150px;object-fit:cover}
+  .headCopy,.slugHead {padding:18px}
+  .projectCover {aspect-ratio:16 / 9}
+}

@@ -36,16 +36,6 @@ export default function TopicPageView(props: TopicPageViewProps) {
     '/topic/' + props.owner + '/' + props.repo)
   return <div className={styles.page}>
     {props.snapshot && <TopicPageHead snapshot={props.snapshot}/>}
-    {props.snapshot && <TopicConfigEditor
-      snapshot={props.snapshot} draft={props.draft ?? props.snapshot.configText ?? ''}
-      authenticated={props.authenticated === true}
-      pending={props.configPending === true} uncertain={props.configUncertain === true}
-      awaitingMerge={props.configAwaitingMerge === true}
-      onRecheck={props.onConfigRecheck ?? (()=>{})}
-      error={props.configError ?? ''} result={props.configResult ?? null}
-      loginUrl={login} onChange={props.onDraftChange ?? (() => {})}
-      onSave={props.onConfigSave ?? (() => {})}
-      onConfirmUnknown={props.onConfirmConfigUnknown ?? (() => {})}/>}
     <section className={styles.section} aria-labelledby="topic-projects-heading">
       <div className={styles.sectionHeading}>
         <div><span className={styles.eyebrow}>PUBLIC GITHUB TOPIC</span>
@@ -60,7 +50,7 @@ export default function TopicPageView(props: TopicPageViewProps) {
         loginUrl={login}/>
       {props.snapshot?.configState === 'missing' ?
         <div className={styles.empty} role="status">
-          topics.config.yaml 尚未初始化。请编辑上方草稿并明确提交；提交前不搜索项目。
+          topics.config.yaml 尚未初始化。请在下方“仓库维护”展开配置草稿并明确提交；提交前不搜索项目。
         </div> :
         !props.loading && !props.error && props.projects.length === 0 &&
         <div className={styles.empty}>当前可访问搜索范围没有符合配置的已安装项目。</div>}
@@ -78,6 +68,19 @@ export default function TopicPageView(props: TopicPageViewProps) {
         </button>
       </div>}
     </section>
+    {props.snapshot && <details className={styles.configDisclosure}>
+      <summary>仓库维护 · Topic 配置</summary>
+      {props.snapshot && <TopicConfigEditor
+        snapshot={props.snapshot} draft={props.draft ?? props.snapshot.configText ?? ''}
+        authenticated={props.authenticated === true}
+        pending={props.configPending === true} uncertain={props.configUncertain === true}
+        awaitingMerge={props.configAwaitingMerge === true}
+        onRecheck={props.onConfigRecheck ?? (()=>{})}
+        error={props.configError ?? ''} result={props.configResult ?? null}
+        loginUrl={login} onChange={props.onDraftChange ?? (() => {})}
+        onSave={props.onConfigSave ?? (() => {})}
+        onConfirmUnknown={props.onConfirmConfigUnknown ?? (() => {})}/>}
+    </details>}
     {props.report.open && <TopicReportDialog
       title={props.report.title} body={props.report.body}
       pending={props.report.pending} checking={props.report.checking}

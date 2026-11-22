@@ -46,7 +46,11 @@ export function createTopicFixtureService(query: URLSearchParams): TopicPageApi 
       }
     },
     async getProjects(route, page, signal, offset = 0): Promise<TopicProjectsPage> {
-      await wait(signal); routeCheck(route)
+      await wait(signal)
+      if ('topic' in route) {
+        if (!['dsh-plugin', 'labourchain'].includes(route.topic)) throw Object.assign(
+          new Error('Fixture Topic slug invalid'), { status: 400, stage: 'route' })
+      } else routeCheck(route)
       const cursor = (total: number, end: boolean) => ({
         page, offset, perPage: 100, totalCount: total,
         hasNext: !end, nextPage: end ? null : page + 1,

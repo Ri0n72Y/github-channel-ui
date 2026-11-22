@@ -1,4 +1,6 @@
 export type TopicRoute = { owner: string; repo: string }
+export type TopicSlugRoute = { topic: string }
+export type TopicReadRoute = TopicRoute | TopicSlugRoute
 export type TopicRepository = {
   id: number; full_name: string; name: string; owner: string | null;
   description: string; html_url: string; stargazers_count: number;
@@ -30,7 +32,7 @@ export type TopicConfigResult = {
 export interface TopicPageApi {
   readonly reportAvailable: boolean
   getSnapshot(route: TopicRoute, signal: AbortSignal): Promise<TopicSnapshot>
-  getProjects(route: TopicRoute, page: number, signal: AbortSignal, offset?: number): Promise<TopicProjectsPage>
+  getProjects(route: TopicReadRoute, page: number, signal: AbortSignal, offset?: number): Promise<TopicProjectsPage>
   getSession(signal: AbortSignal): Promise<boolean>
   getReportTarget(route: TopicRoute, signal: AbortSignal): Promise<string>
   submitReport(route: TopicRoute, report: ReportIssue, proof: string, signal: AbortSignal): Promise<string>
@@ -45,7 +47,7 @@ function topicError(message:string,status:number,stage='source',
   outcomeUnknown=false):TopicPageError{
   return Object.assign(new Error(message),{status,stage,retryable:!outcomeUnknown,outcomeUnknown})
 }
-function query(route:TopicRoute,page?:number,offset?:number){
+function query(route:TopicReadRoute,page?:number,offset?:number){
   return new URLSearchParams(page===undefined?route:{...route,page:String(page),offset:String(offset||0)}).toString()
 }
 async function read(request:RequestFn,url:string,signal:AbortSignal):Promise<unknown>{
@@ -128,7 +130,7 @@ export function createTopicPageApi(request:RequestFn=browserRequest):Readonly<To
   async function getSnapshot(route:TopicRoute,signal:AbortSignal){
     return parseSnapshot(await read(request,'/api/topic-page?'+query(route),signal))
   }
-  async function getProjects(route:TopicRoute,page:number,signal:AbortSignal,offset=0){
+  async function getProjects(route:TopicReadRoute,page:number,signal:AbortSignal,offset=0){
     return parsePage(await read(request,'/api/topic-projects?'+query(route,page,offset),signal))
   }
   async function getSession(signal:AbortSignal){
