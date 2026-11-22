@@ -82,7 +82,8 @@ test('#94 public catalog renders six independent deep links and a working direct
 
 const expected = {
   'repo-panel': ['/'],
-  'repo-home': ['/:owner/:repo','/:owner/:repo/members','/:owner/:repo/members/register'],
+  'repo-home': ['/:owner/:repo','/:owner/:repo/members','/:owner/:repo/members/register',
+    '/:owner/:repo/issues/new'],
   'repo-config': ['/:owner/:repo/config'],
   'issue-detail': ['/:owner/:repo/issues/:number'],
   'channel': ['/:owner/:repo/channels'],
@@ -126,3 +127,27 @@ for (const plugin of PLAYGROUND_PLUGINS) {
     } finally { await runtime.dispose() }
   })
 }
+
+test('#15 Header Brand is opt-in and keeps Theme / Session in the same UI host',async()=>{
+ const runtime=await start('repo-home')
+ try{
+  const wrap=element=>h(MemoryRouter,{initialEntries:['/playground/repo-home'],
+    basename:'/playground/repo-home'},element)
+  const brand={label:'LabourChain',home:'/',links:[{label:'用户手册',href:'/docs/'}]}
+  const withBrand=await mounted(wrap(h(App,{ui:runtime.ui,headerBrand:brand,
+    sessionRequest:runtime.sessionRequest,initialPath:runtime.initialPath})))
+  try{
+   assert.ok(withBrand.host.querySelector('nav[aria-label="平台导航"]'))
+   assert.ok(withBrand.host.querySelector('a[href="/docs/"]'))
+   const brandHome=withBrand.host.querySelector('nav[aria-label="平台导航"] a')
+   assert.ok(brandHome?.getAttribute('href')?.startsWith('/playground/repo-home'))
+   assert.ok(withBrand.host.querySelector('button[aria-label*="切换为"]'))
+  }finally{await withBrand.close()}
+  const plain=await mounted(wrap(h(App,{ui:runtime.ui,
+    sessionRequest:runtime.sessionRequest,initialPath:runtime.initialPath})))
+  try{
+   assert.equal(plain.host.querySelector('nav[aria-label="平台导航"]'),null)
+   assert.ok(plain.host.querySelector('button[aria-label*="切换为"]'))
+  }finally{await plain.close()}
+ }finally{await runtime.dispose()}
+})

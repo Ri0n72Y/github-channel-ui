@@ -146,6 +146,7 @@ export default function RepoHomePage({ api, theme }: { api: RepoHomeApi; theme?:
     </section>
     <section className={[styles.section, styles.feedSection].join(' ')} aria-labelledby="feed-heading">
       <div className={styles.sectionHead}><h2 id="feed-heading">Repo Issue 动态</h2>
+        <Link to={base + '/issues/new'}>新建 Issue</Link>
         <button type="button" onClick={refresh}>刷新动态</button></div>
       <div className={styles.feed}>{items.map(issue => <RepoIssueActivityCard
         key={issue.id} issue={issue} base={base} />)}</div>

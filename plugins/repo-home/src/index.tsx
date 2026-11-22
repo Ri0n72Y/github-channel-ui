@@ -7,6 +7,7 @@ import { repoHomeApi, memberWriteBranch, type RepoHomeApi } from './service'
 const RepoHomePage = lazy(() => import('./RepoHomePage'))
 const MembersPage = lazy(() => import('./MembersPage'))
 const MemberRegisterPage = lazy(() => import('./MemberRegisterPage'))
+const RepoIssueCreatePage = lazy(() => import('./RepoIssueCreatePage'))
 /** @summary Remount the registration draft by repository and authorized member-write branch. */
 function ScopedMemberRegisterPage({ api }: { api: RepoHomeApi }) {
   const { owner = '', repo = '' } = useParams<'owner' | 'repo'>()
@@ -30,6 +31,19 @@ export function createRepoHomePlugin(api: RepoHomeApi = repoHomeApi,
     register('repo-home', '/:owner/:repo', HomeWithVisualTheme)
     register('repo-home-members', '/:owner/:repo/members', MembersPage)
     register('repo-home-register', '/:owner/:repo/members/register', ScopedMemberRegisterPage)
+
+    function ScopedIssueCreatePage() {
+      const { owner = '', repo = '' } = useParams<'owner' | 'repo'>()
+      return <RepoIssueCreatePage key={owner + '/' + repo} owner={owner} repo={repo} />
+    }
+    ctx.effect(() => ctx.reactUI.registerPage({
+      id: 'repo-home-issue-create',
+      path: '/:owner/:repo/issues/new',
+      Component: () => <Suspense fallback={<p role="status">正在加载创建 Issue 页面…</p>}>
+        <ScopedIssueCreatePage />
+      </Suspense>,
+    }))
+
   } }
 }
 export const repoHome = createRepoHomePlugin()

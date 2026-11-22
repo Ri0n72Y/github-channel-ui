@@ -23,10 +23,11 @@ const deferred = () => {
   return {promise,resolve,reject}
 }
 const flush = async () => act(async () => { await new Promise(r => setTimeout(r, 0)) })
-let server, Home, Issue, Member, Members, Config, configFixture, RepoPanel, makeRepoStore
+let server, Home, Issue, Member, Members, Config, configFixture, RepoPanel, makeRepoStore, CreateIssue
 before(async () => {
  server=await createServer({root:process.cwd(),configFile:false,logLevel:'silent',plugins:[react()],server:{middlewareMode:true}})
  Home=(await server.ssrLoadModule('/plugins/repo-home/src/RepoHomePage.tsx')).default
+ CreateIssue=(await server.ssrLoadModule('/plugins/repo-home/src/RepoIssueCreatePage.tsx')).default
  Issue=(await server.ssrLoadModule('/plugins/issue-detail/src/IssueDetailPage.tsx')).default
  Member=(await server.ssrLoadModule('/plugins/repo-home/src/MemberRegisterPage.tsx')).default
  Members=(await server.ssrLoadModule('/plugins/repo-home/src/MembersPage.tsx')).default
@@ -805,4 +806,78 @@ test('#99 member registration fails closed when server capability branch differs
   assert.match(registration.host.textContent,/已拒绝提交/)
   assert.equal(writes,0)
  }finally{await registration.close();localStorage.removeItem(key)}
+})
+
+test('#15 scoped Issue creation requires the exact selected repository and OAuth session', async()=>{
+ let writes=0,requested=[]
+ const api={
+  getRepositories:async(_signal,target)=>{requested.push(target.full_name);return [target]},
+  getSession:async()=>false,
+  createIssue:async()=>{writes++;throw Error('must not write')},
+ }
+ const page=await mount('/sample/repo/issues/new','/:owner/:repo/issues/new',CreateIssue,
+   {api,owner:'sample',repo:'repo'})
+ try{
+  assert.ok(requested.length >= 1 && requested.every(value => value === 'sample/repo'))
+  assert.equal(page.host.querySelector('form'),null)
+  assert.match(page.host.textContent,/创建 Issue 需要 GitHub OAuth 登录/)
+  const link=page.host.querySelector('a[href^="/api/github-login?"]')
+  assert.ok(link)
+  assert.equal(new URLSearchParams(link.getAttribute('href').split('?')[1]).get('return_to'),
+    '/sample/repo/issues/new')
+  assert.equal(writes,0)
+ } finally {await page.close()}
+})
+
+test('#15 scoped Issue submit is single-flight and confirms the same repository', async()=>{
+ const target={owner:'sample',name:'repo',full_name:'sample/repo'}
+ const pending=deferred()
+ let writes=0,actual
+ const api={
+  getRepositories:async()=>[target],
+  getSession:async()=>true,
+  createIssue:async(repo,title,body)=>{writes++;actual={repo,title,body};return pending.promise},
+ }
+ const page=await mount('/sample/repo/issues/new','/:owner/:repo/issues/new',CreateIssue,
+   {api,owner:'sample',repo:'repo'})
+ try{
+  const field=page.host.querySelector('#create-issue-title')
+  assert.ok(field)
+  await act(async()=>input(field,'Scoped task'))
+  const form=page.host.querySelector('form')
+  assert.ok(form)
+  await act(async()=>{
+   form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))
+   form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))
+  })
+  assert.equal(writes,1)
+  assert.deepEqual(actual,{repo:target,title:'Scoped task',body:''})
+  pending.resolve({number:47,html_url:'https://github.com/sample/repo/issues/47'})
+  await flush()
+  assert.match(page.host.textContent,/Issue #47 已创建/)
+  assert.equal(page.host.querySelector('form'),null)
+  assert.ok(page.host.querySelector('a[href="/sample/repo/issues/47"]'))
+  assert.ok(page.host.querySelector('a[href="https://github.com/sample/repo/issues/47"]'))
+ }finally{await page.close()}
+})
+
+test('#15 invalid Issue creation response blocks retry after possible GitHub write',async()=>{
+ let posts=0
+ const api={
+  getRepositories:async()=>[{owner:'sample',name:'repo',full_name:'sample/repo'}],
+  getSession:async()=>true,
+  createIssue:async()=>{posts++;return {number:2,
+    html_url:'https://github.com/other/repo/issues/2'}},
+ }
+ const page=await mount('/sample/repo/issues/new','/:owner/:repo/issues/new',CreateIssue,
+   {api,owner:'sample',repo:'repo'})
+ try{
+  await act(async()=>input(page.host.querySelector('#create-issue-title'),'Attempt'))
+  await act(async()=>page.host.querySelector('form').dispatchEvent(
+   new Event('submit',{bubbles:true,cancelable:true})))
+  assert.equal(posts,1)
+  assert.match(page.host.textContent,/Issue 创建结果尚未确认/)
+  assert.equal(page.host.querySelector('form'),null)
+  assert.doesNotMatch(page.host.innerHTML,/href="https:\/\/github.com\/other\/repo\/issues\/2"/)
+ }finally{await page.close()}
 })
