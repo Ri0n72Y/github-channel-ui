@@ -3,14 +3,14 @@ import { lazy, Suspense, type ComponentType } from 'react'
 import { useParams } from 'react-router'
 import { memberRegistrationScope } from './domain.mjs'
 import type { RepoHomeTheme } from './RepoHomePage'
-import { repoHomeApi, readDisplayBranch, type RepoHomeApi } from './service'
+import { repoHomeApi, memberWriteBranch, type RepoHomeApi } from './service'
 const RepoHomePage = lazy(() => import('./RepoHomePage'))
 const MembersPage = lazy(() => import('./MembersPage'))
 const MemberRegisterPage = lazy(() => import('./MemberRegisterPage'))
-/** @summary Remount the registration draft whenever its trusted repository/branch target changes. */
+/** @summary Remount the registration draft by repository and authorized member-write branch. */
 function ScopedMemberRegisterPage({ api }: { api: RepoHomeApi }) {
   const { owner = '', repo = '' } = useParams<'owner' | 'repo'>()
-  const scope = memberRegistrationScope(owner, repo, readDisplayBranch(owner, repo))
+  const scope = memberRegistrationScope(owner, repo, memberWriteBranch)
   return <MemberRegisterPage key={scope} api={api} />
 }
 /** @summary Register the independently testable Repo homepage, team listing and registration routes. */
