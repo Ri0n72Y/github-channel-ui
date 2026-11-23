@@ -163,11 +163,7 @@
 .homePage .card h3 a {color:var(--lc-text);text-decoration:none}
 .homePage .card h3 a:hover {color:var(--lc-link);text-decoration:underline}
 .homePage .cardMeta {display:flex;gap:6px 10px;flex-wrap:wrap;font-size:13px;line-height:1.5}
-.homePage .cardMeta span:first-child,.homePage .cardMeta span:nth-child(2) {
-  display:inline-flex;align-items:center;border-radius:999px;
-  padding:4px 10px;color:var(--lc-accent-ink);
-  background:var(--lc-accent-soft);border:1px solid var(--lc-stroke);
-}
+/* Issue badges are class-addressed below, so author/time spans are not styled as statuses. */
 .homePage .cardMeta time {overflow-wrap:anywhere}
 .homePage .cardActions {border-color:var(--lc-stroke);gap:10px 16px}
 .homePage .card > button {margin-top:10px}
@@ -290,4 +286,66 @@
 @media(max-width:375px) {
   .homePage .actions a {flex-basis:100%}
   .resultActions a {width:100%;justify-content:center}
+}
+
+/* #99 D2 follow-through: preserve 44px actions while exposing the first Issue sooner. */
+.homePage .hero {
+  grid-template-columns:minmax(0,1fr) minmax(160px,210px);
+  gap:16px;padding:16px 20px;min-height:0;
+}
+.homePage .intro { -webkit-line-clamp:2;line-height:1.45;margin:5px 0 6px }
+.homePage .actions {gap:6px 9px;margin-top:8px}
+.homePage .actions a {padding:7px 12px;min-height:44px}
+.homePage .branchNote {margin:6px 0 0}
+.heroVisual {min-height:132px;gap:5px}
+.heroGlyph {width:76px;height:76px;border-radius:20px;font-size:30px}
+.homePage .section {margin-top:12px}
+.homePage .sectionHead {margin-bottom:7px;align-items:center}
+.homePage .teamPanel {padding:10px 14px}
+.homePage .strip {padding:2px 2px 3px}
+.homePage .avatarButton {min-height:44px;min-width:120px}
+.homePage .feed {gap:10px;margin-top:8px}
+.homePage .card {padding:13px 17px}
+.homePage .card h3 {margin:6px 0 5px;font-size:18px}
+.homePage .cardMeta {gap:4px 10px}
+.homePage .issueNumber,.homePage .issueState {
+  display:inline-flex;align-items:center;border-radius:999px;
+  padding:3px 9px;font-size:12px;font-weight:700;
+  border:1px solid var(--lc-stroke);
+}
+.homePage .issueNumber {background:var(--lc-accent-soft);color:var(--lc-accent-ink)}
+.homePage .issueState {background:var(--lc-surface-raised);color:var(--lc-text)}
+.homePage .issueState[data-state='closed'] {
+  background:var(--lc-surface-input);color:var(--lc-text-secondary)
+}
+.homePage .issueAuthor {color:var(--lc-text-secondary)}
+.homePage .cardMeta time {color:var(--lc-text-muted)}
+.homePage .cardActions {margin-top:8px;padding-top:8px}
+@media(max-width:899px) {
+  .homePage .hero {grid-template-columns:minmax(0,1fr)}
+}
+@media(max-width:680px) {
+  .homePage .hero {padding:14px}
+  .homePage .card {padding:13px}
+  .homePage .actions a {flex:1 1 130px;max-width:100%}
+  .homePage .avatarButton {min-height:44px;max-width:200px}
+  .homePage .strip {gap:10px}
+}
+@media(max-width:375px) {
+  .homePage .actions a {flex-basis:100%}
+  .homePage .cardMeta {gap:4px 7px}
+}
+
+/* #103 Reviewer B2: title-row actions are real 44px targets, with narrow-screen reflow. */
+.homePage .sectionHead > a {
+  display:inline-flex;align-items:center;justify-content:center;
+  min-width:44px;min-height:44px;max-width:100%;
+  padding:8px 12px;border-radius:10px;
+  text-align:center;line-height:1.35;overflow-wrap:anywhere;
+  flex:0 1 auto;
+}
+.homePage .sectionHead > a:hover {background:var(--lc-surface-raised)}
+@media(max-width:375px) {
+  .homePage .sectionHead {justify-content:flex-start;gap:6px 8px}
+  .homePage .sectionHead > h2 {flex:1 0 100%}
 }

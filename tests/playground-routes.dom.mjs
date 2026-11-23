@@ -159,11 +159,17 @@ test('#83 Topic slug direct/refresh/back/forward and invalid slug remain isolate
     try {
       await expectLoaded(direct.host, /GitHub Topic：dsh-plugin/, 'slug direct')
       assert.doesNotMatch(direct.host.textContent, /确认提交配置|编辑问题报告/)
+      assert.equal(direct.host.querySelector('details'), null,
+        'source-less Topic must not expose source configuration')
+      assert.equal(direct.host.querySelectorAll('h1').length, 1)
       await act(async () => {
         direct.host.querySelector('#source-nav').click()
         await sleep(80)
       })
       await expectLoaded(direct.host, /Topic 样例活动/, 'source navigation')
+      const maintenance=direct.host.querySelector('details')
+      assert.ok(maintenance,'source Topic keeps its management entry')
+      assert.equal(maintenance.open,false,'source configuration is secondary by default')
       await act(async () => {
         direct.host.querySelector('#back-nav').click()
         await sleep(80)

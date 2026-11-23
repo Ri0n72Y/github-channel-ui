@@ -140,6 +140,5 @@ export function TeamStrip({ members, base }: { members: readonly Member[]; base:
         <MemberProfile member={member} />
       </div>}
     </div>)}
-    <Link className={styles.stripAll} to={base + '/members'}>全部成员</Link>
   </div>
 }

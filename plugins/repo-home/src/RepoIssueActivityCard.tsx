@@ -22,9 +22,14 @@ export function RepoIssueActivityCard({ issue, base }: { issue: RepoFeedIssue; b
   const updated = Date.parse(issue.updated_at)
   return <article className={styles.card}>
     <div className={styles.cardMeta}>
-      <span>#{issue.number}</span><span>{issue.state === 'closed' ? 'Closed' : 'Open'}</span>
-      <span>由 {issue.user?.login || '未知作者'} 发布</span>
-      <time dateTime={issue.updated_at}>{Number.isNaN(updated) ? issue.updated_at : new Date(updated).toLocaleString('zh-CN')}</time>
+      <span className={styles.issueNumber}>#{issue.number}</span>
+      <span className={styles.issueState} data-state={issue.state === 'closed' ? 'closed' : 'open'}>
+        {issue.state === 'closed' ? 'Closed' : 'Open'}
+      </span>
+      <span className={styles.issueAuthor}>由 {issue.user?.login || '未知作者'} 发布</span>
+      <time dateTime={issue.updated_at} title="最近更新">
+        {Number.isNaN(updated) ? issue.updated_at : new Date(updated).toLocaleString('zh-CN')}
+      </time>
     </div>
     <h3><Link to={base + '/issues/' + issue.number}>{issue.title}</Link></h3>
     {!body.trim() ? <p className={styles.muted}>此 Issue 暂无正文</p> :
