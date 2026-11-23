@@ -54,6 +54,15 @@ async function expectLoaded(host, matcher, label) {
     'Plugin route not registered: ' + label)
 }
 
+async function expectMasonry(host, label) {
+  for (let i = 0; i < 40; i++) {
+    const list = host.querySelector('[role="list"][aria-label="Topic 已核验项目"]')
+    if (list?.querySelector('[data-topic-masonry-item]')) return list
+    await act(async () => { await sleep(50) })
+  }
+  assert.fail('Topic projects did not finish loading: ' + label)
+}
+
 test('#94 public catalog renders six independent deep links and a working directory return', async () => {
   const view = await mounted(h(catalog.PlaygroundCatalog))
   try {
@@ -159,8 +168,7 @@ test('#83 Topic slug direct/refresh/back/forward and invalid slug remain isolate
     try {
       await expectLoaded(direct.host, /GitHub Topic：dsh-plugin/, 'slug direct')
       assert.doesNotMatch(direct.host.textContent, /确认提交配置|编辑问题报告/)
-      const slugList=direct.host.querySelector('[role="list"][aria-label="Topic 已核验项目"]')
-      assert.ok(slugList,'source-less Topic uses shared Masonry')
+      const slugList=await expectMasonry(direct.host, 'source-less Topic Masonry')
       assert.ok(slugList.querySelectorAll('[data-topic-masonry-item]').length > 0)
       assert.ok([...slugList.children].every(child => child.getAttribute('role') === 'listitem'))
       assert.equal(direct.host.querySelector('details'), null,
@@ -171,8 +179,7 @@ test('#83 Topic slug direct/refresh/back/forward and invalid slug remain isolate
         await sleep(80)
       })
       await expectLoaded(direct.host, /Topic 样例活动/, 'source navigation')
-      const sourceList=direct.host.querySelector('[role="list"][aria-label="Topic 已核验项目"]')
-      assert.ok(sourceList,'source Topic shares the same Masonry')
+      const sourceList=await expectMasonry(direct.host, 'source Topic Masonry')
       assert.ok(sourceList.querySelectorAll('[data-topic-masonry-item]').length > 0)
       const maintenance=direct.host.querySelector('details')
       assert.ok(maintenance,'source Topic keeps its management entry')
