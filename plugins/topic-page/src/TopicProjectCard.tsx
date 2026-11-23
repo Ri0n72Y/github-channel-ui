@@ -10,7 +10,8 @@ export default function TopicProjectCard({ project }: { project: TopicRepository
   const avatarInitial = owner.slice(0, 1).toUpperCase()
 
   return <article className={styles.projectCard}>
-    <div className={styles.projectCover}>
+    <div className={styles.projectCover}
+      data-cover-state={project.cover_url && !coverFailed ? 'image' : 'missing'}>
       {project.cover_url && !coverFailed
         ? <img src={project.cover_url} alt={project.full_name + ' 项目封面'}
           loading="lazy" onError={() => setCoverFailed(true)}/>

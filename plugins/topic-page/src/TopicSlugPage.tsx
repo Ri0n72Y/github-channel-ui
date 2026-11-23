@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { loadInstalledTopicBatch, validTopicSlug } from './domain.mjs'
 import type { TopicPageApi, TopicPageError, TopicRepository } from './service'
-import TopicProjectCard from './TopicProjectCard'
+import TopicMasonry from './TopicMasonry'
 import TopicStatus from './TopicStatus'
 import styles from './topic-page.module.css'
 
@@ -141,10 +141,7 @@ export default function TopicSlugPage({ slug, api }: { slug: string; api: TopicP
         <p role="status" className={styles.empty}>
           当前可访问的 GitHub 搜索范围内没有已核验的项目。
         </p>}
-      {state.projects.length > 0 && <div className={styles.grid}>
-        {state.projects.map(project => <TopicProjectCard
-          key={project.id} project={project} />)}
-      </div>}
+      {state.projects.length > 0 && <TopicMasonry projects={state.projects}/>}
       {state.moreError && <p className={styles.errorText} role="alert">
         加载更多失败：{state.moreError.message}
       </p>}

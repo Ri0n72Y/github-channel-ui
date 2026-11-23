@@ -76,7 +76,8 @@
       "fix/url-scoped-public-installation-20261120": false,
       "feat/repo-scoped-issue-and-header-20261121": false,
       "feat/topic-page-slug-discovery-20261122": false,
-      "fix/public-d2-layout-20261123": false
+      "fix/public-d2-layout-20261123": false,
+      "feat/topic-masonry-20261123": false
     }
   }
 }

@@ -159,6 +159,10 @@ test('#83 Topic slug direct/refresh/back/forward and invalid slug remain isolate
     try {
       await expectLoaded(direct.host, /GitHub Topic：dsh-plugin/, 'slug direct')
       assert.doesNotMatch(direct.host.textContent, /确认提交配置|编辑问题报告/)
+      const slugList=direct.host.querySelector('[role="list"][aria-label="Topic 已核验项目"]')
+      assert.ok(slugList,'source-less Topic uses shared Masonry')
+      assert.ok(slugList.querySelectorAll('[data-topic-masonry-item]').length > 0)
+      assert.ok([...slugList.children].every(child => child.getAttribute('role') === 'listitem'))
       assert.equal(direct.host.querySelector('details'), null,
         'source-less Topic must not expose source configuration')
       assert.equal(direct.host.querySelectorAll('h1').length, 1)
@@ -167,6 +171,9 @@ test('#83 Topic slug direct/refresh/back/forward and invalid slug remain isolate
         await sleep(80)
       })
       await expectLoaded(direct.host, /Topic 样例活动/, 'source navigation')
+      const sourceList=direct.host.querySelector('[role="list"][aria-label="Topic 已核验项目"]')
+      assert.ok(sourceList,'source Topic shares the same Masonry')
+      assert.ok(sourceList.querySelectorAll('[data-topic-masonry-item]').length > 0)
       const maintenance=direct.host.querySelector('details')
       assert.ok(maintenance,'source Topic keeps its management entry')
       assert.equal(maintenance.open,false,'source configuration is secondary by default')
