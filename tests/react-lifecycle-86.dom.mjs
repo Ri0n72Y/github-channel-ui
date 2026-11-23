@@ -2,6 +2,7 @@ import test, { before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { JSDOM } from 'jsdom'
 import React, { act } from 'react'
+import { readFileSync } from 'node:fs'
 
 
 import { createServer } from 'vite'
@@ -900,12 +901,29 @@ test('#99 D2: concise RepoHome retains one members entry, genuine identities and
     user:{login:'operator'},updated_at:'2026-11-22T12:00:00Z',
    }],
   }),
-  getCapability:async()=>{throw Error('not authorized')},
+  getCapability:async()=>({user:{login:'operator'},mode:'direct',branch:'main'}),
  }
  const app=await mount('/sample/repo','/:owner/:repo',Home,{api})
  try{
   const nav=app.host.querySelectorAll('a[href="/sample/repo/members"]')
   assert.equal(nav.length,1,'team directory must not look like another member')
+  const teamHead=app.host.querySelector('#team-heading')?.parentElement
+  const feedHead=app.host.querySelector('#feed-heading')?.parentElement
+  assert.ok(teamHead && feedHead)
+  for (const path of ['/sample/repo/members','/sample/repo/members/register']) {
+    const anchor=app.host.querySelector('a[href="'+path+'"]')
+    assert.ok(anchor,'existing scoped team link: '+path)
+    assert.equal(anchor.parentElement,teamHead,'team CTA must be a direct sectionHead link')
+  }
+  const createIssue=app.host.querySelector('a[href="/sample/repo/issues/new"]')
+  assert.ok(createIssue)
+  assert.equal(createIssue.parentElement,feedHead,'Issue CTA must be a direct sectionHead link')
+  const css=readFileSync(new URL('../plugins/repo-home/src/RepoHome.module.css',import.meta.url),'utf8')
+  const targetRule=css.match(/\.homePage \.sectionHead > a\s*\{([^}]*)\}/)?.[1] ?? ''
+  for (const contract of [/display:\s*inline-flex/,/min-height:\s*44px/,
+    /min-width:\s*44px/,/max-width:\s*100%/,/overflow-wrap:\s*anywhere/]) {
+    assert.match(targetRule,contract,'sectionHead links must keep accessible hit-area styling')
+  }
   const strip=app.host.querySelector('[aria-label="团队成员"]')
   assert.ok(strip)
   assert.match(strip.textContent,/Alice.*Maintainer.*Bob.*Reviewer/)
