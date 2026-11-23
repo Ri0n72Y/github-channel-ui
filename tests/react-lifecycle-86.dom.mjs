@@ -881,3 +881,43 @@ test('#15 invalid Issue creation response blocks retry after possible GitHub wri
   assert.doesNotMatch(page.host.innerHTML,/href="https:\/\/github.com\/other\/repo\/issues\/2"/)
  }finally{await page.close()}
 })
+
+test('#99 D2: concise RepoHome retains one members entry, genuine identities and issue source links',async()=>{
+ const api={
+  getHome:async()=>({
+   repository:{name:'repo',full_name:'sample/repo',
+     html_url:'https://github.com/sample/repo',description:'Real project description'},
+   branch:'main',
+   team:{state:'ready',members:[{id:'one',name:'Alice',role:'Maintainer'},
+     {id:'two',name:'Bob',role:'Reviewer'}]},
+   readme:{state:'missing'},
+  }),
+  getFeed:async(_o,_r,page)=>({
+   page,hasMore:false,items:[{
+    id:71,number:71,title:'Document actual state',state:'closed',
+    body:'A useful Issue summary for the public project.',
+    html_url:'https://github.com/sample/repo/issues/71',
+    user:{login:'operator'},updated_at:'2026-11-22T12:00:00Z',
+   }],
+  }),
+  getCapability:async()=>{throw Error('not authorized')},
+ }
+ const app=await mount('/sample/repo','/:owner/:repo',Home,{api})
+ try{
+  const nav=app.host.querySelectorAll('a[href="/sample/repo/members"]')
+  assert.equal(nav.length,1,'team directory must not look like another member')
+  const strip=app.host.querySelector('[aria-label="团队成员"]')
+  assert.ok(strip)
+  assert.match(strip.textContent,/Alice.*Maintainer.*Bob.*Reviewer/)
+  assert.equal(strip.querySelectorAll('button[aria-expanded]').length,2)
+  assert.ok(app.host.querySelector('a[href="/sample/repo/config"]'))
+  assert.ok(app.host.querySelector('a[href="/sample/repo/channels"]'))
+  const card=app.host.querySelector('article')
+  assert.ok(card)
+  assert.equal(card.querySelector('[data-state="closed"]').textContent.trim(),'Closed')
+  assert.match(card.textContent,/#71/)
+  assert.match(card.textContent,/operator/)
+  assert.match(card.textContent,/A useful Issue summary/)
+  assert.equal(card.querySelector('a[href="https://github.com/sample/repo/issues/71"]')?.getAttribute('target'),'_blank')
+ }finally{await app.close()}
+})
