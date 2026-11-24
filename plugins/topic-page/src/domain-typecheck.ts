@@ -19,13 +19,18 @@ export async function checkTopicDomainTypes(
   const topic: string = config.topic
   const whitelist: boolean = defaultConfig.whitelist
   const repository: string = project.repository
+  const cover: string | undefined = config.cover
 
   // @ts-expect-error project YAML does not return topic or whitelist.
   project.topic
+  // @ts-expect-error project declarations do not accept activity cover.
+  project.cover
   // @ts-expect-error config YAML does not return a repository.
   config.repository
   type _ProjectResultExact = Expect<Equal<typeof project, { repository: string }>>
-  type _ConfigResultExact = Expect<Equal<typeof config, { topic: string; whitelist: boolean }>>
+  type _ConfigResultExact = Expect<Equal<typeof config, { topic: string; whitelist: boolean; cover?: string }>>
+  type _DefaultConfigResultExact = Expect<Equal<typeof defaultConfig, typeof config>>
+  type _SnapshotConfigExact = Expect<Equal<NonNullable<TopicSnapshot['config']>, typeof config>>
 
   const summary = accumulateTopicProjects(snapshot, [page])
   const loaded = await loadTopicProjectCandidates(snapshot, async () => page, signal)
@@ -36,5 +41,5 @@ export async function checkTopicDomainTypes(
   const stars: number = firstProject.stargazers_count
   const language: string | null = firstProject.language
   const pagesRead: number = loaded.pagesRead
-  return { topic, whitelist, repository, stars, language, pagesRead }
+  return { topic, whitelist, cover, repository, stars, language, pagesRead }
 }
