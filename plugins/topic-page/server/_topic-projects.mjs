@@ -69,15 +69,15 @@ export function createTopicProjectsEndpoint({ fetcher = fetch,
         const expected = query.get('head')
         if (page>1 && !expected) throw new TopicFetchError('分页需要来源快照，请刷新',409,'snapshot')
         const snapshot = await store.snapshot(owner,repo)
-        if (expected && expected !== snapshot.headSha)
+        if (!store.isCurrent(owner,repo,snapshot) || expected && expected !== snapshot.headSha)
           throw new TopicFetchError('来源仓库已更新，请刷新 TopicPage',409,'snapshot')
-        const {config,repository,headSha} = snapshot
+        const {config,repository} = snapshot
         if (!config) throw new TopicFetchError('topics.config.yaml 尚未初始化',404,'config')
         const allowedNames = config.whitelist ? new Set(snapshot.allowedRepositories) : null
         if (allowedNames?.size === 0) return reply({page,offset:0,perPage:100,totalCount:0,
           hasNext:false,nextPage:null,nextOffset:null,windowExhausted:false,items:[]})
         const topic = config.topic
-        const result = await store.page(owner,repo,headSha,page,async()=>{
+        const result = await store.page(owner,repo,snapshot,page,async()=>{
         const data = await github('/search/repositories?q=topic:' +
           encodeURIComponent(topic + ' is:public') + '&sort=updated&order=desc&per_page=100&page=' +
           page, { fetcher, stage: 'topic-search' })

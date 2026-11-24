@@ -145,7 +145,6 @@ export function createTopicPageApi(request:RequestFn=browserRequest):Readonly<To
   async function getSnapshot(route:TopicRoute,signal:AbortSignal,refresh=false){
     if(signal.aborted)throw new DOMException('Aborted','AbortError')
     const key=sourceKey(route)
-    if(refresh)pages.invalidate(key)
     return observe(snapshots.get(key,async()=>{
       // A bounded request independent of any single mounted consumer.
       const response=await read(request,'/api/topic-page?'+query(route)+(refresh?'&refresh=1':''),
@@ -155,14 +154,18 @@ export function createTopicPageApi(request:RequestFn=browserRequest):Readonly<To
           !/^[a-f0-9]{40}$/i.test(value.headSha))
         throw topicError('Topic 来源快照无效',502,'snapshot')
       return value
-    },refresh),signal)
+    },refresh,()=>pages.invalidate(key)),signal)
   }
   async function getProjects(route:TopicReadRoute,page:number,signal:AbortSignal,offset=0,head?:string){
     if ('topic' in route) throw topicError('正式 Topic 查询必须指定来源仓库',400,'route')
     if(signal.aborted)throw new DOMException('Aborted','AbortError')
     if(!head||!Number.isInteger(page)||page<1||page>10||![0,25,50,75].includes(offset))
       throw topicError('Topic 搜索分页游标无效',400,'topic-search')
-    const key=sourceKey(route)+head+'|'+page
+    const prefix=sourceKey(route)
+    const snapshot=snapshots.peek(prefix)
+    if(!snapshot||snapshot.headSha!==head)
+      throw topicError('来源快照已失效，请刷新 TopicPage',409,'snapshot')
+    const key=prefix+head+'|'+page
     // Never splice a newly fetched Search page onto an already consumed local slice.
     if(offset!==0&&!pages.has(key))throw topicError('项目分页缓存已失效，请刷新 TopicPage',409,'snapshot')
     const whole=await observe(pages.get(key,async()=>{
@@ -173,6 +176,8 @@ export function createTopicPageApi(request:RequestFn=browserRequest):Readonly<To
         throw topicError('Topic Search 完整页无效',502,'topic-search')
       return value
     }),signal)
+    if(snapshots.peek(prefix)!==snapshot)
+      throw topicError('来源快照已失效，请刷新 TopicPage',409,'snapshot')
     const moreLocal=offset+25<whole.items.length
     return {...whole,offset,items:whole.items.slice(offset,offset+25),
       hasNext:moreLocal||whole.hasNext,nextPage:moreLocal?page:whole.nextPage,

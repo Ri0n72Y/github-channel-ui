@@ -127,3 +127,130 @@ test('#83 bounded cache invalidation never resurrects a stale in-flight entry',a
   await assert.rejects(cache.get('repo|failed',async()=>{throw Error('failure')}))
   assert.equal(await cache.get('repo|failed',async()=>3),3)
 })
+
+function deferred(){
+  let resolve,reject
+  const promise=new Promise((a,b)=>{resolve=a;reject=b})
+  return {promise,resolve,reject}
+}
+test('#83 B2 refresh replaces ordinary pending, joins concurrent refresh and bounds superseded reads',async()=>{
+  const cache=createTopicReadCache({ttl:100,limit:2})
+  const older=deferred(),fresh=deferred()
+  let loads=0,replacements=0
+  const replaced=()=>replacements++
+  const old=cache.get('repo|source',()=>{loads++;return older.promise},false,replaced)
+  const refresh=cache.get('repo|source',()=>{loads++;return fresh.promise},true,replaced)
+  assert.notEqual(refresh,old)
+  assert.equal(cache.get('repo|source',()=>assert.fail('duplicate refresh'),true,replaced),refresh)
+  assert.equal(cache.get('repo|source',()=>assert.fail('duplicate normal')),refresh)
+  assert.equal(cache.peek('repo|source'),undefined)
+  await assert.rejects(cache.get('other|source',()=>assert.fail('unbounded pending')),{status:503,stage:'source'})
+  assert.equal(loads,2);assert.equal(replacements,2)
+  fresh.resolve('fresh');assert.equal(await refresh,'fresh')
+  older.resolve('old');assert.equal(await old,'old')
+  assert.equal(cache.peek('repo|source'),'fresh')
+  assert.equal(await cache.get('repo|source',()=>assert.fail('late old replaced fresh')),'fresh')
+  assert.equal(await cache.get('other|source',async()=>1),1)
+})
+test('#83 B2 failed refresh does not resurrect ordinary pending success; retry remains possible',async()=>{
+  const cache=createTopicReadCache({ttl:100,limit:2})
+  const older=deferred(),fresh=deferred()
+  const old=cache.get('repo|source',()=>older.promise)
+  const refresh=cache.get('repo|source',()=>fresh.promise,true)
+  fresh.reject(new Error('refresh failed'))
+  await assert.rejects(refresh,/refresh failed/)
+  older.resolve('old');assert.equal(await old,'old')
+  assert.equal(cache.has('repo|source'),false)
+  assert.equal(await cache.get('repo|source',async()=>'retry'),'retry')
+  const late=deferred()
+  const obsolete=cache.get('repo|source',()=>late.promise,true)
+  cache.invalidate('repo|')
+  assert.equal(await cache.get('repo|source',async()=>'replacement'),'replacement')
+  late.reject(new Error('old failure'))
+  await assert.rejects(obsolete,/old failure/)
+  assert.equal(cache.peek('repo|source'),'replacement')
+})
+test('#83 B2 server refresh bypasses old ordinary source, coalesces refresh and blocks its late Search',async()=>{
+  const oldStarted=deferred(),oldGate=deferred(),newStarted=deferred(),newGate=deferred()
+  let sourceReads=0
+  const nextHead='e'.repeat(40)
+  const old=topicReadFixture({projects:null,config:'topic: old\nwhitelist: false\n'})
+  const next=topicReadFixture({head:nextHead,projects:null,config:'topic: fresh\nwhitelist: false\n',
+    search:()=>({total_count:1,incomplete_results:false,items:[candidate(2)]})})
+  // Hold the old read at its final Raw request, after the old HEAD/tree
+  // have already been resolved.
+  let version=old
+  const m={fetcher:async(url,init)=>{
+    const u=new URL(url)
+    const selected=version
+    if(u.pathname==='/repos/sample/repo')sourceReads++
+    if(selected===old&&u.hostname==='raw.githubusercontent.com'&&u.pathname.endsWith('/topics.config.yaml')){
+      oldStarted.resolve();await oldGate.promise
+    }
+    if(selected===next&&u.pathname==='/repos/sample/repo'){
+      newStarted.resolve();await newGate.promise
+    }
+    return selected.fetcher(url,init)
+  }}
+  const {meta,list}=endpoints(m)
+  const stale=get(list,projects)
+  await oldStarted.promise
+  version=next
+  const refresh=get(meta,source+'&refresh=1')
+  await newStarted.promise
+  const joined=get(meta,source+'&refresh=1')
+  const ordinary=get(meta,source)
+  newGate.resolve()
+  for(const response of await Promise.all([refresh,joined,ordinary])){
+    assert.equal(response.status,200);assert.equal((await response.json()).headSha,nextHead)
+  }
+  oldGate.resolve()
+  assert.equal((await stale).status,409)
+  assert.equal(sourceReads,2)
+  assert.equal(counts(old.calls)[2],0)
+  const current=await get(list,projects.replace(HEAD,nextHead))
+  assert.equal(current.status,200);assert.equal((await current.json()).items[0].id,2)
+  assert.equal((await (await get(meta,source)).json()).headSha,nextHead)
+  assert.equal(sourceReads,2)
+})
+test('#83 B2 same-HEAD server refresh isolates old pending Search and late completion',async()=>{
+  const oldStarted=deferred(),oldGate=deferred(),newStarted=deferred(),newGate=deferred()
+  let searches=0
+  const m=topicReadFixture({projects:null,config:'topic: labourchain\nwhitelist: false\n',
+    search:async()=>{
+      const number=++searches
+      if(number===1){oldStarted.resolve();await oldGate.promise}
+      if(number===2){newStarted.resolve();await newGate.promise}
+      return {total_count:1,incomplete_results:false,items:[candidate(number)]}
+    }})
+  const {meta,list}=endpoints(m)
+  await get(meta,source)
+  const oldPage=get(list,projects)
+  await oldStarted.promise
+  assert.equal((await get(meta,source+'&refresh=1')).status,200)
+  const newPage=get(list,projects)
+  await newStarted.promise
+  const joined=get(list,projects)
+  newGate.resolve()
+  for(const response of await Promise.all([newPage,joined])){
+    assert.equal(response.status,200);assert.equal((await response.json()).items[0].id,2)
+  }
+  oldGate.resolve()
+  assert.equal((await oldPage).status,409)
+  assert.equal((await (await get(list,projects)).json()).items[0].id,2)
+  assert.equal(searches,2)
+  assert.deepEqual(counts(m.calls),[6,4,2])
+})
+test('#83 P2 cache saturation is a diagnostic retryable HTTP 503',async()=>{
+  const gate=deferred(),started=deferred()
+  let begun=0
+  const m={fetcher:async()=>{if(++begun===16)started.resolve();await gate.promise;throw Error('offline')}}
+  const {meta}=endpoints(m)
+  const pending=Array.from({length:16},(_,i)=>get(meta,source.replace('repo=repo','repo=r'+i)))
+  await started.promise
+  const saturated=await get(meta,source)
+  assert.equal(saturated.status,503)
+  assert.deepEqual(await saturated.json(),{error:'Topic 读取繁忙，请稍后重试',stage:'source',retryable:true})
+  gate.resolve()
+  for(const response of await Promise.all(pending))assert.equal(response.status,502)
+})

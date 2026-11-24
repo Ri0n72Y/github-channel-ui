@@ -136,11 +136,24 @@ export function createTopicSourceStore({fetcher=fetch,logger=console,now=Date.no
     invalidate,
     snapshot(owner,repo,refresh=false) {
       const key = keyFor(owner,repo)
-      if (refresh) pages.invalidate(key)
-      return sources.get(key,()=>readSource(owner,repo,fetcher,logger),refresh)
+      return sources.get(key,()=>readSource(owner,repo,fetcher,logger),refresh,
+        ()=>pages.invalidate(key))
     },
-    page(owner,repo,head,page,load) {
-      return pages.get(keyFor(owner,repo)+head+'|'+page,load)
+    isCurrent(owner,repo,snapshot) {
+      return sources.peek(keyFor(owner,repo)) === snapshot
+    },
+    async page(owner,repo,snapshot,page,load) {
+      const key = keyFor(owner,repo)
+      const ensureCurrent = () => {
+        if (sources.peek(key) !== snapshot)
+          throw fail('来源快照已失效，请刷新 TopicPage',409,'snapshot')
+      }
+      // An old source request must not start Search in a new generation,
+      // even if the source commit SHA is unchanged.
+      ensureCurrent()
+      const value = await pages.get(key+snapshot.headSha+'|'+page,load)
+      ensureCurrent()
+      return value
     }
   })
 }

@@ -177,3 +177,70 @@ test('#83 browser source and complete Search page share requests across local sl
   assert.equal(calls.length,4)
   assert.equal(calls[2].searchParams.get('refresh'),'1')
 })
+
+function refreshGate(){
+  let resolve
+  const promise=new Promise(a=>{resolve=a})
+  return {promise,resolve}
+}
+test('#83 B2 browser explicit refresh bypasses ordinary pending, coalesces and preserves consumer Abort',async()=>{
+  const {createTopicPageApi}=await vite.ssrLoadModule('/plugins/topic-page/src/service.ts')
+  const sample=await fixture(new URLSearchParams()).getSnapshot(route,signal())
+  const fresh={...sample,headSha:'e'.repeat(40)}
+  const oldStarted=refreshGate(),oldGate=refreshGate(),newStarted=refreshGate(),newGate=refreshGate()
+  const calls=[]
+  const api=createTopicPageApi(async(url)=>{
+    const u=new URL(url,'https://local.test');calls.push(u)
+    if(u.searchParams.get('refresh')==='1'){
+      newStarted.resolve();await newGate.promise;return Response.json(fresh)
+    }
+    oldStarted.resolve();await oldGate.promise;return Response.json(sample)
+  })
+  const old=api.getSnapshot(route,signal())
+  await oldStarted.promise
+  const abandoned=new AbortController()
+  const refresh=api.getSnapshot(route,abandoned.signal,true)
+  await newStarted.promise
+  const joined=api.getSnapshot(route,signal(),true)
+  const ordinary=api.getSnapshot(route,signal())
+  abandoned.abort()
+  await assert.rejects(refresh,{name:'AbortError'})
+  newGate.resolve()
+  for(const snapshot of await Promise.all([joined,ordinary]))assert.equal(snapshot.headSha,fresh.headSha)
+  oldGate.resolve()
+  assert.equal((await old).headSha,sample.headSha)
+  assert.equal((await api.getSnapshot(route,signal())).headSha,fresh.headSha)
+  assert.equal(calls.length,2)
+  assert.deepEqual(calls.map(u=>u.searchParams.get('refresh')),[null,'1'])
+})
+test('#83 B2 browser same-HEAD refresh isolates pending Search and rejects late old slices',async()=>{
+  const {createTopicPageApi}=await vite.ssrLoadModule('/plugins/topic-page/src/service.ts')
+  const sample=await fixture(new URLSearchParams()).getSnapshot(route,signal())
+  const oldStarted=refreshGate(),oldGate=refreshGate(),newStarted=refreshGate(),newGate=refreshGate()
+  let sourceReads=0,searchReads=0
+  const api=createTopicPageApi(async(url)=>{
+    const u=new URL(url,'https://local.test')
+    if(u.pathname==='/api/topic-page'){sourceReads++;return Response.json(sample)}
+    const number=++searchReads
+    if(number===1){oldStarted.resolve();await oldGate.promise}
+    if(number===2){newStarted.resolve();await newGate.promise}
+    return Response.json({page:1,offset:0,perPage:100,totalCount:30,hasNext:false,
+      nextPage:null,nextOffset:null,windowExhausted:false,
+      items:Array.from({length:30},(_,i)=>({id:number*100+i,full_name:'member/p'+i,name:'p'+i,owner:'member',
+        description:'',html_url:'https://github.com/member/p'+i,stargazers_count:0,language:null}))})
+  })
+  const snapshot=await api.getSnapshot(route,signal())
+  const old=api.getProjects(route,1,signal(),0,snapshot.headSha)
+  const rejected=assert.rejects(old,{status:409,stage:'snapshot'})
+  await oldStarted.promise
+  await api.getSnapshot(route,signal(),true)
+  const fresh=api.getProjects(route,1,signal(),0,snapshot.headSha)
+  await newStarted.promise
+  const joined=api.getProjects(route,1,signal(),25,snapshot.headSha)
+  newGate.resolve()
+  const [a,b]=await Promise.all([fresh,joined])
+  assert.equal(a.items[0].id,200);assert.equal(b.items[0].id,225)
+  oldGate.resolve();await rejected
+  assert.equal((await api.getProjects(route,1,signal(),0,snapshot.headSha)).items[0].id,200)
+  assert.equal(sourceReads,2);assert.equal(searchReads,2)
+})
