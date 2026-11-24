@@ -6,7 +6,7 @@ import { repoHome, createRepoHomePlugin } from '../../../plugins/repo-home/src/i
 import { repoConfig, createRepoConfigPlugin } from '../../../plugins/repo-config/src/index'
 import { createIssueDetailPlugin } from '../../../plugins/issue-detail/src/index'
 import { channel, createChannelPlugin } from '../../../plugins/channel/src/index'
-import { topicPage, createTopicPagePlugin } from '../../../plugins/topic-page/src/index'
+import { topicPage } from '../../../plugins/topic-page/src/index'
 
 /** @summary Assemble ordinary routes or independently test Repo Home and Config with controlled fixtures. */
 export async function startRuntime() {
@@ -51,7 +51,7 @@ export async function startRuntime() {
     }
 
     const topicPlugin = topicFixture
-      ? createTopicPagePlugin((await import('./topic-fixture')).createTopicFixtureService(query))
+      ? (await import('./topic-fixture-plugin')).createTopicFixturePlugin(query)
       : topicPage
     const topicFiber = ctx.plugin(topicPlugin)
     fibers.push(topicFiber); await topicFiber

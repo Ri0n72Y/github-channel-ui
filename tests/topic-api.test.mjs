@@ -49,10 +49,6 @@ function fixture(options = {}) {
   return { calls, errors, fetcher, projectFileCalls: () => projectFileCalls,
     logger: { error: (...args) => errors.push(args) } }
 }
-const verified = async ({owner,repo}) => {
-  if ((owner+'/'+repo).toLowerCase()!=='member/project')throw Error('Not installed')
-  return {repositoryId:42,installationId:17}
-}
 const url = endpoint => 'https://example.test/api/' + endpoint + '?owner=sample&repo=repo'
 
 test('#31 README description starts strictly below first H1 and removes only approved footnotes', () => {
@@ -96,7 +92,7 @@ test('#31 read-only metadata endpoint logs failed whitelist file without leaking
 
 test('#31 GitHub Search explicitly exposes 1000 window exhaustion without claiming true end', async () => {
   const m = fixture()
-  const endpoint = createTopicProjectsEndpoint({ fetcher: m.fetcher, installationResolver: verified })
+  const endpoint = createTopicProjectsEndpoint({ fetcher: m.fetcher })
   const response = await endpoint.fetch(new Request(url('topic-projects') + '&page=10'))
   assert.equal(response.status, 200)
   const page = await response.json()
@@ -105,7 +101,7 @@ test('#31 GitHub Search explicitly exposes 1000 window exhaustion without claimi
   assert.equal(page.windowExhausted, true)
   assert.equal(page.totalCount, 1200)
   const end = fixture({ totalCount: 27 })
-  const final = await createTopicProjectsEndpoint({ fetcher: end.fetcher, installationResolver: verified })
+  const final = await createTopicProjectsEndpoint({ fetcher: end.fetcher })
     .fetch(new Request(url('topic-projects') + '&page=1'))
   assert.equal((await final.json()).windowExhausted, false)
 })
@@ -157,7 +153,6 @@ test('#31 Topic API POST is rejected and source target validation occurs before 
 test('#69 Topic Search forwards only original trusted GitHub image metadata', async () => {
   const fixtureData = fixture()
   const endpoint = createTopicProjectsEndpoint({
-    installationResolver: verified,
     fetcher: (url, init) => new URL(url).pathname === '/search/repositories'
       ? respond(200, { total_count: 1, items: [{
         id:42, full_name: 'member/project', name: 'project',
@@ -173,7 +168,6 @@ test('#69 Topic Search forwards only original trusted GitHub image metadata', as
   assert.equal(item.cover_url, 'https://repository-images.githubusercontent.com/42/cover.png')
 
   const rejected = createTopicProjectsEndpoint({
-    installationResolver: verified,
     fetcher: (url, init) => new URL(url).pathname === '/search/repositories'
       ? respond(200, { total_count: 1, items: [{
         id:42, full_name: 'member/project', name: 'project',

@@ -45,8 +45,7 @@ export async function startSinglePluginRuntime(selectedOverride?: string) {
           .createChannelFixtureService(query)))
         break
       case 'topic-page':
-        await mount((await import('../../../plugins/topic-page/src/index')).createTopicPagePlugin((await import('./topic-fixture'))
-          .createTopicFixtureService(query)))
+        await mount((await import('./topic-fixture-plugin')).createTopicFixturePlugin(query))
         break
       default:
         throw new Error('Unknown standalone plugin: ' + selected)

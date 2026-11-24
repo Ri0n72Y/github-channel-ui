@@ -131,6 +131,7 @@ export function createTopicPageApi(request:RequestFn=browserRequest):Readonly<To
     return parseSnapshot(await read(request,'/api/topic-page?'+query(route),signal))
   }
   async function getProjects(route:TopicReadRoute,page:number,signal:AbortSignal,offset=0){
+    if ('topic' in route) throw topicError('正式 Topic 查询必须指定来源仓库',400,'route')
     return parsePage(await read(request,'/api/topic-projects?'+query(route,page,offset),signal))
   }
   async function getSession(signal:AbortSignal){

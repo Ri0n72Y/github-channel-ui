@@ -50,9 +50,7 @@ function backend({totalCount=1400,failPage=0,incompletePage=0,
     errors.push(u.pathname)
     throw Error('Unexpected GitHub path')
   }
-  const installationResolver=async({repo})=>({
-    installationId:17,repositoryId:Number(repo.split('-').at(-1))})
-  const endpoint=createTopicProjectsEndpoint({fetcher,installationResolver})
+  const endpoint=createTopicProjectsEndpoint({fetcher})
   const getPage=async(page,offset)=>{
     const response=await endpoint.fetch(request(page,offset))
     const result=await response.json()

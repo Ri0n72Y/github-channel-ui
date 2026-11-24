@@ -34,11 +34,8 @@ export async function loadTopicWhitelist(owner,repo,config,
         const text=await content(owner,repo,path,{fetcher,stage:'whitelist'})
         results[position]=parseTopicYaml(text,'project').repository
       }catch(error){
-        if(error instanceof TopicFetchError&&![404,422].includes(error.status)){
-          failure=error
-          break
-        }
-        if(error instanceof TopicFetchError&&error.status===429){
+        // A listed file that cannot be read is a failed read, not an empty whitelist.
+        if(error instanceof TopicFetchError&&error.status!==422){
           failure=error
           break
         }

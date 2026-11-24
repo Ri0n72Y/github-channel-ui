@@ -5,7 +5,6 @@ import { topicPageApi, type TopicPageApi } from './service'
 import { topicTargetKey } from './domain.mjs'
 
 const TopicPageContainer = lazy(() => import('./TopicPageContainer'))
-const TopicSlugPage = lazy(() => import('./TopicSlugPage'))
 
 /** @summary Register TopicPage as an independent route in the existing shared Router. */
 export function createTopicPagePlugin(api: TopicPageApi = topicPageApi) {
@@ -20,17 +19,8 @@ export function createTopicPagePlugin(api: TopicPageApi = topicPageApi) {
             repo={repo} api={api}/>
         </Suspense>
       }
-      function TopicSlugEntry() {
-        const { slug = '' } = useParams<'slug'>()
-        return <Suspense fallback={<p role="status">正在加载 GitHub Topic…</p>}>
-          <TopicSlugPage key={slug.toLowerCase()} slug={slug} api={api}/>
-        </Suspense>
-      }
       ctx.effect(() => ctx.reactUI.registerPage({
         id: 'topic-page', path: '/topic/:owner/:repo', Component: TopicEntry,
-      }))
-      ctx.effect(() => ctx.reactUI.registerPage({
-        id: 'topic-slug', path: '/topic/:slug', Component: TopicSlugEntry,
       }))
     },
   }

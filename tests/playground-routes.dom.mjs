@@ -54,6 +54,15 @@ async function expectLoaded(host, matcher, label) {
     'Plugin route not registered: ' + label)
 }
 
+async function expectMasonry(host, label) {
+  for (let i = 0; i < 40; i++) {
+    const list = host.querySelector('[role="list"][aria-label="Topic 项目"]')
+    if (list?.querySelector('[data-topic-masonry-item]')) return list
+    await act(async () => { await sleep(50) })
+  }
+  assert.fail('Topic projects did not finish loading: ' + label)
+}
+
 test('#94 public catalog renders six independent deep links and a working directory return', async () => {
   const view = await mounted(h(catalog.PlaygroundCatalog))
   try {
@@ -129,13 +138,22 @@ for (const plugin of PLAYGROUND_PLUGINS) {
 }
 
 
-test('#83 /topic/:slug wins generic repo routing; source route retains specificity', () => {
-  const routes = [{ path: '/:owner/:repo' }, { path: '/topic/:slug' },
-    { path: '/topic/:owner/:repo' }]
-  assert.equal(matchRoutes(routes, '/topic/dsh-plugin')?.at(-1)?.route.path,
-    '/topic/:slug')
-  assert.equal(matchRoutes(routes, '/topic/sample/repo')?.at(-1)?.route.path,
+test('#83 production registers source route only; direct slug is confined to Playground', async () => {
+  const {createTopicPagePlugin}=await vite.ssrLoadModule('/plugins/topic-page/src/index.tsx')
+  const {createTopicPageApi}=await vite.ssrLoadModule('/plugins/topic-page/src/service.ts')
+  const registered=[]
+  createTopicPagePlugin().apply({effect: fn=>fn(),
+    reactUI:{registerPage: row=>{registered.push(row.path);return ()=>{}}}})
+  assert.deepEqual(registered,['/topic/:owner/:repo'])
+  const routes=registered.map(path=>({path}))
+  assert.equal(matchRoutes(routes,'/topic/dsh-plugin'),null)
+  assert.equal(matchRoutes(routes,'/topic/sample/repo')?.at(-1)?.route.path,
     '/topic/:owner/:repo')
+  let requests=0
+  const api=createTopicPageApi(async()=>{requests++;throw Error('unexpected network')})
+  await assert.rejects(api.getProjects({topic:'dsh-plugin'},1,new AbortController().signal),
+    {status:400,stage:'route'})
+  assert.equal(requests,0)
 })
 
 test('#83 Topic slug direct/refresh/back/forward and invalid slug remain isolated', async () => {
@@ -159,6 +177,9 @@ test('#83 Topic slug direct/refresh/back/forward and invalid slug remain isolate
     try {
       await expectLoaded(direct.host, /GitHub Topic：dsh-plugin/, 'slug direct')
       assert.doesNotMatch(direct.host.textContent, /确认提交配置|编辑问题报告/)
+      const slugList=await expectMasonry(direct.host, 'source-less Topic Masonry')
+      assert.ok(slugList.querySelectorAll('[data-topic-masonry-item]').length > 0)
+      assert.ok([...slugList.children].every(child => child.getAttribute('role') === 'listitem'))
       assert.equal(direct.host.querySelector('details'), null,
         'source-less Topic must not expose source configuration')
       assert.equal(direct.host.querySelectorAll('h1').length, 1)
@@ -167,6 +188,8 @@ test('#83 Topic slug direct/refresh/back/forward and invalid slug remain isolate
         await sleep(80)
       })
       await expectLoaded(direct.host, /Topic 样例活动/, 'source navigation')
+      const sourceList=await expectMasonry(direct.host, 'source Topic Masonry')
+      assert.ok(sourceList.querySelectorAll('[data-topic-masonry-item]').length > 0)
       const maintenance=direct.host.querySelector('details')
       assert.ok(maintenance,'source Topic keeps its management entry')
       assert.equal(maintenance.open,false,'source configuration is secondary by default')
