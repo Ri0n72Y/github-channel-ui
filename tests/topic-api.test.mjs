@@ -3,51 +3,19 @@ import assert from 'node:assert/strict'
 import { readmeFields, parseTopicYaml, accumulateTopicProjects,
   validTopicRepository } from '../plugins/topic-page/src/domain.mjs'
 import { createTopicPageEndpoint } from '../api/_topic-page.mjs'
+import { topicReadFixture, HEAD } from './helpers/topic-read-fixture.mjs'
 import { createTopicProjectsEndpoint } from '../api/_topic-projects.mjs'
 
-const ROOT = '/repos/sample/repo'
-const config = 'topic: labourchain\nwhitelist: true\n'
-const data = text => ({ type: 'file', sha:'a'.repeat(40),
-  encoding: 'base64', size: Buffer.byteLength(text),
-  content: Buffer.from(text, 'utf8').toString('base64') })
-const respond = (code, body, headers = {}) => Response.json(body, { status: code, headers })
-function fixture(options = {}) {
-  const calls = [], errors = []
-  let projectFileCalls = 0
-  const fetcher = async (url, init = {}) => {
-    const u = new URL(url)
-    calls.push({ path: u.pathname, query: u.search, auth: init.headers?.Authorization })
-    assert.equal((init.method || 'GET'), 'GET', 'Topic source must stay read-only')
-    if (u.pathname === ROOT) return respond(200, { full_name: 'sample/repo',
-      private: options.private === true, default_branch:'main' })
-    if (u.pathname === ROOT + '/branches/main') return respond(200, {
-      name:'main', commit:{sha:'b'.repeat(40)} })
-    if (u.pathname === ROOT + '/contents/README.md') return respond(200,
-      data('Preamble\n# Real Title\nDescription one\nDescription two\nemail: hi@example.org\ndatetime: Friday'))
-    if (u.pathname === ROOT + '/contents/topics.config.yaml') return respond(200,
-      data(options.config || config))
-    if (u.pathname === ROOT + '/contents/cover.jpg') return respond(404, {})
-    if (u.pathname === ROOT + '/contents/projects') return respond(200, [
-      { name: 'valid.yaml', path: 'projects/valid.yaml' },
-      { name: 'broken.yml', path: 'projects/broken.yml' },
-    ])
-    if (u.pathname === ROOT + '/contents/projects/valid.yaml') {
-      projectFileCalls++; return respond(200, data('repository: Member/Project\n'))
-    }
-    if (u.pathname === ROOT + '/contents/projects/broken.yml') {
-      projectFileCalls++; return respond(200, data('unrecognized: broken\n'))
-    }
-    if (u.pathname === '/search/repositories') {
-      if (options.rateLimit) return respond(403, {}, { 'x-ratelimit-remaining': '0' })
-      return respond(200, { total_count: options.totalCount ?? 1200,
-        items: [{ id:42, full_name: 'Member/Project', name: 'Project',
-          owner:{login:'Member'}, html_url: 'https://github.com/Member/Project',
-          private: false }] })
-    }
-    throw Error('Unexpected endpoint ' + u.pathname)
-  }
-  return { calls, errors, fetcher, projectFileCalls: () => projectFileCalls,
-    logger: { error: (...args) => errors.push(args) } }
+const respond = (code,body,headers={})=>Response.json(body,{status:code,headers})
+function fixture(options={}){
+  const errors=[]
+  const m=topicReadFixture({privateRepo:options.private===true,config:options.config||'topic: labourchain\nwhitelist: true\n',
+    search:()=>options.rateLimit?respond(403,{}, {'x-ratelimit-remaining':'0'}):{
+      total_count:options.totalCount??1200,incomplete_results:false,
+      items:[{id:42,full_name:'Member/Project',name:'Project',owner:{login:'Member'},
+        html_url:'https://github.com/Member/Project',private:false}]}})
+  return {...m,errors,projectFileCalls:()=>m.calls.filter(c=>c.host==='raw.githubusercontent.com'&&c.path.includes('/projects/')).length,
+    logger:{error:(...args)=>errors.push(args)}}
 }
 const url = endpoint => 'https://example.test/api/' + endpoint + '?owner=sample&repo=repo'
 
@@ -93,7 +61,7 @@ test('#31 read-only metadata endpoint logs failed whitelist file without leaking
 test('#31 GitHub Search explicitly exposes 1000 window exhaustion without claiming true end', async () => {
   const m = fixture()
   const endpoint = createTopicProjectsEndpoint({ fetcher: m.fetcher })
-  const response = await endpoint.fetch(new Request(url('topic-projects') + '&page=10'))
+  const response = await endpoint.fetch(new Request(url('topic-projects') + '&page=10&head='+HEAD))
   assert.equal(response.status, 200)
   const page = await response.json()
   assert.equal(page.hasNext, false)
@@ -124,7 +92,7 @@ test('#31 aggregate retries next candidate pages until ten eligible, deduping ca
 test('#31 source and Search failures remain retryable errors distinct from empty result', async () => {
   const m = fixture({ rateLimit: true })
   const endpoint = createTopicProjectsEndpoint({ fetcher: m.fetcher })
-  const response = await endpoint.fetch(new Request(url('topic-projects') + '&page=2'))
+  const response = await endpoint.fetch(new Request(url('topic-projects') + '&page=2&head='+HEAD))
   assert.equal(response.status, 429)
   const body = await response.json()
   assert.equal(body.stage, 'topic-search')

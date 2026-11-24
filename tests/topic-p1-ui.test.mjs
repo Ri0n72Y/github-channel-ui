@@ -143,3 +143,37 @@ test('#83 Reviewer P2: delayed successful snapshot and failed reload preserve di
   assert.doesNotMatch(source,/setDraft\(meta\.configText \?\?/)
   assert.doesNotMatch(source,/setConfigUncertain\(false\).*setDraft/)
 })
+
+test('#83 browser source and complete Search page share requests across local slices and abort consumers',async()=>{
+  const {createTopicPageApi}=await vite.ssrLoadModule('/plugins/topic-page/src/service.ts')
+  const sample=await fixture(new URLSearchParams()).getSnapshot(route,signal())
+  const calls=[]
+  const api=createTopicPageApi(async(url)=>{
+    const u=new URL(url,'https://local.test');calls.push(u)
+    await new Promise(resolve=>setTimeout(resolve,5))
+    if(u.pathname==='/api/topic-page')return Response.json(sample)
+    return Response.json({page:1,offset:0,perPage:100,totalCount:60,hasNext:false,
+      nextPage:null,nextOffset:null,windowExhausted:false,
+      items:Array.from({length:60},(_,i)=>({id:i+1,full_name:'member/p'+i,name:'p'+i,owner:'member',
+        description:'',html_url:'https://github.com/member/p'+i,stargazers_count:0,language:null}))})
+  })
+  const controller=new AbortController()
+  const first=api.getSnapshot(route,controller.signal)
+  const second=api.getSnapshot(route,signal())
+  controller.abort()
+  await assert.rejects(first,{name:'AbortError'})
+  const snapshot=await second
+  assert.equal(calls.length,1)
+  const slices=await Promise.all([0,25,50].map(offset=>api.getProjects(route,1,signal(),offset,snapshot.headSha)))
+  assert.deepEqual(slices.map(p=>p.items.length),[25,25,10])
+  assert.deepEqual(slices.map(p=>p.nextOffset),[25,50,null])
+  assert.equal(calls.length,2)
+  assert.equal(calls[1].searchParams.get('head'),snapshot.headSha)
+  assert.equal(calls[1].searchParams.get('offset'),'0')
+  await api.getSnapshot(route,signal(),true)
+  await assert.rejects(api.getProjects(route,1,signal(),25,snapshot.headSha),
+    {status:409,stage:'snapshot'})
+  await api.getProjects(route,1,signal(),0,snapshot.headSha)
+  assert.equal(calls.length,4)
+  assert.equal(calls[2].searchParams.get('refresh'),'1')
+})

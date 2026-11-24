@@ -77,7 +77,7 @@ export default function TopicPageContainer({ owner, repo, api }: {
     void (async () => {
       let meta: TopicSnapshot | null = null
       try {
-        meta = await api.getSnapshot({ owner, repo }, abort.signal)
+        meta = await api.getSnapshot({ owner, repo }, abort.signal, revision > 0)
         if (abort.signal.aborted) return
         setState(prev => ({ ...prev, snapshot: meta }))
         const incomingConfigText = meta.configText
@@ -93,7 +93,7 @@ export default function TopicPageContainer({ owner, repo, api }: {
           return
         }
         const result = await loadInstalledTopicBatch(meta, (page: number, offset: number) =>
-          api.getProjects({ owner, repo }, page, abort.signal, offset), abort.signal)
+          api.getProjects({ owner, repo }, page, abort.signal, offset, meta!.headSha), abort.signal)
         if (abort.signal.aborted) return
         setState({ snapshot: meta, projects: result.items, loading: false,
           loadingMore: false, error: null, moreError: null,
@@ -119,7 +119,7 @@ export default function TopicPageContainer({ owner, repo, api }: {
     try {
       const result = await loadInstalledTopicBatch(state.snapshot,
         (page: number, offset: number) => api.getProjects({ owner, repo }, page,
-          abort.signal, offset), abort.signal, cursor,
+          abort.signal, offset, state.snapshot!.headSha), abort.signal, cursor,
         state.projects.map(project => project.id))
       if (abort.signal.aborted) return
       setState(prev => {

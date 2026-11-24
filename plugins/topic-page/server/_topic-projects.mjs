@@ -1,9 +1,6 @@
-import { requireTopicTarget, github, topicConfig, topicError, reply,
-  publicRepository, TopicFetchError } from './_topic.mjs'
-import { loadTopicWhitelist } from './_topic-whitelist.mjs'
+import { requireTopicTarget, github, topicError, reply, TopicFetchError } from './_topic.mjs'
+import { createTopicSourceStore, topicSourceStore } from './_topic-source.mjs'
 import { validTopicRepository } from '../src/domain.mjs'
-
-const BATCH = 25
 
 /** @summary Keep only original image URLs hosted by GitHub itself. */
 function trustedGitHubImage(value, hosts) {
@@ -51,8 +48,9 @@ function publicProject(item) {
     ...(cover ? { cover_url: cover } : {}),
   }
 }
-/** @summary Search only the configured source Topic and return a bounded public candidate slice. */
-export function createTopicProjectsEndpoint({ fetcher = fetch } = {}) {
+/** @summary Search only the configured source Topic and return one complete filtered Search page. */
+export function createTopicProjectsEndpoint({ fetcher = fetch,
+  store = fetcher === fetch ? topicSourceStore : createTopicSourceStore({fetcher}) } = {}) {
   return Object.freeze({
     async fetch(request) {
       if (request.method !== 'GET') return reply({ error: 'Method not allowed' }, 405)
@@ -63,47 +61,44 @@ export function createTopicProjectsEndpoint({ fetcher = fetch } = {}) {
             query.getAll('repo').length !== 1 || query.getAll('page').length > 1 ||
             query.getAll('offset').length > 1) throw new TopicFetchError(
           '必须指定唯一的 Topic 来源仓库', 400, 'route')
-        const rawOffset = query.get('offset') || '0'
-        if (!/^(?:0|25|50|75)$/.test(rawOffset)) throw new TopicFetchError(
-          '无效的 Topic Search 游标', 400, 'topic-search')
-        const offset = Number(rawOffset), args = { fetcher }
-        const target = requireTopicTarget(request, true)
-        const page = target.page
-        const repository = await publicRepository(target.owner, target.repo, args)
-        const config = await topicConfig(target.owner, target.repo, args)
-        const sourceAllow = await loadTopicWhitelist(target.owner, target.repo,
-          config, { fetcher })
-        const allowedNames = sourceAllow === null ? null : new Set(sourceAllow)
+        if (query.has('offset') && query.get('offset') !== '0' ||
+            query.getAll('head').length > 1 || query.has('head') &&
+            !/^[a-f0-9]{40}$/i.test(query.get('head'))) throw new TopicFetchError(
+          '无效的 Topic Search 游标',400,'topic-search')
+        const {owner,repo,page} = requireTopicTarget(request,true)
+        const expected = query.get('head')
+        if (page>1 && !expected) throw new TopicFetchError('分页需要来源快照，请刷新',409,'snapshot')
+        const snapshot = await store.snapshot(owner,repo)
+        if (expected && expected !== snapshot.headSha)
+          throw new TopicFetchError('来源仓库已更新，请刷新 TopicPage',409,'snapshot')
+        const {config,repository,headSha} = snapshot
+        if (!config) throw new TopicFetchError('topics.config.yaml 尚未初始化',404,'config')
+        const allowedNames = config.whitelist ? new Set(snapshot.allowedRepositories) : null
+        if (allowedNames?.size === 0) return reply({page,offset:0,perPage:100,totalCount:0,
+          hasNext:false,nextPage:null,nextOffset:null,windowExhausted:false,items:[]})
         const topic = config.topic
+        const result = await store.page(owner,repo,headSha,page,async()=>{
         const data = await github('/search/repositories?q=topic:' +
           encodeURIComponent(topic + ' is:public') + '&sort=updated&order=desc&per_page=100&page=' +
-          page, { ...args, stage: 'topic-search' })
+          page, { fetcher, stage: 'topic-search' })
         if (!data || !Number.isSafeInteger(data.total_count) || data.total_count < 0 ||
             !Array.isArray(data.items) || data.items.length > 100) throw new TopicFetchError(
           'GitHub Topic Search 响应无效', 502, 'topic-search')
         if (data.incomplete_results === true) throw new TopicFetchError(
           'GitHub Topic Search 结果不完整，请重试读取', 502, 'topic-search')
         const accessible = Math.min(data.total_count, 1000)
-        const searched = data.items.slice(offset, offset + BATCH)
+        const searched = data.items
         const sourceName = repository.full_name.toLowerCase()
         const items = searched.filter(item => {
           const name = typeof item?.full_name === 'string' ? item.full_name.toLowerCase() : ''
           return name !== sourceName && (allowedNames === null || allowedNames.has(name))
         }).map(publicProject).filter(Boolean)
-        const end = offset + searched.length
-        const moreOnPage = end < data.items.length
-        const morePages = page * 100 < accessible
-        const hasNext = moreOnPage || morePages
-        const nextPage = moreOnPage ? page : Math.min(page + 1, 10)
-        const nextOffset = moreOnPage ? offset + BATCH : 0
-        const windowExhausted = !hasNext && data.total_count > 1000 &&
-          page === 10
-        return reply({
-          page, offset, perPage: 100, totalCount: data.total_count,
-          hasNext, nextPage: hasNext ? nextPage : null,
-          nextOffset: hasNext ? nextOffset : null, windowExhausted,
-          items,
+        const hasNext = page * 100 < accessible
+        return {page,offset:0,perPage:100,totalCount:data.total_count,hasNext,
+          nextPage:hasNext?page+1:null,nextOffset:hasNext?0:null,
+          windowExhausted:!hasNext&&data.total_count>1000&&page===10,items}
         })
+        return reply(result)
       } catch (error) { return topicError(error) }
     },
   })

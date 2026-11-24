@@ -40,7 +40,10 @@ export default function TopicPageView(props: TopicPageViewProps) {
       <div className={styles.sectionHeading}>
         <div><span className={styles.eyebrow}>PUBLIC GITHUB TOPIC</span>
           <h2 id="topic-projects-heading">参与项目</h2></div>
-        <span className={styles.count}>{props.projects.length} 个候选项目</span>
+        <div className={styles.projectActions}>
+          <span className={styles.count}>{props.projects.length} 个候选项目</span>
+          <button type="button" onClick={props.onRetry} disabled={props.loading}>刷新项目</button>
+        </div>
       </div>
       <TopicStatus loading={props.loading} error={props.error}
         windowExhausted={props.windowExhausted} count={props.projects.length}

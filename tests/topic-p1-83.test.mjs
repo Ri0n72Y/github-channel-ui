@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createTopicProjectsEndpoint } from '../api/_topic-projects.mjs'
 import { createTopicConfigEndpoint } from '../api/_topic-config.mjs'
+import { topicReadFixture, HEAD, PROJECT_TREE } from './helpers/topic-read-fixture.mjs'
 import { loadInstalledTopicBatch } from '../plugins/topic-page/src/domain.mjs'
 
 const ROOT = '/repos/sample/repo'
@@ -15,34 +16,23 @@ const candidate=(id)=>({id,full_name:'member/p'+id,name:'p'+id,
   owner:{login:'member'},private:false,
   html_url:'https://github.com/member/p'+id,stargazers_count:id,language:null})
 function searchMock({items=Array.from({length:100},(_,i)=>candidate(i+1)),
-  total=250, config='topic: labourchain\nwhitelist: false\n',incomplete=false}={}){
-  const calls=[]
-  const fetcher=async(url,init={})=>{
-    const u=new URL(url)
-    calls.push({path:u.pathname,search:u.search,auth:init.headers?.Authorization,
-      method:init.method||'GET'})
-    if(u.pathname===ROOT)return reply(200,{private:false,full_name:'sample/repo'})
-    if(u.pathname===ROOT+'/contents/topics.config.yaml')return reply(200,file(config))
-    if(u.pathname==='/search/repositories')return reply(200,{
-      total_count:total,incomplete_results:incomplete,items})
-    throw Error('unexpected GET '+u.pathname)
-  }
-  return {fetcher,calls}
+  total=250,config='topic: labourchain\nwhitelist: false\n',incomplete=false}={}){
+  return topicReadFixture({config,search:()=>({total_count:total,incomplete_results:incomplete,items})})
 }
-test('#83 configured public Topic reads a bounded slice without Installation or authorization',async()=>{
-  const mock=searchMock()
-  const endpoint=createTopicProjectsEndpoint({fetcher:mock.fetcher})
-  const first=await endpoint.fetch(new Request('https://labour.test'+address))
+test('#83 configured public Topic returns a complete page without Installation or authorization',async()=>{
+  const mock=searchMock(),endpoint=createTopicProjectsEndpoint({fetcher:mock.fetcher})
+  const first=await endpoint.fetch(new Request('https://labour.test'+address+'&head='+HEAD))
   assert.equal(first.status,200)
   const data=await first.json()
-  assert.deepEqual([data.page,data.offset,data.items.length,data.nextPage,data.nextOffset],
-    [1,0,25,1,25])
-  assert.deepEqual(mock.calls.map(c=>c.path),[
-    ROOT,ROOT+'/contents/topics.config.yaml','/search/repositories'])
-  assert.equal(new URLSearchParams(mock.calls[2].search).get('q'),'topic:labourchain is:public')
+  assert.deepEqual([data.page,data.offset,data.items.length,data.nextPage,data.nextOffset],[1,0,100,2,0])
+  assert.equal(mock.calls.filter(c=>c.host==='api.github.com'&&c.path!=='/search/repositories').length,3)
+  assert.equal(mock.calls.filter(c=>c.host==='raw.githubusercontent.com').length,2)
+  assert.equal(new URLSearchParams(mock.calls.find(c=>c.path==='/search/repositories').search).get('q'),'topic:labourchain is:public')
   assert.ok(mock.calls.every(c=>!c.auth&&c.method==='GET'))
-  const second=await endpoint.fetch(new Request('https://labour.test'+address+'&offset=25'))
-  assert.equal((await second.json()).items[0].id,26)
+  const again=await endpoint.fetch(new Request('https://labour.test'+address+'&head='+HEAD))
+  assert.deepEqual(await again.json(),data)
+  assert.equal(mock.calls.length,6)
+  assert.equal((await endpoint.fetch(new Request('https://labour.test'+address+'&offset=25'))).status,400)
 })
 test('#83 public search excludes private, malformed, mismatched and source candidates',async()=>{
   const items=[candidate(1),candidate(2),{...candidate(3),private:true},
@@ -55,7 +45,7 @@ test('#83 public search excludes private, malformed, mismatched and source candi
     .fetch(new Request('https://labour.test'+address))
   assert.equal(response.status,200)
   assert.deepEqual((await response.json()).items.map(p=>p.id),[1,2])
-  assert.equal(mock.calls.length,3)
+  assert.equal(mock.calls.length,6)
 })
 test('#83 incomplete Search, throttling and invalid cursor fail closed',async()=>{
   const incomplete=searchMock({incomplete:true})
@@ -183,15 +173,17 @@ const installation=async()=>({installationId:17,repositoryId:50,jwt:'app-jwt'})
 const configUrl='https://labour.test/api/topic-config'
 
 test('#83 explicit OAuth owner edit writes verified unprotected branch and reads back',async()=>{
-  const mock=configMock()
+  const mock=configMock(),invalidated=[]
   const handler=createTopicConfigEndpoint({fetcher:mock.fetcher,
-    writeContextFn:contextFor(),installationResolver:installation})
+    writeContextFn:contextFor(),installationResolver:installation,
+    invalidate:(owner,repo)=>invalidated.push([owner,repo])})
   const response=await handler.fetch(new Request(configUrl,{method:'POST'}))
   assert.equal(response.status,200)
   const result=await response.json()
   assert.equal(result.state,'committed')
   assert.equal(result.effective,true)
   assert.equal(result.commitSha,'f'.repeat(40))
+  assert.deepEqual(invalidated,[['sample','repo']])
   const writes=mock.calls.filter(c=>c.method!=='GET')
   assert.equal(writes.length,1)
   assert.equal(writes[0].method,'PUT')
@@ -199,14 +191,16 @@ test('#83 explicit OAuth owner edit writes verified unprotected branch and reads
   assert.equal(mock.calls.find(c=>c.path==='/app/installations/17').auth,'Bearer app-jwt')
 })
 test('#83 branch protection creates a PR, never advertises unmerged config as effective',async()=>{
-  const mock=configMock({protectedBranch:true})
+  const mock=configMock({protectedBranch:true}),invalidated=[]
   const handler=createTopicConfigEndpoint({fetcher:mock.fetcher,
-    writeContextFn:contextFor(),installationResolver:installation})
+    writeContextFn:contextFor(),installationResolver:installation,
+    invalidate:(owner,repo)=>invalidated.push([owner,repo])})
   const response=await handler.fetch(new Request(configUrl,{method:'POST'}))
   assert.equal(response.status,200)
   const body=await response.json()
   assert.equal(body.state,'pending_pr')
   assert.equal(body.effective,false)
+  assert.deepEqual(invalidated,[])
   assert.equal(body.prUrl,'https://github.com/sample/repo/pull/81')
   assert.deepEqual(mock.calls.filter(c=>c.method!=='GET').map(c=>c.method),
     ['POST','PUT','POST'])
@@ -234,30 +228,15 @@ test('#83 invalid YAML, stale HEAD, App/User denial and missing OAuth never writ
 
 
 test('#83 two source configurations select their own Topic and case-insensitive whitelist',async()=>{
-  const calls=[]
-  const fetcher=async(url,init={})=>{
-    const u=new URL(url);calls.push({path:u.pathname,q:u.searchParams.get('q')})
-    assert.equal(init.headers?.Authorization,undefined)
-    assert.equal(init.method||'GET','GET')
-    for(const [name,topic,config] of [['first','alpha','topic: alpha\n'],
-        ['second','beta','topic: beta\nwhitelist: false\n']]){
-      const root='/repos/sample/'+name
-      if(u.pathname===root)return reply(200,{private:false,full_name:'sample/'+name})
-      if(u.pathname===root+'/contents/topics.config.yaml')return reply(200,file(config))
-      if(u.pathname===root+'/contents/projects'){
-        assert.equal(name,'first','disabled whitelist never reads project files')
-        return reply(200,[{name:'1-member-p1.yaml',path:'projects/1-member-p1.yaml'},
-          {name:'2-member-p9.yaml',path:'projects/2-member-p9.yaml'}])
-      }
-      if(u.pathname===root+'/contents/projects/1-member-p1.yaml')
-        return reply(200,file('repository: MEMBER/P1\n'))
-      if(u.pathname===root+'/contents/projects/2-member-p9.yaml')
-        return reply(200,file('repository: member/p9\n'))
-      if(u.pathname==='/search/repositories'&&u.searchParams.get('q')==='topic:'+topic+' is:public')
-        return reply(200,{total_count:2,incomplete_results:false,items:
-          name==='first'?[candidate(1),candidate(2)]:[candidate(3),candidate(4)]})
-    }
-    throw Error('unexpected GitHub read '+u.pathname)
+  const first=topicReadFixture({repo:'first',config:'topic: alpha\n',projects:{
+    '1-member-p1.yaml':'repository: MEMBER/P1\n','2-member-p9.yaml':'repository: member/p9\n'},
+    search:()=>({total_count:2,items:[candidate(1),candidate(2)],incomplete_results:false})})
+  const second=topicReadFixture({repo:'second',config:'topic: beta\nwhitelist: false\n',
+    search:()=>({total_count:2,items:[candidate(3),candidate(4)],incomplete_results:false})})
+  const fetcher=(url,init)=>{
+    const u=new URL(url)
+    const isSecond=u.pathname.includes('/sample/second')||u.searchParams.get('q')==='topic:beta is:public'
+    return (isSecond?second:first).fetcher(url,init)
   }
   const handler=createTopicProjectsEndpoint({fetcher})
   for(const [name,ids] of [['first',[1]],['second',[3,4]]]){
@@ -265,53 +244,37 @@ test('#83 two source configurations select their own Topic and case-insensitive 
     assert.equal(result.status,200)
     assert.deepEqual((await result.json()).items.map(p=>p.id),ids)
   }
-  assert.deepEqual(calls.filter(c=>c.path==='/search/repositories').map(c=>c.q),
-    ['topic:alpha is:public','topic:beta is:public'])
-  assert.ok(!calls.some(c=>c.path.includes('installation')))
+  assert.equal(first.calls.filter(c=>c.path==='/search/repositories').length,1)
+  assert.equal(second.calls.filter(c=>c.path==='/search/repositories').length,1)
+  assert.ok(second.calls.every(c=>!c.path.includes('/projects/')&&!c.path.endsWith(PROJECT_TREE)))
+  assert.ok([...first.calls,...second.calls].every(c=>!c.path.includes('installation')&&!c.auth))
 })
 test('#83 missing or invalid config and whitelist read failure never fall back to arbitrary Search',async()=>{
   for(const [mode,status,stage] of [['missing-config',404,'config'],
       ['bad-config',422,'config'],['directory-error',502,'whitelist'],
       ['listed-file-missing',404,'whitelist'],['rate-limit',429,'whitelist']]){
-    const base=searchMock({items:[candidate(1)],total:1,config:source})
-    let searches=0
-    const fetcher=async(url,init)=>{
-      const path=new URL(url).pathname
-      if(path==='/search/repositories')searches++
-      if(path===ROOT+'/contents/topics.config.yaml'){
-        if(mode==='missing-config')return reply(404,{})
-        if(mode==='bad-config')return reply(200,file('topic: bad_slug\n'))
-      }
-      if(path===ROOT+'/contents/projects'){
-        if(mode==='directory-error')return reply(503,{})
-        if(mode==='rate-limit')return reply(429,{})
-        return reply(200,[{name:'p1.yaml',path:'projects/p1.yaml'}])
-      }
-      if(path===ROOT+'/contents/projects/p1.yaml')return reply(404,{})
-      return base.fetcher(url,init)
-    }
-    const result=await createTopicProjectsEndpoint({fetcher})
+    const mock=topicReadFixture({config:mode==='missing-config'?null:mode==='bad-config'?'topic: bad_slug\n':source,
+      intercept:u=>{
+        if(mode==='directory-error'&&u.pathname.endsWith(PROJECT_TREE))return reply(503,{})
+        if(mode==='rate-limit'&&u.pathname.endsWith('/projects/valid.yaml'))return reply(429,{})
+        if(mode==='listed-file-missing'&&u.pathname.endsWith('/projects/valid.yaml'))return reply(404,{})
+      }})
+    const result=await createTopicProjectsEndpoint({fetcher:mock.fetcher})
       .fetch(new Request('https://labour.test'+address))
     assert.equal(result.status,status,mode)
     assert.equal((await result.json()).stage,stage,mode)
-    assert.equal(searches,0,mode)
+    assert.equal(mock.calls.filter(c=>c.path==='/search/repositories').length,0,mode)
   }
 })
 test('#83 explicit or default whitelist stays closed with missing directory or invalid declarations',async()=>{
   for(const config of [source,'topic: labourchain\n']){
-    for(const missing of [true,false]){
-      const base=searchMock({items:[candidate(1)],total:1,config})
-      const fetcher=(url,init)=>{
-        const path=new URL(url).pathname
-        if(path===ROOT+'/contents/projects')return missing?reply(404,{}):
-          reply(200,[{name:'bad.yaml',path:'projects/bad.yaml'}])
-        if(path===ROOT+'/contents/projects/bad.yaml')return reply(200,file('unknown: bad\n'))
-        return base.fetcher(url,init)
-      }
-      const response=await createTopicProjectsEndpoint({fetcher})
+    for(const projects of [null,{'bad.yaml':'unknown: bad\n'}]){
+      const mock=topicReadFixture({config,projects,search:()=>({total_count:1,items:[candidate(1)]})})
+      const response=await createTopicProjectsEndpoint({fetcher:mock.fetcher})
         .fetch(new Request('https://labour.test'+address))
       assert.equal(response.status,200)
       assert.deepEqual((await response.json()).items,[])
+      assert.equal(mock.calls.filter(c=>c.path==='/search/repositories').length,0)
     }
   }
 })
