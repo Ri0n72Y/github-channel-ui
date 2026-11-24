@@ -31,8 +31,8 @@ export type TopicConfigResult = {
 }
 export interface TopicPageApi {
   readonly reportAvailable: boolean
-  getSnapshot(route: TopicRoute, signal: AbortSignal): Promise<TopicSnapshot>
-  getProjects(route: TopicReadRoute, page: number, signal: AbortSignal, offset?: number): Promise<TopicProjectsPage>
+  getSnapshot(route: TopicRoute, signal: AbortSignal, refresh?: boolean): Promise<TopicSnapshot>
+  getProjects(route: TopicReadRoute, page: number, signal: AbortSignal, offset?: number, head?: string): Promise<TopicProjectsPage>
   getSession(signal: AbortSignal): Promise<boolean>
   getReportTarget(route: TopicRoute, signal: AbortSignal): Promise<string>
   submitReport(route: TopicRoute, report: ReportIssue, proof: string, signal: AbortSignal): Promise<string>
@@ -40,6 +40,7 @@ export interface TopicPageApi {
     configSha: string | null, signal: AbortSignal): Promise<TopicConfigResult>
 }
 
+import { createTopicReadCache } from './topic-read-cache.mjs'
 import { browserRequest, record, requestFailure, responseObject,
   type RequestFn } from '../../shared/src/browser-http'
 
@@ -47,8 +48,8 @@ function topicError(message:string,status:number,stage='source',
   outcomeUnknown=false):TopicPageError{
   return Object.assign(new Error(message),{status,stage,retryable:!outcomeUnknown,outcomeUnknown})
 }
-function query(route:TopicReadRoute,page?:number,offset?:number){
-  return new URLSearchParams(page===undefined?route:{...route,page:String(page),offset:String(offset||0)}).toString()
+function query(route:TopicReadRoute,page?:number,offset?:number,head?:string){
+  return new URLSearchParams(page===undefined?route:{...route,page:String(page),offset:String(offset||0),...(head?{head}:{})}).toString()
 }
 async function read(request:RequestFn,url:string,signal:AbortSignal):Promise<unknown>{
   const response=await request(url,{cache:'no-store',signal,credentials:'same-origin'})
@@ -125,14 +126,63 @@ function parsePage(value:unknown):TopicProjectsPage{
     nextPage:p.nextPage as number|null,nextOffset:p.nextOffset as number|null,
     windowExhausted:p.windowExhausted,items:p.items.map(parseProject)}
 }
-/** @summary Provide a stable, no-Class Topic API with explicit OAuth Issue report writes. */
+/** Abort one consumer, not the shared bounded request used by other consumers. */
+function observe<T>(promise:Promise<T>,signal:AbortSignal):Promise<T>{
+  return new Promise((resolve,reject)=>{
+    const cancel=()=>reject(new DOMException('Aborted','AbortError'))
+    if(signal.aborted){cancel();return}
+    signal.addEventListener('abort',cancel,{once:true})
+    promise.then(resolve,reject).finally(()=>signal.removeEventListener('abort',cancel))
+  })
+}
+const sourceKey=(route:TopicRoute)=>route.owner.toLowerCase()+'/'+route.repo.toLowerCase()+'|'
+/** @summary Cache public snapshots and whole Search pages; 25-card display slices stay in memory. */
 export function createTopicPageApi(request:RequestFn=browserRequest):Readonly<TopicPageApi>{
-  async function getSnapshot(route:TopicRoute,signal:AbortSignal){
-    return parseSnapshot(await read(request,'/api/topic-page?'+query(route),signal))
+  const snapshots=createTopicReadCache<TopicSnapshot>({ttl:300000,limit:16})
+  // Keep a loaded page stable across its local display slices for the source TTL.
+  // The server's upstream Search TTL is shorter (120s); explicit refresh clears both.
+  const pages=createTopicReadCache<TopicProjectsPage>({ttl:300000,limit:80})
+  async function getSnapshot(route:TopicRoute,signal:AbortSignal,refresh=false){
+    if(signal.aborted)throw new DOMException('Aborted','AbortError')
+    const key=sourceKey(route)
+    return observe(snapshots.get(key,async()=>{
+      // A bounded request independent of any single mounted consumer.
+      const response=await read(request,'/api/topic-page?'+query(route)+(refresh?'&refresh=1':''),
+        AbortSignal.timeout(120000))
+      const value=parseSnapshot(response)
+      if(value.repository.full_name.toLowerCase()!==(route.owner+'/'+route.repo).toLowerCase()||
+          !/^[a-f0-9]{40}$/i.test(value.headSha))
+        throw topicError('Topic 来源快照无效',502,'snapshot')
+      return value
+    },refresh,()=>pages.invalidate(key)),signal)
   }
-  async function getProjects(route:TopicReadRoute,page:number,signal:AbortSignal,offset=0){
+  async function getProjects(route:TopicReadRoute,page:number,signal:AbortSignal,offset=0,head?:string){
     if ('topic' in route) throw topicError('正式 Topic 查询必须指定来源仓库',400,'route')
-    return parsePage(await read(request,'/api/topic-projects?'+query(route,page,offset),signal))
+    if(signal.aborted)throw new DOMException('Aborted','AbortError')
+    if(!head||!Number.isInteger(page)||page<1||page>10||![0,25,50,75].includes(offset))
+      throw topicError('Topic 搜索分页游标无效',400,'topic-search')
+    const prefix=sourceKey(route)
+    const snapshot=snapshots.peek(prefix)
+    if(!snapshot||snapshot.headSha!==head)
+      throw topicError('来源快照已失效，请刷新 TopicPage',409,'snapshot')
+    const key=prefix+head+'|'+page
+    // Never splice a newly fetched Search page onto an already consumed local slice.
+    if(offset!==0&&!pages.has(key))throw topicError('项目分页缓存已失效，请刷新 TopicPage',409,'snapshot')
+    const whole=await observe(pages.get(key,async()=>{
+      const value=parsePage(await read(request,'/api/topic-projects?'+query(route,page,0,head),
+        AbortSignal.timeout(120000)))
+      if(value.page!==page||value.offset!==0||value.items.length>100||
+          value.hasNext&&(value.nextPage!==page+1||page===10||value.nextOffset!==0))
+        throw topicError('Topic Search 完整页无效',502,'topic-search')
+      return value
+    }),signal)
+    if(snapshots.peek(prefix)!==snapshot)
+      throw topicError('来源快照已失效，请刷新 TopicPage',409,'snapshot')
+    const moreLocal=offset+25<whole.items.length
+    return {...whole,offset,items:whole.items.slice(offset,offset+25),
+      hasNext:moreLocal||whole.hasNext,nextPage:moreLocal?page:whole.nextPage,
+      nextOffset:moreLocal?offset+25:whole.nextOffset,
+      windowExhausted:!moreLocal&&whole.windowExhausted}
   }
   async function getSession(signal:AbortSignal){
     return responseObject(await read(request,'/api/github-session',signal)).authenticated===true
@@ -207,6 +257,9 @@ export function createTopicPageApi(request:RequestFn=browserRequest):Readonly<To
     if(state==='pending_pr' && (data.effective!==false ||
         typeof data.prUrl!=='string')||state==='committed' && data.effective!==true)
       throw topicError('Topic Config 写入结果无法确认',502,'config-write',true)
+    if(state==='committed'){
+      snapshots.invalidate(sourceKey(route));pages.invalidate(sourceKey(route))
+    }
     return {state,branch:data.branch,effective:data.effective,
       ...(typeof data.prUrl==='string'?{prUrl:data.prUrl}:{}),
       ...(typeof data.branchUrl==='string'?{branchUrl:data.branchUrl}:{}),

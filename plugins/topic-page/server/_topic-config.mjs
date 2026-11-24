@@ -3,6 +3,7 @@ import { writeContext } from '../../github-access/server/_issue-interaction.mjs'
 import { resolveInstalledRepository, ProbeError, isGitHubRateLimited } from '../../github-access/server/_installation-probe.mjs'
 import { parseTopicYaml } from '../src/domain.mjs'
 import { reply, encodedContent, TopicFetchError } from './_topic.mjs'
+import { topicSourceStore } from './_topic-source.mjs'
 
 const GH = 'https://api.github.com'
 const SHA = /^[a-f\d]{40}$/i
@@ -260,6 +261,7 @@ async function save({ body, token, fetcher, installationResolver }) {
 export function createTopicConfigEndpoint({
   fetcher = fetch, installationResolver = resolveInstalledRepository,
   writeContextFn = writeContext,
+  invalidate = topicSourceStore.invalidate,
 } = {}) {
   return Object.freeze({
     async fetch(request) {
@@ -270,8 +272,10 @@ export function createTopicConfigEndpoint({
       try {
         const result = await save({body:context.body,token:context.token,
           fetcher,installationResolver})
+        if (result.state === 'committed') invalidate(context.body.owner,context.body.repo)
         return reply(result)
       } catch (caught) {
+        if (caught?.outcomeUnknown === true) invalidate(context.body.owner,context.body.repo)
         const status = Number.isSafeInteger(caught?.status) ? caught.status : 502
         return reply({state:'rejected',
           error:caught instanceof Error ? caught.message : 'Topic Config 不可用',

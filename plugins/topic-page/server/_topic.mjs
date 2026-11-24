@@ -1,4 +1,5 @@
 import { validTopicRepository, parseTopicYaml } from '../src/domain.mjs'
+import { TopicReadCacheBusyError } from '../src/topic-read-cache.mjs'
 
 const GH = 'https://api.github.com'
 export class TopicFetchError extends Error {
@@ -68,6 +69,8 @@ export async function publicRepository(owner, repo, args) {
   return repository
 }
 export function topicError(error) {
+  if (error instanceof TopicReadCacheBusyError)
+    return reply({error:error.message,stage:error.stage,retryable:true},503)
   return reply({
     error: error instanceof TopicFetchError ? error.message : 'TopicPage 服务不可用',
     stage: error instanceof TopicFetchError ? error.stage : 'source',

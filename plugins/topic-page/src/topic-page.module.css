@@ -488,3 +488,8 @@
 @media(prefers-reduced-motion:reduce) {
   .masonryItem,.masonryItem .projectCard {transition-duration:.01ms}
 }
+
+.projectActions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.projectActions button { min-height: 44px; min-width: 44px; padding: 4px 12px; color: var(--lc-text); background: transparent; border: 1px solid currentColor; border-radius: 8px; cursor: pointer; }
+.projectActions button:disabled { opacity: .6; cursor: default; }
+.projectActions button:focus-visible { outline: 3px solid var(--lc-focus); outline-offset: 3px; }
