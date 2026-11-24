@@ -56,7 +56,7 @@ async function expectLoaded(host, matcher, label) {
 
 async function expectMasonry(host, label) {
   for (let i = 0; i < 40; i++) {
-    const list = host.querySelector('[role="list"][aria-label="Topic 已核验项目"]')
+    const list = host.querySelector('[role="list"][aria-label="Topic 项目"]')
     if (list?.querySelector('[data-topic-masonry-item]')) return list
     await act(async () => { await sleep(50) })
   }
@@ -138,13 +138,22 @@ for (const plugin of PLAYGROUND_PLUGINS) {
 }
 
 
-test('#83 /topic/:slug wins generic repo routing; source route retains specificity', () => {
-  const routes = [{ path: '/:owner/:repo' }, { path: '/topic/:slug' },
-    { path: '/topic/:owner/:repo' }]
-  assert.equal(matchRoutes(routes, '/topic/dsh-plugin')?.at(-1)?.route.path,
-    '/topic/:slug')
-  assert.equal(matchRoutes(routes, '/topic/sample/repo')?.at(-1)?.route.path,
+test('#83 production registers source route only; direct slug is confined to Playground', async () => {
+  const {createTopicPagePlugin}=await vite.ssrLoadModule('/plugins/topic-page/src/index.tsx')
+  const {createTopicPageApi}=await vite.ssrLoadModule('/plugins/topic-page/src/service.ts')
+  const registered=[]
+  createTopicPagePlugin().apply({effect: fn=>fn(),
+    reactUI:{registerPage: row=>{registered.push(row.path);return ()=>{}}}})
+  assert.deepEqual(registered,['/topic/:owner/:repo'])
+  const routes=registered.map(path=>({path}))
+  assert.equal(matchRoutes(routes,'/topic/dsh-plugin'),null)
+  assert.equal(matchRoutes(routes,'/topic/sample/repo')?.at(-1)?.route.path,
     '/topic/:owner/:repo')
+  let requests=0
+  const api=createTopicPageApi(async()=>{requests++;throw Error('unexpected network')})
+  await assert.rejects(api.getProjects({topic:'dsh-plugin'},1,new AbortController().signal),
+    {status:400,stage:'route'})
+  assert.equal(requests,0)
 })
 
 test('#83 Topic slug direct/refresh/back/forward and invalid slug remain isolated', async () => {

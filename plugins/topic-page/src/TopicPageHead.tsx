@@ -20,7 +20,7 @@ export default function TopicPageHead({ snapshot }: { snapshot: TopicSnapshot })
         aria-expanded={expanded} onClick={() => setExpanded(open => !open)}>
         {expanded ? '收起活动简介' : '展开完整活动简介'}
       </button>}
-      <p className={styles.sourceHint}>仅展示已通过当前 GitHub App Installation 核验的公开仓库。</p>
+      <p className={styles.sourceHint}>{snapshot.config ? (snapshot.config.whitelist ? '仅展示符合 Topic 且已登记的公开仓库。' : '展示符合 Topic 的公开仓库。') : '尚未配置 Topic，不查询项目。'}</p>
       <a href={snapshot.repository.html_url} target="_blank" rel="noopener noreferrer">
         查看官方仓库
       </a>

@@ -61,7 +61,8 @@ export async function topicConfig(owner, repo, args) {
 export async function publicRepository(owner, repo, args) {
   const repository = await github(repoPath(owner, repo),
     { ...args, stage: 'repository' })
-  if (repository?.private !== false || typeof repository.full_name !== 'string') {
+  if (repository?.private !== false || typeof repository.full_name !== 'string' ||
+      repository.full_name.toLowerCase() !== (owner + '/' + repo).toLowerCase()) {
     throw new TopicFetchError('仅支持公开 GitHub 仓库', 404, 'repository')
   }
   return repository

@@ -33,7 +33,7 @@ function invalidSlug(): TopicPageError {
   })
 }
 
-/** @summary Discover public, exactly installed GitHub Topic repositories without a source or write path. */
+/** @summary Render only the controlled source-less Playground Topic fixture. */
 export default function TopicSlugPage({ slug, api }: { slug: string; api: TopicPageApi }) {
   const [revision, setRevision] = useState(0)
   const [state, setState] = useState<ReadState>(initial)
@@ -123,23 +123,22 @@ export default function TopicSlugPage({ slug, api }: { slug: string; api: TopicP
   const valid = validTopicSlug(slug)
   return <div className={styles.page}>
     <header className={styles.slugHead}>
-      <span className={styles.eyebrow}>PUBLIC GITHUB TOPIC</span>
+      <span className={styles.eyebrow}>PLAYGROUND FIXTURE</span>
       <h1>{valid ? 'GitHub Topic：' + topic : '无效的 GitHub Topic'}</h1>
-      <p>仅展示公开、当前 GitHub App Installation 已核验且未暂停的仓库。
-        本页面不需要来源活动仓库，不提供配置或 Issue 写入。</p>
+      <p>此页面仅供 Playground 界面测试，数据来自受控 Fixture，不提供配置或 Issue 写入。</p>
     </header>
     <section className={styles.section} aria-labelledby="topic-projects-heading">
       <div className={styles.sectionHeading}>
-        <div><span className={styles.eyebrow}>VERIFIED REPOSITORIES</span>
+        <div><span className={styles.eyebrow}>FIXTURE REPOSITORIES</span>
           <h2 id="topic-projects-heading">项目发现</h2></div>
-        <span className={styles.count}>已核验展示 {state.projects.length} 个项目</span>
+        <span className={styles.count}>样例展示 {state.projects.length} 个项目</span>
       </div>
       <TopicStatus loading={state.loading} error={state.error}
         count={state.projects.length} windowExhausted={state.windowExhausted}
         onRetry={() => setRevision(value => value + 1)} reportUrl="" />
       {!state.loading && !state.error && state.projects.length === 0 &&
         <p role="status" className={styles.empty}>
-          当前可访问的 GitHub 搜索范围内没有已核验的项目。
+          当前 Fixture 没有匹配项目。
         </p>}
       {state.projects.length > 0 && <TopicMasonry projects={state.projects}/>}
       {state.moreError && <p className={styles.errorText} role="alert">

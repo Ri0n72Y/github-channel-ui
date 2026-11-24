@@ -73,7 +73,7 @@ test('#83 PR remains unmerged and uncertain writes require explicit confirmation
   await assert.rejects(uncertain.saveConfig(route,'topic: labourchain\n',
     snapshot.headSha,snapshot.configSha,signal()),{outcomeUnknown:true})
 })
-test('#83 sparse Installation fixture fills after several cursor chunks, with abort/single-flight hooks',async()=>{
+test('#83 sparse Topic fixture fills after several cursor chunks, with abort/single-flight hooks',async()=>{
   const api=fixture(new URLSearchParams({topicCase:'sparse'}))
   const meta=await api.getSnapshot(route,signal())
   const seen=[]

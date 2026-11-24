@@ -53,7 +53,7 @@ export default function TopicPageView(props: TopicPageViewProps) {
           topics.config.yaml 尚未初始化。请在下方“仓库维护”展开配置草稿并明确提交；提交前不搜索项目。
         </div> :
         !props.loading && !props.error && props.projects.length === 0 &&
-        <div className={styles.empty}>当前可访问搜索范围没有符合配置的已安装项目。</div>}
+        <div className={styles.empty}>当前可访问搜索范围没有符合配置的项目。</div>}
       {props.projects.length > 0 && <TopicMasonry projects={props.projects}/>}
       {props.moreError && <p role="alert" className={styles.errorText}>
         加载更多失败：{props.moreError.message}

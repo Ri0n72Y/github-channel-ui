@@ -75,7 +75,7 @@ export default function TopicMasonry({ projects }: { projects: readonly TopicRep
   }, [signature])
 
   return <div ref={root} className={styles.masonry} role="list"
-    aria-label="Topic 已核验项目" data-measured={ready ? 'true' : 'false'}
+    aria-label="Topic 项目" data-measured={ready ? 'true' : 'false'}
     style={ready && placement ? { height: placement.height } : undefined}>
     {projects.map((project, index) =>
       <div key={keys[index]} role="listitem" className={styles.masonryItem}

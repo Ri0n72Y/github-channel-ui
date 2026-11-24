@@ -1,6 +1,5 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { ProbeError } from '../api/_installation-probe.mjs'
 import { createTopicProjectsEndpoint } from '../api/_topic-projects.mjs'
 import { createTopicConfigEndpoint } from '../api/_topic-config.mjs'
 import { loadInstalledTopicBatch } from '../plugins/topic-page/src/domain.mjs'
@@ -30,76 +29,54 @@ function searchMock({items=Array.from({length:100},(_,i)=>candidate(i+1)),
   }
   return {fetcher,calls}
 }
-test('#83 verified public installations only; 25-candidate/5-worker bounded slice and cursor',async()=>{
+test('#83 configured public Topic reads a bounded slice without Installation or authorization',async()=>{
   const mock=searchMock()
-  let active=0, max=0
-  const checked=[]
-  const resolver=async({owner,repo})=>{
-    assert.equal(owner,'member')
-    active++;max=Math.max(active,max)
-    checked.push(repo)
-    await Promise.resolve()
-    active--
-    return {repositoryId:Number(repo.slice(1)),installationId:17}
-  }
-  const handler=createTopicProjectsEndpoint({fetcher:mock.fetcher,
-    installationResolver:resolver})
-  const first=await handler.fetch(new Request('https://labour.test'+address))
+  const endpoint=createTopicProjectsEndpoint({fetcher:mock.fetcher})
+  const first=await endpoint.fetch(new Request('https://labour.test'+address))
   assert.equal(first.status,200)
   const data=await first.json()
   assert.deepEqual([data.page,data.offset,data.items.length,data.nextPage,data.nextOffset],
     [1,0,25,1,25])
-  assert.ok(max<=5)
-  assert.equal(checked.length,25)
-  assert.equal(mock.calls.filter(c=>c.path==='/search/repositories').length,1)
-  assert.equal(mock.calls.filter(c=>c.auth).length,0)
-  assert.ok(data.items.every(p=>Number.isInteger(p.id)&&p.id>0))
-  const second=await handler.fetch(new Request('https://labour.test'+address+'&offset=25'))
+  assert.deepEqual(mock.calls.map(c=>c.path),[
+    ROOT,ROOT+'/contents/topics.config.yaml','/search/repositories'])
+  assert.equal(new URLSearchParams(mock.calls[2].search).get('q'),'topic:labourchain is:public')
+  assert.ok(mock.calls.every(c=>!c.auth&&c.method==='GET'))
+  const second=await endpoint.fetch(new Request('https://labour.test'+address+'&offset=25'))
   assert.equal((await second.json()).items[0].id,26)
 })
-test('#83 revoked, suspended and private candidates are skipped; unexpected failures stop list',async()=>{
-  const items=[candidate(1),candidate(2),candidate(3),
-    {...candidate(4),private:true}]
-  const mock=searchMock({items,total:4,config:'topic: labourchain\nwhitelist: false\n'})
-  const resolver=async({repo})=>{
-    if(repo==='p2')throw new ProbeError('Repository is not authorized for this App',403)
-    if(repo==='p3')throw new ProbeError('Repository App installation is suspended',403)
-    return {repositoryId:Number(repo.slice(1)),installationId:17}
-  }
-  const endpoint=createTopicProjectsEndpoint({fetcher:mock.fetcher,
-    installationResolver:resolver})
-  const response=await endpoint.fetch(new Request('https://labour.test'+address))
+test('#83 public search excludes private, malformed, mismatched and source candidates',async()=>{
+  const items=[candidate(1),candidate(2),{...candidate(3),private:true},
+    {...candidate(4),id:0},{...candidate(5),html_url:'https://evil.invalid/member/p5'},
+    {...candidate(6),full_name:'another/p6'},
+    {...candidate(7),full_name:'sample/repo',name:'repo',
+      owner:{login:'sample'},html_url:'https://github.com/sample/repo'}]
+  const mock=searchMock({items,total:items.length})
+  const response=await createTopicProjectsEndpoint({fetcher:mock.fetcher})
+    .fetch(new Request('https://labour.test'+address))
   assert.equal(response.status,200)
-  assert.deepEqual((await response.json()).items.map(p=>p.id),[1])
-  for(const [err,status]of [
-    [new ProbeError('GitHub API rate limit reached',429),429],
-    [new ProbeError('GitHub verification denied',403),502],
-    [new ProbeError('GitHub verification is temporarily unavailable',503),503],
-  ]){
-    const denied=createTopicProjectsEndpoint({fetcher:searchMock({items:[candidate(1)],
-      total:1}).fetcher,installationResolver:async()=>{throw err}})
-    const result=await denied.fetch(new Request('https://labour.test'+address))
-    assert.equal(result.status,status)
-    assert.equal((await result.json()).stage,'installation')
-  }
+  assert.deepEqual((await response.json()).items.map(p=>p.id),[1,2])
+  assert.equal(mock.calls.length,3)
 })
-test('#83 Search incomplete, ID mismatch and invalid cursor fail closed',async()=>{
+test('#83 incomplete Search, throttling and invalid cursor fail closed',async()=>{
   const incomplete=searchMock({incomplete:true})
-  const incompleteResult=await createTopicProjectsEndpoint({fetcher:incomplete.fetcher,
-    installationResolver:async()=>{throw Error('never called')}})
+  const response=await createTopicProjectsEndpoint({fetcher:incomplete.fetcher})
     .fetch(new Request('https://labour.test'+address))
-  assert.equal(incompleteResult.status,502)
-  const mock=searchMock({items:[candidate(1)],total:1})
-  const mismatch=await createTopicProjectsEndpoint({fetcher:mock.fetcher,
-    installationResolver:async()=>({repositoryId:999,installationId:17})})
+  assert.equal(response.status,502)
+  assert.equal((await response.json()).stage,'topic-search')
+  const limited=searchMock()
+  const throttled=await createTopicProjectsEndpoint({fetcher:(url,init)=>
+    new URL(url).pathname==='/search/repositories'?
+      reply(403,{}, {'x-ratelimit-remaining':'0'}):limited.fetcher(url,init)})
     .fetch(new Request('https://labour.test'+address))
-  assert.equal(mismatch.status,502)
-  assert.equal((await mismatch.json()).stage,'installation')
-  const invalid=await createTopicProjectsEndpoint({fetcher:mock.fetcher})
+  assert.equal(throttled.status,429)
+  assert.equal((await throttled.json()).stage,'topic-search')
+  const invalid=searchMock()
+  const result=await createTopicProjectsEndpoint({fetcher:invalid.fetcher})
     .fetch(new Request('https://labour.test'+address+'&offset=90'))
-  assert.equal(invalid.status,400)
+  assert.equal(result.status,400)
+  assert.equal(invalid.calls.length,0)
 })
-test('#83 installed batch fills sparse pages, dedups stable ID and distinguishes window exhaustion',async()=>{
+test('#83 public batch fills sparse pages, dedups stable ID and distinguishes window exhaustion',async()=>{
   const meta={repository:{full_name:'sample/repo'},
     config:{whitelist:true},allowedRepositories:['member/p1','member/p2']}
   const calls=[]
@@ -256,37 +233,88 @@ test('#83 invalid YAML, stale HEAD, App/User denial and missing OAuth never writ
 })
 
 
-test('#83 source projects whitelist intersects installed results on the server',async()=>{
-  const base=searchMock({items:[candidate(1),candidate(2)],total:2,config:source})
+test('#83 two source configurations select their own Topic and case-insensitive whitelist',async()=>{
   const calls=[]
-  const fetcher=async(url,init)=>{
-    const pathname=new URL(url).pathname
-    if(pathname===ROOT+'/contents/projects')
-      return reply(200,[{name:'p1.yaml',path:'projects/p1.yaml'}])
-    if(pathname===ROOT+'/contents/projects/p1.yaml')
-      return reply(200,file('repository: member/p1\n'))
-    return base.fetcher(url,init)
+  const fetcher=async(url,init={})=>{
+    const u=new URL(url);calls.push({path:u.pathname,q:u.searchParams.get('q')})
+    assert.equal(init.headers?.Authorization,undefined)
+    assert.equal(init.method||'GET','GET')
+    for(const [name,topic,config] of [['first','alpha','topic: alpha\n'],
+        ['second','beta','topic: beta\nwhitelist: false\n']]){
+      const root='/repos/sample/'+name
+      if(u.pathname===root)return reply(200,{private:false,full_name:'sample/'+name})
+      if(u.pathname===root+'/contents/topics.config.yaml')return reply(200,file(config))
+      if(u.pathname===root+'/contents/projects'){
+        assert.equal(name,'first','disabled whitelist never reads project files')
+        return reply(200,[{name:'1-member-p1.yaml',path:'projects/1-member-p1.yaml'},
+          {name:'2-member-p9.yaml',path:'projects/2-member-p9.yaml'}])
+      }
+      if(u.pathname===root+'/contents/projects/1-member-p1.yaml')
+        return reply(200,file('repository: MEMBER/P1\n'))
+      if(u.pathname===root+'/contents/projects/2-member-p9.yaml')
+        return reply(200,file('repository: member/p9\n'))
+      if(u.pathname==='/search/repositories'&&u.searchParams.get('q')==='topic:'+topic+' is:public')
+        return reply(200,{total_count:2,incomplete_results:false,items:
+          name==='first'?[candidate(1),candidate(2)]:[candidate(3),candidate(4)]})
+    }
+    throw Error('unexpected GitHub read '+u.pathname)
   }
-  const endpoint=createTopicProjectsEndpoint({fetcher,
-    installationResolver:async({repo})=>{
-      calls.push(repo)
-      return {installationId:17,repositoryId:Number(repo.slice(1))}
-    }})
-  const result=await endpoint.fetch(new Request('https://labour.test'+address))
-  assert.equal(result.status,200)
-  assert.deepEqual((await result.json()).items.map(item=>item.id),[1])
-  assert.deepEqual(calls,['p1'],'not-whitelisted candidates are not installation-probed')
-  const failing=createTopicProjectsEndpoint({
-    fetcher:async(url,init)=>new URL(url).pathname===ROOT+'/contents/projects'?
-      reply(503,{message:'unavailable'}):base.fetcher(url,init),
-    installationResolver:async()=>{throw Error('should not probe')},
-  })
-  const failure=await failing.fetch(new Request('https://labour.test'+address))
-  assert.equal(failure.status,502)
-  assert.equal((await failure.json()).stage,'whitelist')
+  const handler=createTopicProjectsEndpoint({fetcher})
+  for(const [name,ids] of [['first',[1]],['second',[3,4]]]){
+    const result=await handler.fetch(new Request('https://labour.test/api/topic-projects?owner=sample&repo='+name))
+    assert.equal(result.status,200)
+    assert.deepEqual((await result.json()).items.map(p=>p.id),ids)
+  }
+  assert.deepEqual(calls.filter(c=>c.path==='/search/repositories').map(c=>c.q),
+    ['topic:alpha is:public','topic:beta is:public'])
+  assert.ok(!calls.some(c=>c.path.includes('installation')))
 })
-
-
+test('#83 missing or invalid config and whitelist read failure never fall back to arbitrary Search',async()=>{
+  for(const [mode,status,stage] of [['missing-config',404,'config'],
+      ['bad-config',422,'config'],['directory-error',502,'whitelist'],
+      ['listed-file-missing',404,'whitelist'],['rate-limit',429,'whitelist']]){
+    const base=searchMock({items:[candidate(1)],total:1,config:source})
+    let searches=0
+    const fetcher=async(url,init)=>{
+      const path=new URL(url).pathname
+      if(path==='/search/repositories')searches++
+      if(path===ROOT+'/contents/topics.config.yaml'){
+        if(mode==='missing-config')return reply(404,{})
+        if(mode==='bad-config')return reply(200,file('topic: bad_slug\n'))
+      }
+      if(path===ROOT+'/contents/projects'){
+        if(mode==='directory-error')return reply(503,{})
+        if(mode==='rate-limit')return reply(429,{})
+        return reply(200,[{name:'p1.yaml',path:'projects/p1.yaml'}])
+      }
+      if(path===ROOT+'/contents/projects/p1.yaml')return reply(404,{})
+      return base.fetcher(url,init)
+    }
+    const result=await createTopicProjectsEndpoint({fetcher})
+      .fetch(new Request('https://labour.test'+address))
+    assert.equal(result.status,status,mode)
+    assert.equal((await result.json()).stage,stage,mode)
+    assert.equal(searches,0,mode)
+  }
+})
+test('#83 explicit or default whitelist stays closed with missing directory or invalid declarations',async()=>{
+  for(const config of [source,'topic: labourchain\n']){
+    for(const missing of [true,false]){
+      const base=searchMock({items:[candidate(1)],total:1,config})
+      const fetcher=(url,init)=>{
+        const path=new URL(url).pathname
+        if(path===ROOT+'/contents/projects')return missing?reply(404,{}):
+          reply(200,[{name:'bad.yaml',path:'projects/bad.yaml'}])
+        if(path===ROOT+'/contents/projects/bad.yaml')return reply(200,file('unknown: bad\n'))
+        return base.fetcher(url,init)
+      }
+      const response=await createTopicProjectsEndpoint({fetcher})
+        .fetch(new Request('https://labour.test'+address))
+      assert.equal(response.status,200)
+      assert.deepEqual((await response.json()).items,[])
+    }
+  }
+})
 test('#83 protected write requires App PR permission and leaves partial state on uncertain PR creation',async()=>{
   const missing=configMock({protectedBranch:true,appPrWrite:false})
   const denied=await createTopicConfigEndpoint({fetcher:missing.fetcher,

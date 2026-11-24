@@ -55,7 +55,7 @@ export function parseTopicYaml(source, kind = 'config') {
     return { repository: owner.toLowerCase() + '/' + repo.toLowerCase() }
   }
   if (Object.keys(fields).some(k => !['topic', 'whitelist'].includes(k)) ||
-      typeof fields.topic !== 'string' || !TOPIC.test(fields.topic)) {
+      !validTopicSlug(fields.topic)) {
     throw Error('topics.config.yaml requires a valid topic')
   }
   return { topic: fields.topic.toLowerCase(), whitelist: fields.whitelist !== false }
@@ -131,7 +131,7 @@ export async function loadTopicProjectCandidates(meta, getPage, signal, minimum 
 }
 
 
-/** @summary Drain bounded, installation-verified cursor batches until minimum visible cards. */
+/** @summary Drain bounded public candidate cursor batches (legacy helper name retained for compatibility) until minimum visible cards. */
 export async function loadInstalledTopicBatch(meta, getPage, signal, cursor = { page: 1, offset: 0 },
   existingIds = [], minimum = 10) {
   const seen = new Set(existingIds), names = new Set()

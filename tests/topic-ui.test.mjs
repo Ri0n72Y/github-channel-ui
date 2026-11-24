@@ -49,7 +49,7 @@ test('#31 H1 text, footer order and safe public project attribution render in SS
   assert.doesNotMatch(html, /Before H1/)
   assert.match(html, /邮箱：team@example.org/)
   assert.ok(html.indexOf('查看官方仓库') < html.indexOf('<footer'))
-  assert.match(html, /已通过当前 GitHub App Installation 核验/)
+  assert.match(html, /仅展示符合 Topic 且已登记的公开仓库/)
   assert.match(html, /https:\/\/github.com\/member\/project/)
 })
 
