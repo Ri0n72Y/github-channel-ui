@@ -244,3 +244,40 @@ test('#83 B2 browser same-HEAD refresh isolates pending Search and rejects late 
   assert.equal((await api.getProjects(route,1,signal(),0,snapshot.headSha)).items[0].id,200)
   assert.equal(sourceReads,2);assert.equal(searchReads,2)
 })
+
+test('#83 configured activity cover rendered as img, hostile URLs never become DOM attributes',async()=>{
+  const sample=await fixture(new URLSearchParams()).getSnapshot(route,signal())
+  const good='https://raw.githubusercontent.com/sample/repo/'+sample.headSha+'/poster.png'
+  const html=render({...sample,coverUrl:good,config:{...sample.config,cover:good}})
+  assert.match(html,/src="https:\/\/raw\.githubusercontent\.com\/sample\/repo\/[a-f0-9]+\/poster\.png"/)
+  assert.match(html,/referrerPolicy="no-referrer"/i)
+  for(const bad of ['javascript:alert(1)','data:image/svg+xml,<svg/onload=alert(1)>','https://evil.invalid/image.png']){
+    const output=render({...sample,coverUrl:bad,config:{...sample.config,cover:bad}})
+    assert.doesNotMatch(output,/<img[^>]*src=/i)
+    assert.doesNotMatch(output,/<(?:script|iframe|object)\b/i)
+  }
+  assert.doesNotMatch(render({...sample,coverUrl:good}),/<img[^>]*src=/i)
+})
+
+test('#83 browser API revalidates configured cover and ignores standalone legacy URL',async()=>{
+  const {createTopicPageApi}=await vite.ssrLoadModule('/plugins/topic-page/src/service.ts')
+  const sample=await fixture(new URLSearchParams()).getSnapshot(route,signal())
+  const cover='https://raw.githubusercontent.com/sample/repo/'+sample.headSha+'/poster.png'
+  const apiFor=payload=>createTopicPageApi(async()=>Response.json(payload))
+  assert.equal((await apiFor({...sample,coverUrl:cover}).getSnapshot(route,signal())).coverUrl,null)
+  assert.equal((await apiFor({...sample,config:{...sample.config,cover}}).getSnapshot(route,signal())).coverUrl,cover)
+  await assert.rejects(apiFor({...sample,config:{...sample.config,cover:'javascript:alert(1)'}})
+    .getSnapshot(route,signal()),{status:502,stage:'config'})
+})
+test('#83 compact cards have one repository link, no empty media and truthful project identity',()=>{
+  const project={id:1,full_name:'member/p1',name:'p1',owner:'member',description:'Readable project',
+    html_url:'https://github.com/member/p1',language:'TypeScript',stargazers_count:1}
+  const html=render(null,{projects:[project]})
+  assert.equal((html.match(/href="https:\/\/github\.com\/member\/p1"/g)||[]).length,1)
+  assert.match(html,/Readable project/)
+  assert.match(html,/member\/p1/)
+  assert.doesNotMatch(html,/暂无可用项目封面|data-cover-state=/)
+  const pictured=render(null,{projects:[{...project,cover_url:'https://repository-images.githubusercontent.com/42/real.png'}]})
+  assert.match(pictured,/data-cover-state="loading"/)
+  assert.equal((pictured.match(/href="https:\/\/github\.com\/member\/p1"/g)||[]).length,1)
+})

@@ -188,7 +188,7 @@ async function save({ body, token, fetcher, installationResolver }) {
     throw error('Topic YAML 内容为空或超出 64 KiB', 400)
   let parsed
   try { parsed = parseTopicYaml(text) }
-  catch { throw error('Topic YAML 只能包含 topic 与 whitelist', 422) }
+  catch { throw error('Topic YAML 字段或值无效：topic、whitelist、cover（安全图片 URL）', 422) }
   if (body.confirmed !== true || !SHA.test(body.expectedHeadSha || '') ||
       body.expectedFileSha !== null && !SHA.test(body.expectedFileSha || ''))
     throw error('必须确认写入并携带当前 HEAD/文件 SHA', 400)

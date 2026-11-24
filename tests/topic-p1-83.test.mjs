@@ -376,3 +376,46 @@ test('#83 Reviewer B2: changed YAML hashes to another branch; same-content PR re
   assert.equal(second.status,200)
   assert.notEqual((await second.json()).branch,first.branch)
 })
+
+test('#83 cover config rejects executable, mixed-origin and ambiguous URLs',async()=>{
+  const {parseTopicYaml,safeTopicCoverUrl}=await import('../plugins/topic-page/src/domain.mjs')
+  const good='https://raw.githubusercontent.com/sample/repo/'+HEAD+'/poster.png'
+  for(const value of [good,JSON.stringify(good),"'"+good+"'"])
+    assert.equal(parseTopicYaml('topic: labourchain\ncover: '+value+'\n').cover,good)
+  for(const value of ['javascript:alert(1)','JaVaScRiPt:alert(1)','data:image/png;base64,AA',
+    'blob:https://raw.githubusercontent.com/x','file:///tmp/poster.png','//raw.githubusercontent.com/a.png',
+    'http://raw.githubusercontent.com/a.png','https://raw.githubusercontent.com@evil.invalid/a.png',
+    'https://user-images.githubusercontent.com:8443/a.png','https://user-images.githubusercontent.com.evil.invalid/a.png',
+    'https://user-images.githubusercontent.com/a.svg','https://user-images.githubusercontent.com/a.png?next=x',
+    'https://user-images.githubusercontent.com/a.png#x','https://user-images.githubusercontent.com/%2e%2e/a.png',
+    'https://user-images.githubusercontent.com/a/../a.png','https://user-images.githubusercontent.com/a.png\u0000',
+    'https://raw.githubusercontent.com/sample/repo/main/poster.png','https://user-images.githubusercontent.com/a.html']){
+    assert.equal(safeTopicCoverUrl(value),null,value)
+    assert.throws(()=>parseTopicYaml('topic: labourchain\ncover: '+JSON.stringify(value)+'\n'))
+  }
+  assert.throws(()=>parseTopicYaml('repository: sample/repo\ncover: '+good+'\n','project'))
+  assert.throws(()=>parseTopicYaml('topic: labourchain\ncover: '+good+'\ncover: '+good+'\n'))
+})
+
+test('#83 malicious cover is rejected before any OAuth GitHub write or repository lookup',async()=>{
+  const mock=configMock()
+  const handler=createTopicConfigEndpoint({fetcher:mock.fetcher,
+    writeContextFn:contextFor({content:'topic: labourchain\ncover: javascript:alert(1)\n'}),
+    installationResolver:async()=>assert.fail('must validate cover before authorization lookup')})
+  const response=await handler.fetch(new Request(configUrl,{method:'POST'}))
+  assert.equal(response.status,422)
+  assert.equal(mock.calls.length,0)
+})
+test('#83 approved cover uses existing verified OAuth write and readback',async()=>{
+  const mock=configMock()
+  const cover='https://raw.githubusercontent.com/sample/repo/'+HEAD+'/poster.png'
+  const handler=createTopicConfigEndpoint({fetcher:mock.fetcher,
+    writeContextFn:contextFor({content:'topic: labourchain\ncover: '+cover+'\n'}),
+    installationResolver:installation})
+  const response=await handler.fetch(new Request(configUrl,{method:'POST'}))
+  assert.equal(response.status,200)
+  const body=await response.json()
+  assert.equal(body.state,'committed')
+  assert.equal(body.config.cover,cover)
+  assert.equal(mock.calls.filter(c=>c.method==='PUT').length,1)
+})

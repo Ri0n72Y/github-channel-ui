@@ -11,7 +11,7 @@ export type TopicRepository = {
 export type TopicSnapshot = {
   repository: { owner: string; name: string; full_name: string; html_url: string }
   readme: string; coverUrl: string | null;
-  config: { topic: string; whitelist: boolean } | null;
+  config: { topic: string; whitelist: boolean; cover?: string } | null;
   configState: 'ready' | 'missing'; configText: string | null;
   configSha: string | null; headSha: string; defaultBranch: string;
   allowedRepositories: readonly string[]
@@ -40,6 +40,7 @@ export interface TopicPageApi {
     configSha: string | null, signal: AbortSignal): Promise<TopicConfigResult>
 }
 
+import { safeTopicCoverUrl } from './domain.mjs'
 import { createTopicReadCache } from './topic-read-cache.mjs'
 import { browserRequest, record, requestFailure, responseObject,
   type RequestFn } from '../../shared/src/browser-http'
@@ -80,10 +81,12 @@ function parseSnapshot(value:unknown):TopicSnapshot{
     snapshot.allowedRepositories.some(p=>typeof p!=='string')||
     snapshot.coverUrl!==null&&typeof snapshot.coverUrl!=='string')
     throw topicError('Topic 元数据无效',502)
+  const cover = config?.cover === undefined ? null : safeTopicCoverUrl(config.cover)
+  if (config?.cover !== undefined && !cover) throw topicError('Topic 封面 URL 无效',502,'config')
   return {repository:{owner:required(repo.owner,'owner'),name:required(repo.name,'name'),
     full_name:required(repo.full_name,'full_name'),html_url:required(repo.html_url,'html_url')},
-    readme:required(snapshot.readme,'readme'),coverUrl:snapshot.coverUrl as string|null,
-    config:config?{topic:required(config.topic,'topic'),whitelist:config.whitelist as boolean}:null,
+    readme:required(snapshot.readme,'readme'),coverUrl:cover,
+    config:config?{topic:required(config.topic,'topic'),whitelist:config.whitelist as boolean,...(cover?{cover}:{})}:null,
     configState:snapshot.configState as TopicSnapshot['configState'],
     configText:snapshot.configText===null?null:required(snapshot.configText,'configText'),
     configSha:snapshot.configSha===null?null:required(snapshot.configSha,'configSha'),

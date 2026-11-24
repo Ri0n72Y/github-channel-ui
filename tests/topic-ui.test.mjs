@@ -155,9 +155,10 @@ test('#31 report Control uses a synchronous in-flight guard against rapid duplic
 })
 
 
-test('#69 Topic cards show truthful no-cover placeholder and avatar fallback', () => {
+test('#69 Topic cards show compact no-cover text and avatar fallback', () => {
   const html = render({ snapshot: meta, projects: [project] })
-  assert.match(html, /暂无可用项目封面/)
+  assert.doesNotMatch(html, /暂无可用项目封面/)
+  assert.match(html, /打开 GitHub/)
   assert.match(html, /member\/project/)
   assert.match(html, /暂无项目简介|Project/)
   assert.doesNotMatch(html, /opengraph\.githubassets\.com/)
