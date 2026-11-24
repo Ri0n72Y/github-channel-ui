@@ -2,40 +2,49 @@ import { useState } from 'react'
 import type { TopicRepository } from './service'
 import styles from './topic-page.module.css'
 
-/** @summary Show only GitHub-provided project imagery and a truthful no-cover fallback. */
+/** @summary Preserve one real repository link and use compact text for missing imagery. */
 export default function TopicProjectCard({ project }: { project: TopicRepository }) {
-  const [coverFailed, setCoverFailed] = useState(false)
-  const [avatarFailed, setAvatarFailed] = useState(false)
+  const [failedCover, setFailedCover] = useState<string|null>(null)
+  const [loadedCover, setLoadedCover] = useState<string|null>(null)
+  const [failedAvatar, setFailedAvatar] = useState<string|null>(null)
   const owner = project.owner || 'GitHub'
-  const avatarInitial = owner.slice(0, 1).toUpperCase()
-
+  const cover = project.cover_url
+  const avatar = project.owner_avatar_url
+  const hasCover = Boolean(cover && failedCover !== cover)
   return <article className={styles.projectCard}>
-    <div className={styles.projectCover}
-      data-cover-state={project.cover_url && !coverFailed ? 'image' : 'missing'}>
-      {project.cover_url && !coverFailed
-        ? <img src={project.cover_url} alt={project.full_name + ' 项目封面'}
-          loading="lazy" onError={() => setCoverFailed(true)}/>
-        : <span>暂无可用项目封面</span>}
-    </div>
-    <div className={styles.projectContent}>
-      <div className={styles.projectIdentity}>
-        <span className={styles.ownerAvatar}>
-          {project.owner_avatar_url && !avatarFailed
-            ? <img src={project.owner_avatar_url} alt={owner + ' 的 GitHub 头像'}
-              loading="lazy" onError={() => setAvatarFailed(true)}/>
-            : avatarInitial}
-        </span>
-        <div>
-          <p className={styles.cardMeta}>{project.full_name}</p>
-          <h3>{project.name}</h3>
+    <a className={styles.projectLink} href={project.html_url} target="_blank"
+      rel="noopener noreferrer" aria-label={project.full_name + ' — ' +
+        (project.description || '暂无项目简介') + ' — 打开 GitHub'}>
+      {hasCover && <div className={styles.projectCover}
+        data-cover-state={loadedCover===cover?'image':'loading'}>
+        <img key={cover} src={cover} alt={project.full_name + ' 项目封面'}
+          loading="lazy" decoding="async" referrerPolicy="no-referrer"
+          onLoad={() => setLoadedCover(cover ?? null)}
+          onError={() => setFailedCover(cover ?? null)}/>
+      </div>}
+      <div className={styles.projectContent}>
+        <div className={styles.projectTitle}>
+          {!hasCover && <span className={styles.projectMark} aria-hidden="true">
+            {project.name.slice(0,1).toUpperCase()}</span>}
+          <div className={styles.projectSummary}>
+            <h3 title={project.name}>{project.name}</h3>
+            <p className={styles.projectDescription} title={project.description || undefined}>
+              {project.description || '暂无项目简介'}
+            </p>
+          </div>
         </div>
+        <div className={styles.projectIdentity}>
+          <span className={styles.ownerAvatar}>
+            {avatar && failedAvatar!==avatar
+              ? <img key={avatar} src={avatar} alt={owner + ' 的 GitHub 头像'}
+                loading="lazy" referrerPolicy="no-referrer" onError={() => setFailedAvatar(avatar)}/>
+              : owner.slice(0,1).toUpperCase()}
+          </span>
+          <span className={styles.repositoryName} title={project.full_name}>{project.full_name}</span>
+        </div>
+        <p className={styles.cardMeta}><span>{project.language || 'GitHub 项目'}</span>
+          <span>★ {project.stargazers_count}</span></p>
       </div>
-      <p className={styles.projectDescription} title={project.description || undefined}>
-        {project.description || '暂无项目简介'}
-      </p>
-      <p className={styles.cardMeta}>{project.language || 'GitHub 项目'}
-        <span>★ {project.stargazers_count}</span></p>
-      <a href={project.html_url} target="_blank" rel="noopener noreferrer">打开 GitHub</a>
-    </div>
+    </a>
   </article>
 }

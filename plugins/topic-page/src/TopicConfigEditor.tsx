@@ -18,7 +18,7 @@ export default function TopicConfigEditor({snapshot, draft, authenticated, pendi
       <span className={styles.note}>{snapshot.defaultBranch} ·
         {snapshot.configState==='missing'?'尚未初始化':'已读取生效配置'}</span>
     </div>
-    <p className={styles.note}>仅维护仓库根目录的 topics.config.yaml。字段：topic、whitelist（默认 true）。
+    <p className={styles.note}>仅维护仓库根目录的 topics.config.yaml。字段：topic、whitelist（默认 true）、cover（可选，可信 GitHub HTTPS 栅格图片 URL；Raw URL 必须固定 40 位 commit SHA）。
       配置在 GitHub 合并后才生效，项目来源清单仍由 projects/*.yaml 管理。</p>
     <label className={styles.configLabel} htmlFor="topic-config-yaml">编辑 Topic YAML</label>
     <textarea id="topic-config-yaml" className={styles.configEditor}

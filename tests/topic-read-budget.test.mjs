@@ -24,7 +24,8 @@ test('#83 cold 50-file source: 4 core REST, 52 Raw, one Search per page; concurr
   const declarations=Object.fromEntries(Array.from({length:50},(_,i)=>[
     (i+1)+'-member-p'+(i+1)+'.yaml','repository: member/p'+(i+1)+'\n']))
   let active=0,peak=0
-  const m=topicReadFixture({projects:declarations,cover:'image',intercept:async u=>{
+  const config='topic: labourchain\ncover: https://raw.githubusercontent.com/sample/repo/'+HEAD+'/cover.png\n'
+  const m=topicReadFixture({projects:declarations,config,cover:'image',intercept:async u=>{
     if(u.hostname==='raw.githubusercontent.com'&&u.pathname.includes('/projects/')){
       active++;peak=Math.max(peak,active);await new Promise(resolve=>setTimeout(resolve,1));active--
     }
@@ -35,8 +36,8 @@ test('#83 cold 50-file source: 4 core REST, 52 Raw, one Search per page; concurr
   assert.equal(a.status,200);assert.equal(b.status,200);assert.equal(c.status,200)
   const snapshot=await a.json(),page=await b.json()
   assert.equal(snapshot.allowedRepositories.length,50)
-  assert.equal(snapshot.configSha,blobSha('topic: labourchain\n'))
-  assert.equal(snapshot.coverUrl,'https://raw.githubusercontent.com/sample/repo/'+HEAD+'/cover.jpg')
+  assert.equal(snapshot.configSha,blobSha(config))
+  assert.equal(snapshot.coverUrl,'https://raw.githubusercontent.com/sample/repo/'+HEAD+'/cover.png')
   assert.equal(page.items.length,50);assert.deepEqual(await c.json(),page)
   assert.deepEqual(counts(m.calls),[4,52,1])
   assert.ok(peak<=5&&peak>1)
@@ -253,4 +254,26 @@ test('#83 P2 cache saturation is a diagnostic retryable HTTP 503',async()=>{
   assert.deepEqual(await saturated.json(),{error:'Topic 读取繁忙，请稍后重试',stage:'source',retryable:true})
   gate.resolve()
   for(const response of await Promise.all(pending))assert.equal(response.status,502)
+})
+
+test('#83 configured cover only, no arbitrary server image request or legacy fallback',async()=>{
+  const cover='https://raw.githubusercontent.com/sample/repo/'+HEAD+'/poster.webp'
+  for(const value of [null,cover,'javascript:alert(1)','https://evil.invalid/image.png',
+    'https://raw.githubusercontent.com.evil.invalid/sample/repo/'+HEAD+'/poster.png',
+    'data:image/svg+xml,<svg/onload=alert(1)>','https://user-images.githubusercontent.com/a.svg']){
+    const config='topic: labourchain\nwhitelist: false\n'+(value===null?'':'cover: '+JSON.stringify(value)+'\n')
+    const m=topicReadFixture({config,cover:'legacy',projects:null})
+    const {meta,list}=endpoints(m)
+    const response=await get(meta,source)
+    if(value===null||value===cover){
+      assert.equal(response.status,200)
+      assert.equal((await response.json()).coverUrl,value)
+    }else{
+      assert.equal(response.status,422)
+      assert.equal((await response.json()).stage,'config')
+      assert.equal((await get(list,projects)).status,422)
+    }
+    assert.equal(m.calls.filter(c=>c.path.includes('poster')||c.path.endsWith('cover.jpg')).length,0)
+    assert.equal(m.calls.filter(c=>c.path==='/search/repositories').length,0)
+  }
 })

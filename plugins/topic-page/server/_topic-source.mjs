@@ -117,10 +117,9 @@ async function readSource(owner,repo,fetcher,logger) {
     if (failure) throw failure
     names.push(...results.filter(Boolean))
   }
-  const cover = root.get('cover.jpg')
   const full = repository.full_name
   return {repository:{owner,name:repo,full_name:full,html_url:'https://github.com/'+full},
-    readme,coverUrl:regular(cover)?rawUrl(owner,repo,headSha,'cover.jpg'):null,
+    readme,coverUrl:config?.cover ?? null,
     config,configState:config?'ready':'missing',configText,configSha:configEntry?.sha ?? null,
     headSha,defaultBranch:branch,allowedRepositories:[...new Set(names)]}
 }

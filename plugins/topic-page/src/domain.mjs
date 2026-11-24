@@ -12,6 +12,22 @@ export function validTopicRepository(owner, repo) {
     !owner.startsWith('-') && !owner.endsWith('-') &&
     typeof repo === 'string' && REPO.test(repo) && repo !== '.' && repo !== '..'
 }
+/** @summary Allow only direct HTTPS raster-image URLs from explicitly trusted GitHub hosts. */
+export function safeTopicCoverUrl(value) {
+  if (typeof value !== 'string' || value.length > 2048 || /[\s\u0000-\u001f\u007f-\u009f]/u.test(value)) return null
+  // The anchored ASCII grammar excludes userinfo, ports, backslashes, encoded
+  // separators, query/fragment, markup, and all non-HTTPS schemes.
+  const match = /^https:\/\/(raw\.githubusercontent\.com|user-images\.githubusercontent\.com|repository-images\.githubusercontent\.com)(\/[a-z0-9._/-]+\.(?:png|jpe?g|gif|webp|avif))$/i.exec(value)
+  if (!match) return null
+  const host = match[1].toLowerCase(), path = match[2]
+  const segments = path.slice(1).split('/')
+  if (segments.some(part => !part || part === '.' || part === '..')) return null
+  if (host === 'raw.githubusercontent.com') {
+    const [owner, repo, commit, ...file] = segments
+    if (!validTopicRepository(owner, repo) || !/^[a-f0-9]{40}$/i.test(commit || '') || !file.length) return null
+  }
+  return 'https://' + host + path
+}
 function scalar(text) {
   const value = text.trim()
   if (value.startsWith('"') && value.endsWith('"')) {
@@ -36,11 +52,16 @@ export function parseTopicYaml(source, kind = 'config') {
     const match = /^([a-z]+):\s+(.+?)\s*$/i.exec(raw)
     if (!match) throw Error('Unsupported Topic YAML mapping')
     const key = match[1].toLowerCase()
-    if (!['topic', 'whitelist', 'repository'].includes(key) ||
+    if (!['topic', 'whitelist', 'repository', 'cover'].includes(key) ||
         Object.hasOwn(fields, key)) throw Error('Unexpected Topic YAML field')
     if (key === 'whitelist') {
       if (!['true', 'false'].includes(match[2])) throw Error('Invalid whitelist boolean')
       fields[key] = match[2] === 'true'
+    } else if (key === 'cover') {
+      const raw = match[2]
+      const value = raw.startsWith('"') || raw.startsWith("'") ? scalar(raw) : raw
+      fields.cover = safeTopicCoverUrl(value)
+      if (!fields.cover) throw Error('Invalid Topic cover URL')
     } else {
       fields[key] = scalar(match[2])
     }
@@ -54,11 +75,12 @@ export function parseTopicYaml(source, kind = 'config') {
     if (!validTopicRepository(owner, repo)) throw Error('Invalid project repository')
     return { repository: owner.toLowerCase() + '/' + repo.toLowerCase() }
   }
-  if (Object.keys(fields).some(k => !['topic', 'whitelist'].includes(k)) ||
+  if (Object.keys(fields).some(k => !['topic', 'whitelist', 'cover'].includes(k)) ||
       !validTopicSlug(fields.topic)) {
     throw Error('topics.config.yaml requires a valid topic')
   }
-  return { topic: fields.topic.toLowerCase(), whitelist: fields.whitelist !== false }
+  return { topic: fields.topic.toLowerCase(), whitelist: fields.whitelist !== false,
+    ...(fields.cover ? { cover: fields.cover } : {}) }
 }
 /** @summary Extract README description only after the first H1, preserving plain-text newlines. */
 export function readmeFields(readme) {

@@ -15,14 +15,15 @@ export type TopicCandidateSummary<T extends TopicCandidate> = {
 
 export function validTopicRepository(owner: unknown, repo: unknown): boolean
 export function validTopicSlug(value: unknown): boolean
+export function safeTopicCoverUrl(value: unknown): string | null
 
 /** @summary Report the exact validated scalar shape for each YAML document kind. */
 export function parseTopicYaml(source: unknown, kind: 'project'): { repository: string }
 export function parseTopicYaml(source: unknown, kind?: 'config'): {
-  topic: string; whitelist: boolean
+  topic: string; whitelist: boolean; cover?: string
 }
 export function parseTopicYaml(source: unknown, kind: 'config' | 'project'):
-  { repository: string } | { topic: string; whitelist: boolean }
+  { repository: string } | { topic: string; whitelist: boolean; cover?: string }
 
 export function readmeFields(readme: string): {
   title: string; description: string; email: string; datetime: string

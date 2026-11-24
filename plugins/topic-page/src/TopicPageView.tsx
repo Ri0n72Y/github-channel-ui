@@ -38,8 +38,8 @@ export default function TopicPageView(props: TopicPageViewProps) {
     {props.snapshot && <TopicPageHead snapshot={props.snapshot}/>}
     <section className={styles.section} aria-labelledby="topic-projects-heading">
       <div className={styles.sectionHeading}>
-        <div><span className={styles.eyebrow}>PUBLIC GITHUB TOPIC</span>
-          <h2 id="topic-projects-heading">参与项目</h2></div>
+        <div className={styles.feedTitle}><h2 id="topic-projects-heading">参与项目</h2>
+          <span className={styles.eyebrow}>PROJECT FEED</span></div>
         <div className={styles.projectActions}>
           <span className={styles.count}>{props.projects.length} 个候选项目</span>
           <button type="button" onClick={props.onRetry} disabled={props.loading}>刷新项目</button>

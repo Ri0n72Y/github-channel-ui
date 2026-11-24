@@ -174,7 +174,7 @@ export default function TopicPageContainer({ owner, repo, api }: {
     if (!snapshot || !authenticated || savingConfig || configAbort.current ||
         configUncertain || pendingConfigBase.current !== null) return
     try { parseTopicYaml(draft) }
-    catch {setConfigError('Topic YAML 只能包含有效 topic 和 whitelist');return}
+    catch {setConfigError('Topic YAML 字段或值无效：topic、whitelist、cover（安全图片 URL）');return}
     if (!window.confirm('确认以当前 GitHub 账号维护 topics.config.yaml？受保护分支将创建 PR。')) return
     const abort=new AbortController()
     configAbort.current=abort
