@@ -24,7 +24,8 @@ test('#83 cold 50-file source: 4 core REST, 52 Raw, one Search per page; concurr
   const declarations=Object.fromEntries(Array.from({length:50},(_,i)=>[
     (i+1)+'-member-p'+(i+1)+'.yaml','repository: member/p'+(i+1)+'\n']))
   let active=0,peak=0
-  const m=topicReadFixture({projects:declarations,config:'topic: labourchain\ncover: https://raw.githubusercontent.com/sample/repo/'+HEAD+'/cover.png\n',cover:'image',intercept:async u=>{
+  const config='topic: labourchain\ncover: https://raw.githubusercontent.com/sample/repo/'+HEAD+'/cover.png\n'
+  const m=topicReadFixture({projects:declarations,config,cover:'image',intercept:async u=>{
     if(u.hostname==='raw.githubusercontent.com'&&u.pathname.includes('/projects/')){
       active++;peak=Math.max(peak,active);await new Promise(resolve=>setTimeout(resolve,1));active--
     }
@@ -35,7 +36,7 @@ test('#83 cold 50-file source: 4 core REST, 52 Raw, one Search per page; concurr
   assert.equal(a.status,200);assert.equal(b.status,200);assert.equal(c.status,200)
   const snapshot=await a.json(),page=await b.json()
   assert.equal(snapshot.allowedRepositories.length,50)
-  assert.equal(snapshot.configSha,blobSha('topic: labourchain\n'))
+  assert.equal(snapshot.configSha,blobSha(config))
   assert.equal(snapshot.coverUrl,'https://raw.githubusercontent.com/sample/repo/'+HEAD+'/cover.png')
   assert.equal(page.items.length,50);assert.deepEqual(await c.json(),page)
   assert.deepEqual(counts(m.calls),[4,52,1])
