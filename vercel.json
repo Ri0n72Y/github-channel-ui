@@ -79,7 +79,8 @@
       "fix/public-d2-layout-20261123": false,
       "feat/topic-masonry-20261123": false,
       "feat/topic-read-budget-20261124": false,
-      "fix/topic-visual-cover-20261124": false
+      "fix/topic-visual-cover-20261124": false,
+      "fix/topic-description-five-lines-20261124": false
     }
   }
 }
