@@ -1,6 +1,7 @@
 import { useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import type { CommentItemView, IssueDetailViewActions, IssueDetailViewModel, IssueTab,
   LabourField, LabourItemView, PermissionView, FormNotice } from './view-model'
+import { SafeMarkdown } from '../../shared/src/SafeMarkdown'
 import styles from './IssueDetailView.module.css'
 
 type Props = { model: IssueDetailViewModel; actions: IssueDetailViewActions }
@@ -29,28 +30,39 @@ function FormFeedback({ notice, kind }: { notice: FormNotice | null; kind: 'comm
     role={notice.tone === 'error' ? 'alert' : 'status'}>{notice.message}</p>
 }
 
+/** @summary Complete read-only discussion content uses the shared safe Markdown subset. */
+function DiscussionMarkdown({ body, empty }: { body: string; empty: string }) {
+  return body.trim() ? <div className={styles.markdownBody}><SafeMarkdown body={body} article /></div>
+    : <p className={styles.empty}>{empty}</p>
+}
+
 function DiscussionView({ model, actions }: Props) {
   const issue = model.issue!
   const form = model.form
   return <>
-    <h2>讨论</h2>
-    <ul className={styles.list}>{issue.discussion.comments.map((item: CommentItemView) =>
+    <h2 className={styles.panelTitle}>讨论</h2>
+    <ul className={[styles.list, styles.discussionList].join(' ')}>{issue.discussion.comments.map((item: CommentItemView) =>
       <li key={item.id} className={styles.listItem}>
-        <article>
-          <p className={styles.meta}>{item.author} · {item.time}
-            {item.sourceUrl && <> · <a href={item.sourceUrl} target="_blank" rel="noreferrer">GitHub 来源</a></>}
-          </p>
-          <div className={styles.body}>{item.body}</div>
+        <article className={styles.commentCard}>
+          <span className={styles.authorMark} aria-hidden="true">{Array.from(item.author.trim())[0]?.toUpperCase() || '?'}</span>
+          <div className={styles.commentCopy}>
+            <header className={styles.commentHeader}>
+              <strong>{item.author}</strong>
+              <span className={styles.meta}>{item.time}</span>
+              {item.sourceUrl && <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer">GitHub 来源</a>}
+            </header>
+            <DiscussionMarkdown body={item.body} empty="此评论暂无正文。"/>
+          </div>
         </article>
       </li>)}</ul>
-    {!issue.discussion.comments.length && <p>{issue.discussion.emptyText}</p>}
+    {!issue.discussion.comments.length && <p className={styles.empty}>{issue.discussion.emptyText}</p>}
     <form className={styles.composer} onSubmit={(event: FormEvent<HTMLFormElement>) => {
       event.preventDefault()
       actions.onSubmitComment()
     }}>
       <h3>参与讨论</h3>
       <label>评论内容（Markdown）
-        <textarea rows={5} maxLength={20000} value={form.draft}
+        <textarea rows={3} maxLength={20000} value={form.draft}
           onChange={event => actions.onCommentChange(event.target.value)} />
       </label>
       <div className={styles.formActions}>
@@ -76,7 +88,7 @@ function LabourHistoryView({ model, actions }: Props) {
       <li key={item.id} className={styles.listItem}>
         <article className={styles.record}>
           <p className={styles.meta}>{item.author} · GitHub 评论时间 {item.time}
-            {item.sourceUrl && <> · <a href={item.sourceUrl} target="_blank" rel="noreferrer">原始劳动评论</a></>}
+            {item.sourceUrl && <> · <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer">原始劳动评论</a></>}
           </p>
           <div className={styles.body}>{item.work}</div>
           <p>主观估时：{item.hours} 小时
@@ -85,7 +97,7 @@ function LabourHistoryView({ model, actions }: Props) {
           {item.outcome && <p className={styles.body}>成果：{item.outcome}</p>}
           <p className={styles.meta}>劳动发生时间：{item.occurrence}</p>
           {item.commits.map(commit => <p key={commit.sha} className={styles.commit}>
-            Commit：<a href={commit.href} target="_blank" rel="noreferrer">{commit.sha}</a>
+            Commit：<a href={commit.href} target="_blank" rel="noopener noreferrer">{commit.sha}</a>
           </p>)}
         </article>
       </li>)}</ul>
@@ -114,14 +126,16 @@ function LabourHistoryView({ model, actions }: Props) {
         <textarea rows={3} value={form.labour.commits}
           onChange={event => update('commits', event.target.value)}/>
       </label>
-      <label>开始时间（可选）
-        <input type="datetime-local" value={form.labour.start}
-          onChange={event => update('start', event.target.value)}/>
-      </label>
-      <label>结束时间（可选；与开始时间成对）
-        <input type="datetime-local" value={form.labour.end}
-          onChange={event => update('end', event.target.value)}/>
-      </label>
+      <div className={styles.dateFields}>
+        <label>开始时间（可选）
+          <input type="datetime-local" value={form.labour.start}
+            onChange={event => update('start', event.target.value)}/>
+        </label>
+        <label>结束时间（可选；与开始时间成对）
+          <input type="datetime-local" value={form.labour.end}
+            onChange={event => update('end', event.target.value)}/>
+        </label>
+      </div>
       <div className={styles.formActions}>
         <button type="submit" disabled={!form.permission.allowed || form.pending || !form.labour.work.trim()}>
           {form.pending && form.pendingKind === 'labour' ? '提交中…' : '确认登记到 GitHub 评论'}
@@ -164,11 +178,15 @@ export default function IssueDetailView({ model, actions }: Props) {
     </section>}
     {model.load.phase === 'ready' && model.issue && <>
       <header className={styles.context}>
-        <p className={styles.meta}>{model.navigation.repository} · #{model.issue.number} · {model.issue.state}</p>
+        <div className={styles.identity}>
+          <span className={styles.repository}>{model.navigation.repository}</span>
+          <span className={styles.issueNumber}>#{model.issue.number}</span>
+          <span className={styles.issueState}>{model.issue.state}</span>
+        </div>
         <h1>{model.issue.title}</h1>
         <p className={styles.meta}>创建者：{model.issue.author} · 创建于 {model.issue.created}
           {model.issue.sourceUrl && <> · <a href={model.issue.sourceUrl}
-            target="_blank" rel="noreferrer">GitHub 原文</a></>}
+            target="_blank" rel="noopener noreferrer">GitHub 原文</a></>}
         </p>
         <section className={styles.summary} aria-label="最近劳动成果与工时摘要">
           <div className={styles.summaryPart}>
@@ -178,7 +196,7 @@ export default function IssueDetailView({ model, actions }: Props) {
               <p className={styles.meta}>登记者：{model.issue.labourSummary.outcome.author}
                 {' · '}{model.issue.labourSummary.outcome.time}
                 {model.issue.labourSummary.outcome.sourceUrl && <> · <a
-                  href={model.issue.labourSummary.outcome.sourceUrl} target="_blank" rel="noreferrer">来源</a></>}
+                  href={model.issue.labourSummary.outcome.sourceUrl} target="_blank" rel="noopener noreferrer">来源</a></>}
               </p>
             </> : <p className={styles.meta}>{model.issue.labourSummary.outcomeEmptyText}</p>}
           </div>
@@ -191,7 +209,7 @@ export default function IssueDetailView({ model, actions }: Props) {
         </section>
         <section className={styles.issueBody} aria-label="Issue 正文">
           <h2>话题背景</h2>
-          <div className={styles.body}>{model.issue.body}</div>
+          <DiscussionMarkdown body={model.issue.body} empty="此 Issue 暂无正文。"/>
         </section>
       </header>
       <section className={styles.readStatus} aria-label="读取状态">
