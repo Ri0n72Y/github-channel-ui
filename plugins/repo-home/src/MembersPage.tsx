@@ -23,26 +23,37 @@ export default function MembersPage({ api }: { api: RepoHomeApi }) {
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
   }, [api, owner, repo, branch, revision])
-  return <section className={styles.page}>
-    <p><Link to={base}>项目主页</Link> / 团队成员</p>
-    <div className={styles.sectionHead}><h1>团队成员 {data?.team.state === 'ready' || data?.team.state === 'empty'
-      ? '(' + data.team.members.length + ')' : ''}</h1>
+  return <section className={[styles.page, styles.membersPage].join(' ')}>
+    <nav className={styles.membersBreadcrumb} aria-label="成员页面导航">
+      <Link to={base}>项目主页</Link><span aria-hidden="true"> / </span><span>团队成员</span>
+    </nav>
+    <header className={styles.membersHeader}>
+      <div className={styles.membersHeading}>
+        <h1>团队成员 {data?.team.state === 'ready' || data?.team.state === 'empty'
+          ? '(' + data.team.members.length + ')' : ''}</h1>
+        <p className={styles.muted}>展示分支 <code>{branch}</code></p>
+      </div>
       <MemberManagementLink base={base} state={memberWrite.state} />
-    </div>
-    {memberWrite.capability &&
-      <p className={styles.muted}>已验证操作者 @{memberWrite.capability.user.login}，写入分支 {memberWriteBranch}</p>}
-    {memberWrite.state === 'denied' &&
-      <p className={styles.muted}>当前账号没有成员登记权限。</p>}
-    {memberWrite.state === 'error' && <p role="status" className={styles.muted}>
-      登记权限暂无法验证：{memberWrite.error}
-      <button type="button" onClick={memberWrite.retry}>重试检查</button>
-    </p>}
-    {loading && <p role="status">正在读取成员文件…</p>}
-    {error && <p role="alert">{error} <button type="button" onClick={() => setRevision(n => n + 1)}>重试</button></p>}
-    {data && <TeamStatus team={data.team} base={base} branch={branch} onRetry={() => setRevision(n => n + 1)} />}
+    </header>
+    {(memberWrite.capability || memberWrite.state === 'denied' || memberWrite.state === 'error') &&
+      <div className={styles.memberPermission}>
+        {memberWrite.capability &&
+          <p className={styles.muted}>已验证操作者 @{memberWrite.capability.user.login}，写入分支 {memberWriteBranch}</p>}
+        {memberWrite.state === 'denied' &&
+          <p className={styles.muted}>当前账号没有成员登记权限。</p>}
+        {memberWrite.state === 'error' && <p role="status" className={styles.muted}>
+          登记权限暂无法验证：{memberWrite.error}
+          <button type="button" onClick={memberWrite.retry}>重试检查</button>
+        </p>}
+      </div>}
+    {(loading || error || (data && data.team.state !== 'ready')) && <div className={styles.memberReadStatus}>
+      {loading && <p role="status">正在读取成员文件…</p>}
+      {error && <p role="alert">{error} <button type="button" onClick={() => setRevision(n => n + 1)}>重试</button></p>}
+      {data && <TeamStatus team={data.team} base={base} branch={branch} onRetry={() => setRevision(n => n + 1)} />}
+    </div>}
     {data?.team.state === 'ready' && <div className={styles.memberGrid}>
       {data.team.members.map(member => <article className={styles.memberCard} key={member.id}>
-        <MemberProfile member={member} />
+        <MemberProfile member={member} variant="card" />
       </article>)}
     </div>}
   </section>

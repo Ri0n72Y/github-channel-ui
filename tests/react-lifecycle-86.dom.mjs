@@ -1243,3 +1243,52 @@ test('#99 Title reacts to card width changes without remounting Team or reloadin
   assert.ok(disconnects>=1)
  }finally{if(app)await app.close();HTMLElement.prototype.getBoundingClientRect=rect;if(original===undefined)delete globalThis.ResizeObserver;else globalThis.ResizeObserver=original}
 })
+
+test('#69 Members full cards preserve stored order, complete profile content, safe links and scoped permissions',async()=>{
+ const key='labourchain:display-branch:sample/repo'
+ const original=localStorage.getItem(key)
+ localStorage.setItem(key,'feature/docs')
+ const bio='First line\n'+'Long biography '.repeat(100)+'\nLast line'
+ const members=[{id:'z',name:'Zed',role:'Maintainer',bio,githubUsername:'zed',
+   avatarUrl:'https://example.com/avatar.png',links:[{label:'Portfolio',url:'https://example.com/portfolio'},{label:'Notes',url:'https://example.com/notes'}]},
+   {id:'a',name:'Ada'}]
+ const reads=[],checks=[]
+ let allowed=false
+ const api={
+   getHome:async(o,r,b)=>{reads.push(b);return {repository:{name:r,full_name:o+'/'+r},
+      branch:b,team:{state:'ready',members},readme:{state:'missing'}}},
+   getCapability:async(o,r,b)=>{checks.push(b);if(!allowed)throw Error('temporary capability error')
+      return {user:{login:'operator'},mode:'direct',branch:'main'}},
+ }
+ let app
+ try{
+   app=await mount('/sample/repo/members','/:owner/:repo/members',Members,{api})
+   const cards=[...app.host.querySelectorAll('article')]
+   assert.equal(cards.length,2)
+   assert.deepEqual(cards.map(card=>card.querySelector('h2').textContent),['Zed','Ada'])
+   assert.ok([...cards[0].querySelectorAll('p')].some(p=>p.textContent===bio))
+   assert.equal(cards[1].querySelector('p'),null)
+   assert.equal(cards[1].querySelector('a'),null)
+   assert.deepEqual([...cards[0].querySelectorAll('a')].map(a=>[a.textContent,a.getAttribute('href')]),
+     [['GitHub @zed','https://github.com/zed'],['Portfolio','https://example.com/portfolio'],['Notes','https://example.com/notes']])
+   for(const a of cards[0].querySelectorAll('a')){
+     assert.equal(a.target,'_blank')
+     assert.ok(a.relList.contains('noopener')&&a.relList.contains('noreferrer'))
+   }
+   const img=cards[0].querySelector('img')
+   assert.ok(img)
+   await act(async()=>img.dispatchEvent(new Event('error')))
+   assert.equal(cards[0].querySelector('img'),null)
+   assert.match(app.host.querySelector('h1').textContent,/团队成员 \(2\)/)
+   assert.equal(app.host.querySelector('a[href="/sample/repo/members/register"]'),null)
+   assert.match(app.host.textContent,/登记权限暂无法验证/)
+   allowed=true
+   await act(async()=>[...app.host.querySelectorAll('button')].find(b=>b.textContent==='重试检查').click())
+   await flush()
+   assert.ok(app.host.querySelector('a[href="/sample/repo/members/register"]'))
+   assert.match(app.host.textContent,/写入分支 main/)
+   assert.ok(reads.length&&reads.every(b=>b==='feature/docs'))
+   assert.ok(checks.length&&checks.every(b=>b==='main'))
+   assert.equal(app.host.querySelectorAll('article').length,2)
+ }finally{if(app)await app.close();if(original===null)localStorage.removeItem(key);else localStorage.setItem(key,original)}
+})
