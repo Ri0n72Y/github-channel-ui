@@ -134,15 +134,17 @@ export default function RepoHomePage({ api, theme }: { api: RepoHomeApi; theme?:
         <span className={styles.heroBrand}>LabourChain</span>
       </div>
     </header>}
-    <section className={[styles.section, styles.teamPanel].join(' ')} aria-labelledby="team-heading">
-      <div className={styles.sectionHead}><h2 id="team-heading">团队成员</h2>
+    <section className={[styles.section, styles.teamPanel].join(' ')} aria-labelledby="team-heading"
+      data-team-state={data?.team.state || (homeLoading ? 'loading' : 'unavailable')}>
+      <h2 id="team-heading">团队成员</h2>
+      {data ? <TeamStatus team={data.team} base={base} branch={branch}
+        onRetry={() => setGeneration(n => n + 1)} /> : !homeLoading && <p>团队信息不可用。</p>}
+      {data?.team.state === 'ready' && <TeamStrip members={data.team.members} base={base} />}
+      <div className={[styles.sectionHead, styles.teamActions].join(' ')}>
         <Link to={base + '/members'}>查看全部成员</Link>
         {data && ['ready', 'empty', 'missing'].includes(data.team.state) &&
           <MemberManagementLink base={base} state={memberWrite.state} />}
       </div>
-      {data ? <TeamStatus team={data.team} base={base} branch={branch}
-        onRetry={() => setGeneration(n => n + 1)} /> : !homeLoading && <p>团队信息不可用。</p>}
-      {data?.team.state === 'ready' && <TeamStrip members={data.team.members} base={base} />}
     </section>
     <section className={[styles.section, styles.feedSection].join(' ')} aria-labelledby="feed-heading">
       <div className={styles.sectionHead}><h2 id="feed-heading">Repo Issue 动态</h2>

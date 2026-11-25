@@ -120,7 +120,8 @@
 }
 .homePage .section {margin-top:32px}
 .homePage .sectionHead {gap:10px 16px;margin-bottom:14px}
-.homePage .sectionHead h2::before {
+.homePage .sectionHead h2::before,
+.homePage .teamPanel > h2::before {
   content:"";display:inline-block;width:4px;height:1em;margin-right:10px;
   border-radius:3px;vertical-align:-.14em;background:var(--lc-primary);
 }
@@ -284,7 +285,6 @@
   .homePage .avatarButton {max-width:200px}
 }
 @media(max-width:375px) {
-  .homePage .actions a {flex-basis:100%}
   .resultActions a {width:100%;justify-content:center}
 }
 
@@ -293,20 +293,40 @@
   grid-template-columns:minmax(0,1fr) minmax(160px,210px);
   gap:16px;padding:16px 20px;min-height:0;
 }
-.homePage .intro { -webkit-line-clamp:2;line-height:1.45;margin:5px 0 6px }
+.homePage .heroCopy .eyebrow {margin:0 0 4px}
+.homePage .heroCopy h1 {font-size:clamp(28px,3vw,34px);line-height:1.2}
+.homePage .intro { -webkit-line-clamp:2;font-size:15px;line-height:1.45;margin:5px 0 6px }
 .homePage .actions {gap:6px 9px;margin-top:8px}
-.homePage .actions a {padding:7px 12px;min-height:44px}
+.homePage .actions a {padding:7px 12px;min-width:44px;min-height:44px;text-align:center}
+.homePage .heroCopy .actions a:not(.primaryLink) {background:transparent;border-color:transparent}
+.homePage .heroCopy .actions a:not(.primaryLink):hover {border-color:var(--lc-focus);background:var(--lc-surface)}
 .homePage .branchNote {margin:6px 0 0}
 .heroVisual {min-height:132px;gap:5px}
 .heroGlyph {width:76px;height:76px;border-radius:20px;font-size:30px}
 .homePage .section {margin-top:12px}
 .homePage .sectionHead {margin-bottom:7px;align-items:center}
-.homePage .teamPanel {padding:10px 14px}
-.homePage .strip {padding:2px 2px 3px}
-.homePage .avatarButton {min-height:44px;min-width:120px}
+.homePage .teamPanel {padding:10px 14px;display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px}
+.homePage .teamPanel[data-team-state='ready'] {
+  display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;
+}
+.homePage .teamPanel > h2 {margin:0;font-size:18px;line-height:1.4}
+.homePage .teamPanel > p {flex:1 0 100%;margin:0}
+.homePage .teamPanel .teamActions {justify-content:flex-end;gap:6px;margin:0;min-width:0}
+.homePage .strip {min-width:0;padding:6px}
+.homePage .avatarButton {width:auto;height:auto;min-height:44px;min-width:120px}
+.homePage .memberIdentity small {font-size:12px}
 .homePage .feed {gap:10px;margin-top:8px}
-.homePage .card {padding:13px 17px}
-.homePage .card h3 {margin:6px 0 5px;font-size:18px}
+.homePage .card {padding:14px 17px}
+.homePage .card > h3 {margin:6px 0 5px;font-size:20px;line-height:1.35;font-weight:650}
+/* The wrapper belongs to RepoHome cards only; shared Markdown remains untouched. */
+.homePage .issueBody > div {font-size:15px;line-height:1.65}
+.homePage .issueBody > div > :is(div,ul,ol,blockquote) {max-width:85ch}
+.homePage .issueBody > div > [role='heading'] {font-size:16px;line-height:1.4;margin:12px 0 7px}
+.homePage .issueBody > div > [role='heading'][aria-level='1'] {font-size:17px}
+.homePage .issueBody > div > [role='heading'][aria-level='2'] {font-size:16.5px}
+.homePage .issueBody > div > [role='heading'][aria-level='5'] {font-size:15px}
+.homePage .issueBody > div > [role='heading'][aria-level='6'] {font-size:14.5px}
+.homePage .issueBody > div > :first-child {margin-top:6px}
 .homePage .cardMeta {gap:4px 10px}
 .homePage .issueNumber,.homePage .issueState {
   display:inline-flex;align-items:center;border-radius:999px;
@@ -323,6 +343,8 @@
 .homePage .cardActions {margin-top:8px;padding-top:8px}
 @media(max-width:899px) {
   .homePage .hero {grid-template-columns:minmax(0,1fr)}
+  .homePage .teamPanel[data-team-state='ready'] {grid-template-columns:minmax(0,1fr);gap:6px}
+  .homePage .teamPanel .teamActions {justify-content:flex-start}
 }
 @media(max-width:680px) {
   .homePage .hero {padding:14px}
@@ -332,7 +354,6 @@
   .homePage .strip {gap:10px}
 }
 @media(max-width:375px) {
-  .homePage .actions a {flex-basis:100%}
   .homePage .cardMeta {gap:4px 7px}
 }
 

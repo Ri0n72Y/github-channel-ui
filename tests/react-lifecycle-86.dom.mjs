@@ -910,10 +910,15 @@ test('#99 D2: concise RepoHome retains one members entry, genuine identities and
   const teamHead=app.host.querySelector('#team-heading')?.parentElement
   const feedHead=app.host.querySelector('#feed-heading')?.parentElement
   assert.ok(teamHead && feedHead)
+  assert.equal(teamHead.dataset.teamState,'ready')
+  const [heading,memberStrip,actions]=teamHead.children
+  assert.equal(heading.id,'team-heading')
+  assert.equal(memberStrip.getAttribute('aria-label'),'团队成员')
+  assert.equal(teamHead.children.length,3)
   for (const path of ['/sample/repo/members','/sample/repo/members/register']) {
     const anchor=app.host.querySelector('a[href="'+path+'"]')
     assert.ok(anchor,'existing scoped team link: '+path)
-    assert.equal(anchor.parentElement,teamHead,'team CTA must be a direct sectionHead link')
+    assert.equal(anchor.parentElement,actions,'team CTA must be a direct action-group link after the member strip')
   }
   const createIssue=app.host.querySelector('a[href="/sample/repo/issues/new"]')
   assert.ok(createIssue)
@@ -924,6 +929,12 @@ test('#99 D2: concise RepoHome retains one members entry, genuine identities and
     /min-width:\s*44px/,/max-width:\s*100%/,/overflow-wrap:\s*anywhere/]) {
     assert.match(targetRule,contract,'sectionHead links must keep accessible hit-area styling')
   }
+  const gridRule=css.match(/\.homePage \.teamPanel\[data-team-state='ready'\]\s*\{([^}]*)\}/)?.[1] ?? ''
+  assert.match(gridRule,/grid-template-columns:auto minmax\(0,1fr\) auto/)
+  assert.doesNotMatch(gridRule,/(?:height:|overflow:|transform:|contain:)/)
+  assert.match(css,/\.homePage \.teamPanel\[data-team-state='ready'\] \{grid-template-columns:minmax\(0,1fr\)/)
+  assert.match(css,/\.homePage \.strip \{min-width:0;padding:6px\}/)
+  assert.match(css,/\.homePage \.issueBody > div > :is\(div,ul,ol,blockquote\) \{max-width:85ch\}/)
   const strip=app.host.querySelector('[aria-label="团队成员"]')
   assert.ok(strip)
   assert.match(strip.textContent,/Alice.*Maintainer.*Bob.*Reviewer/)
@@ -938,4 +949,36 @@ test('#99 D2: concise RepoHome retains one members entry, genuine identities and
   assert.match(card.textContent,/A useful Issue summary/)
   assert.equal(card.querySelector('a[href="https://github.com/sample/repo/issues/71"]')?.getAttribute('target'),'_blank')
  }finally{await app.close()}
+})
+
+test('#99 compact team layout preserves missing, empty, error and unauthorized states',async()=>{
+ for(const [team,allowed,label] of [
+  [{state:'missing'},true,'尚未添加团队成员'],
+  [{state:'empty',members:[]},false,'暂无成员'],
+  [{state:'invalid',error:'bad format'},true,'成员文件格式错误'],
+  [{state:'error',error:'network'},true,'成员文件读取失败'],
+  [{state:'ready',members:[{id:'x',name:'Real Member',role:'Reviewer'}]},false,'Real Member'],
+ ]){
+  const api={
+   getHome:async()=>({repository:{name:'repo',full_name:'sample/repo',
+    html_url:'https://github.com/sample/repo'},branch:'main',team,readme:{state:'missing'}}),
+   getFeed:async(_o,_r,page)=>({page,hasMore:false,items:[]}),
+   getCapability:async()=>{if(!allowed)throw Error('denied')
+    return {user:{login:'operator'},mode:'direct',branch:'main'}}
+  }
+  const app=await mount('/sample/repo','/:owner/:repo',Home,{api})
+  try{
+   const panel=app.host.querySelector('#team-heading').parentElement
+   assert.equal(panel.dataset.teamState,team.state)
+   assert.ok(panel.textContent.includes(label))
+   assert.equal(panel.querySelectorAll('a[href="/sample/repo/members"]').length,1)
+   assert.equal(Boolean(panel.querySelector('a[href="/sample/repo/members/register"]')),
+     allowed&&['ready','empty','missing'].includes(team.state))
+   assert.equal(Boolean(panel.querySelector('[aria-label="团队成员"]')),team.state==='ready')
+   if(['invalid','error'].includes(team.state)){
+    assert.ok(panel.querySelector('[role="alert"]'))
+    assert.match(panel.textContent,/重试/)
+   }
+  }finally{await app.close()}
+ }
 })
