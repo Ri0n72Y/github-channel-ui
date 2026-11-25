@@ -169,11 +169,11 @@ test('#69 central discussion renders complete shared Markdown and preserves labo
     '<script>alert(1)</script>','<iframe src="https://evil.invalid"></iframe>',
     '[bad scheme](javascript:alert(1))','![bad image](data:image/png;base64,AA)',
     '![plain HTTP](http://example.com/x.png)','[credentials](https://user:pass@example.com)',
-    'FINAL_BODY_MARKER'].join('\n\n')
+    'FINAL BODY MARKER'].join('\n\n')
   payload.issue.body=body
   payload.issue.discussion.comments=[
     {...model.issue.discussion.comments[0],body:'## First comment\n\n**comment emphasis**\n\n![comment image](https://example.com/comment.png)'},
-    {...model.issue.discussion.comments[0],id:8,author:'second-speaker',body:'SECOND_COMMENT_END'},
+    {...model.issue.discussion.comments[0],id:8,author:'second-speaker',body:'SECOND COMMENT END'},
   ]
   payload.issue.labour.records[0].work='**literal labour work**'
   payload.issue.labour.records[0].outcome='# literal outcome'
@@ -183,12 +183,12 @@ test('#69 central discussion renders complete shared Markdown and preserves labo
     /src="https:\/\/example\.com\/poster\.png"/,/src="https:\/\/example\.com\/comment\.png"/,
     /referrerPolicy="no-referrer"/i,/打开视频/,/&lt;script&gt;alert\(1\)&lt;\/script&gt;/,
     /图片链接不可用：bad image/,/图片链接不可用：plain HTTP/,
-    /FINAL_BODY_MARKER/,/<strong>comment emphasis<\/strong>/,
+    /FINAL BODY MARKER/,/<strong>comment emphasis<\/strong>/,
     /\*\*literal labour work\*\*/,/# literal outcome/]) assert.match(html,pattern)
   assert.doesNotMatch(html,/<(?:script|iframe|object|embed)\b|(?:href|src)="(?:javascript:|data:|file:|blob:|http:\/\/example\.com\/x\.png|https:\/\/user:pass@)/i)
   assert.equal((html.match(/<img\b/g)||[]).length,2)
   assert.ok(html.indexOf('最近已登记成果')<html.indexOf('话题背景'))
-  assert.ok(html.indexOf('First comment')<html.indexOf('SECOND_COMMENT_END'))
+  assert.ok(html.indexOf('First comment')<html.indexOf('SECOND COMMENT END'))
   assert.ok(html.includes('aria-hidden="true">S</span>'))
   assert.match(html,/textarea rows="3" maxLength="20000"/i)
 })

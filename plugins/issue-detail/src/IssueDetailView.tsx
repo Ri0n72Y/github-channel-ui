@@ -41,7 +41,7 @@ function DiscussionView({ model, actions }: Props) {
   const form = model.form
   return <>
     <h2 className={styles.panelTitle}>讨论</h2>
-    <ul className={[styles.list, styles.discussionList].join(' ')}>{issue.discussion.comments.map((item: CommentItemView) =>
+    <ul className={styles.list}>{issue.discussion.comments.map((item: CommentItemView) =>
       <li key={item.id} className={styles.listItem}>
         <article className={styles.commentCard}>
           <span className={styles.authorMark} aria-hidden="true">{Array.from(item.author.trim())[0]?.toUpperCase() || '?'}</span>
