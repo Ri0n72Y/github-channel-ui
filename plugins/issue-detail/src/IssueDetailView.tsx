@@ -239,7 +239,7 @@ export default function IssueDetailView({ model, actions }: Props) {
   }, [])
   const ready = model.load.phase === 'ready' && Boolean(model.issue)
   const navigation = <nav className={styles.top} aria-label="Issue 导航">
-    <a href={model.navigation.homeHref}>Playground</a>
+    <a href={model.navigation.homeHref}>返回首页</a>
     <a href={model.navigation.repositoryHref}>返回仓库页</a>
   </nav>
   return <div ref={pageRef} className={styles.page} data-ready={ready}>

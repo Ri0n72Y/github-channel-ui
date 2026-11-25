@@ -1,0 +1,6 @@
+.notice {box-sizing:border-box;max-width:960px;margin:12px auto;padding:16px 20px;background:var(--lc-surface);color:var(--lc-text);border:1px solid var(--lc-stroke);border-radius:var(--lc-radius);overflow-wrap:anywhere}
+.notice h2 {font-size:18px;margin:0 0 8px}
+.notice a,.notice button {display:inline-flex;align-items:center;min-height:44px;max-width:100%;margin:4px 12px 4px 0}
+.notice a {color:var(--lc-link)}
+.notice button {font:inherit;color:var(--lc-text);background:var(--lc-surface-raised);border:1px solid var(--lc-stroke-strong);border-radius:8px;padding:8px 12px}
+.notice :is(a,button):focus-visible {outline:3px solid var(--lc-focus);outline-offset:3px}

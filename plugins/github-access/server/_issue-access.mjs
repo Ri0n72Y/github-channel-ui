@@ -5,9 +5,10 @@ const HEADERS = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version':
   'User-Agent': 'LabourChain-IssueDetail' }
 
 export class IssueAccessError extends Error {
-  constructor(message, status = 502) {
+  constructor(message, status = 502, state) {
     super(message)
     this.status = status
+    if(state)this.state=state
   }
 }
 
@@ -30,7 +31,8 @@ export function issueError(error) {
   const status = error instanceof ProbeError || error instanceof IssueAccessError
     ? error.status : 502
   return Response.json({ error: error instanceof ProbeError || error instanceof IssueAccessError
-    ? error.message : 'Issue service temporarily unavailable' },
+    ? error.message : 'Issue service temporarily unavailable',
+    ...((error instanceof ProbeError || error instanceof IssueAccessError) && error.state ? { state: error.state } : {}) },
     { status, headers: { 'Cache-Control': 'no-store' } })
 }
 
@@ -53,17 +55,17 @@ async function inspectInstallationReadGrants(fetcher, resolved, owner) {
     const status = await upstreamStatus(response)
     throw new IssueAccessError(status === 404 ?
       'Repository App installation is no longer available' : upstreamMessage(status),
-      status === 404 ? 403 : status)
+      status === 404 ? 403 : status, status===404?'repo_access_required':undefined)
   }
   let installation
   try { installation = await response.json() }
   catch { throw new IssueAccessError('Invalid GitHub App installation response') }
   if (installation?.id !== resolved.installationId ||
       typeof installation.account?.login !== 'string' ||
-      installation.account.login.toLowerCase() !== owner.toLowerCase() ||
-      installation.suspended_at) {
+      installation.account.login.toLowerCase() !== owner.toLowerCase()) {
     throw new IssueAccessError('Repository App installation is invalid or suspended', 403)
   }
+  if(installation.suspended_at)throw new IssueAccessError('Repository App installation is suspended',403,'installation_suspended')
   // A missing individual grant means public GET must not request it.
   // An unreadable permissions object makes the Installation check inconclusive.
   if (!installation.permissions || typeof installation.permissions !== 'object' ||

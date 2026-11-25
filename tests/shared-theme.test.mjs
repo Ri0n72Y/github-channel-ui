@@ -10,12 +10,12 @@ import react from '@vitejs/plugin-react'
 
 const root = resolve(import.meta.dirname, '..')
 const source = file => readFileSync(resolve(root, file), 'utf8')
-let vite, theme, App
+let vite, theme, App, ThemeToggle
 before(async () => {
   vite = await createServer({ root, configFile: false, logLevel: 'silent',
     plugins: [react()], server: { middlewareMode: true } })
   theme = await vite.ssrLoadModule('/plugins/react-ui/src/theme.ts')
-  App = (await vite.ssrLoadModule('/plugins/react-ui/src/index.tsx')).App
+  ;({App,ThemeToggle}=await vite.ssrLoadModule('/plugins/react-ui/src/index.tsx'))
 })
 after(async () => { await vite?.close() })
 
@@ -73,7 +73,7 @@ function renderApp(path) {
       Component: () => createElement('p', null, '测试业务区域 ' + name) }))
   const ui = { subscribe: () => () => {}, getSnapshot: () => registrations }
   return renderToStaticMarkup(createElement(MemoryRouter, { initialEntries: [path] },
-    createElement(App, { ui })))
+    createElement(App, { ui }, createElement(ThemeToggle))))
 }
 
 test('#69 one Host renders keyboard theme control on all routes including NotFound', () => {
@@ -81,7 +81,7 @@ test('#69 one Host renders keyboard theme control on all routes including NotFou
     const html = renderApp(path)
     assert.match(html, /data-lc-theme="dark"/)
     assert.match(html, /type="button"/)
-    assert.match(html, /当前：深色模式/)
+    assert.doesNotMatch(html, /<header/)
     assert.match(html, /切换为浅色模式/)
     assert.match(html, /aria-label="当前为深色模式，切换为浅色模式"/)
     assert.match(html, /<main/)
@@ -103,9 +103,7 @@ test('#69 only Host holds theme state; route, fixture and plugin lifecycles stay
   assert.match(app, /useRoutes\(/)
   assert.match(app, /useSyncExternalStore\(/)
   assert.doesNotMatch(app, /window\.location|new Context\(|createRoot\(/)
-  assert.match(runtime, /query\.get\('repoFixture'\) === '1'/)
-  assert.match(runtime, /query\.get\('repoTheme'\) === 'dark'/)
-  assert.match(runtime, /query\.get\('repoTheme'\) === 'light'/)
+  assert.doesNotMatch(runtime,/URLSearchParams|Fixture/)
   assert.match(repo, /data-lc-theme=\{theme\}/)
   assert.doesNotMatch(runtime, /labourchain\.theme|persistTheme/)
   assert.doesNotMatch(repo, /labourchain\.theme|persistTheme/)

@@ -17,7 +17,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 globalThis.IntersectionObserver = class { observe() {} disconnect() {} }
 window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} })
 window.confirm = () => true
-let vite, App, catalog, start, createRoot
+let vite, App, ThemeToggle, catalog, start, createRoot
 const h = React.createElement
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -25,7 +25,7 @@ before(async () => {
   ;({ createRoot } = await import('react-dom/client'))
   vite = await createServer({ root: process.cwd(), configFile: false,
     logLevel: 'silent', plugins: [react()], server: { middlewareMode: true } })
-  App = (await vite.ssrLoadModule('/plugins/react-ui/src/index.tsx')).App
+  ;({App,ThemeToggle} = await vite.ssrLoadModule('/plugins/react-ui/src/index.tsx'))
   catalog = await vite.ssrLoadModule('/apps/playground/src/playground-catalog.tsx')
   start = (await vite.ssrLoadModule('/apps/playground/src/single-plugin-runtime.ts'))
     .startSinglePluginRuntime
@@ -72,7 +72,7 @@ test('#94 public catalog renders six independent deep links and a working direct
       PLAYGROUND_PLUGINS.map(plugin => '/playground/' + plugin.slug))
   } finally { await view.close() }
 
-  const home = await mounted(h(catalog.PlaygroundLanding))
+  const home = await mounted(h(MemoryRouter,null,h(catalog.PlaygroundLanding,{sessionRequest:async()=>Response.json({authenticated:false})})))
   try { assert.ok(home.host.querySelector('a[href="/playground"]')) }
   finally { await home.close() }
 
@@ -90,7 +90,7 @@ test('#94 public catalog renders six independent deep links and a working direct
 })
 
 const expected = {
-  'repo-panel': ['/'],
+  'repo-panel': ['/:owner/:repo/issues'],
   'repo-home': ['/:owner/:repo','/:owner/:repo/members','/:owner/:repo/members/register',
     '/:owner/:repo/issues/new'],
   'repo-config': ['/:owner/:repo/config'],
@@ -115,21 +115,11 @@ for (const plugin of PLAYGROUND_PLUGINS) {
     assert.deepEqual(registered, expected[plugin.slug].slice().sort(),
       'unexpected plugin routes for ' + plugin.slug)
     try {
-      const view = await mounted(h(MemoryRouter, {
-        initialEntries: ['/playground/' + plugin.slug],
-        basename: '/playground/' + plugin.slug,
-      }, h(App, { ui: runtime.ui, sessionRequest: runtime.sessionRequest,
-        initialPath: plugin.initialPath })))
-      try {
-        await expectLoaded(view.host, visible[plugin.slug], 'root ' + plugin.slug)
-      } finally { await view.close() }
-
       const deepLink = '/playground/' + plugin.slug +
         (plugin.initialPath === '/' ? '/' : plugin.initialPath)
       const deep = await mounted(h(MemoryRouter, {
         initialEntries: [deepLink], basename: '/playground/' + plugin.slug,
-      }, h(App, { ui: runtime.ui, sessionRequest: runtime.sessionRequest,
-        initialPath: plugin.initialPath })))
+      }, h(App, { ui: runtime.ui })))
       try {
         await expectLoaded(deep.host, visible[plugin.slug], 'refresh ' + plugin.slug)
         if (plugin.slug === 'channel') {
@@ -171,8 +161,7 @@ test('#83 Topic slug direct/refresh/back/forward and invalid slug remain isolate
   const runtime = await start('topic-page')
   const basename = '/playground/topic-page'
   const slugPath = basename + '/topic/dsh-plugin'
-  const props = { ui: runtime.ui, sessionRequest: runtime.sessionRequest,
-    initialPath: '/topic/sample/repo' }
+  const props = { ui: runtime.ui }
   function Controls() {
     const navigate = useNavigate()
     return h('div', null,
@@ -231,26 +220,23 @@ test('#83 Topic slug direct/refresh/back/forward and invalid slug remain isolate
   } finally { await runtime.dispose() }
 })
 
-test('#15 Header Brand is opt-in and keeps Theme / Session in the same UI host',async()=>{
- const runtime=await start('repo-home')
+test('generic UI owns no Header; host may explicitly place theme and session controls',async()=>{
+ const runtime=await start('repo-home',true)
  try{
-  const wrap=element=>h(MemoryRouter,{initialEntries:['/playground/repo-home'],
+  const wrap=element=>h(MemoryRouter,{initialEntries:['/playground/repo-home/sample/repo'],
     basename:'/playground/repo-home'},element)
-  const brand={label:'LabourChain',home:'/',links:[{label:'用户手册',href:'/docs/'}]}
-  const withBrand=await mounted(wrap(h(App,{ui:runtime.ui,headerBrand:brand,
-    sessionRequest:runtime.sessionRequest,initialPath:runtime.initialPath})))
+  const plain=await mounted(wrap(h(App,{ui:runtime.ui})))
   try{
-   assert.ok(withBrand.host.querySelector('nav[aria-label="平台导航"]'))
-   assert.ok(withBrand.host.querySelector('a[href="/docs/"]'))
-   const brandHome=withBrand.host.querySelector('nav[aria-label="平台导航"] a')
-   assert.ok(brandHome?.getAttribute('href')?.startsWith('/playground/repo-home'))
-   assert.ok(withBrand.host.querySelector('button[aria-label*="切换为"]'))
-  }finally{await withBrand.close()}
-  const plain=await mounted(wrap(h(App,{ui:runtime.ui,
-    sessionRequest:runtime.sessionRequest,initialPath:runtime.initialPath})))
-  try{
+   await expectLoaded(plain.host,/项目频道/,'composed fixture')
    assert.equal(plain.host.querySelector('nav[aria-label="平台导航"]'),null)
-   assert.ok(plain.host.querySelector('button[aria-label*="切换为"]'))
+   assert.equal(plain.host.querySelector('button[aria-label*="切换为"]'),null)
+   const link=plain.host.querySelector('a[href="/playground/repo-home/sample/repo/channels"]')
+   assert.ok(link)
+   await act(async()=>link.click())
+   await expectLoaded(plain.host,/进入频道 Issue/,'cross plugin fixture link')
   }finally{await plain.close()}
+  const withHost=await mounted(wrap(h(App,{ui:runtime.ui},h('header',null,h(ThemeToggle)))))
+  try{assert.ok(withHost.host.querySelector('button[aria-label*="切换为"]'))}
+  finally{await withHost.close()}
  }finally{await runtime.dispose()}
 })

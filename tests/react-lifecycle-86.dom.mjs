@@ -662,7 +662,7 @@ test('#96 root RepoPanel: URL target is required, anonymous read works, OAuth wr
   const form=app.host.querySelector('form')
   await act(async()=>form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})))
   await flush()
-  assert.deepEqual(calls.lookups,['sample/repo'])
+  assert.deepEqual(calls.lookups,[],'successful read must not probe Installation')
   assert.deepEqual(calls.reads,['sample/repo'])
   assert.match(app.host.textContent,/受控公开 Issue/)
   assert.match(app.host.textContent,/可匿名阅读/)
@@ -1294,4 +1294,40 @@ test('#69 Members full cards preserve stored order, complete profile content, sa
    assert.ok(checks.length&&checks.every(b=>b==='main'))
    assert.equal(app.host.querySelectorAll('article').length,2)
  }finally{if(app)await app.close();if(original===null)localStorage.removeItem(key);else localStorage.setItem(key,original)}
+})
+
+test('structured repository denial coalesces read failures and retry adds no success probe',async()=>{
+ const {RepoAccessRequestProvider}=await server.ssrLoadModule('/plugins/github-access/src/RepoAccessNotice.tsx')
+ const {inspectRepoAccess}=await server.ssrLoadModule('/plugins/github-access/src/access.ts')
+ let allowed=false,capability=0
+ const requests=[]
+ const request=async(path,init)=>{
+   requests.push(path)
+   assert.ok(init.signal)
+   if(path==='/api/github-session')return Response.json({authenticated:true})
+   assert.match(path,/github-installation-probe/)
+   return Response.json({state:'needs_installation',repository:'sample/repo',action_url:'https://github.com/apps/labourchain/installations/new'})
+ }
+ const denial=()=>Object.assign(Error('denied'),{status:403,state:'repo_access_required'})
+ const api={getHome:async(o,r,b)=>{if(!allowed)throw denial();return {repository:{name:r,full_name:o+'/'+r,description:'Recovered repository'},branch:b,team:{state:'empty',members:[]},readme:{state:'missing'}}},
+   getFeed:async(o,r,page)=>{if(!allowed)throw denial();return {page,items:[],hasMore:false}},
+   getCapability:async()=>{capability++;throw Error('denied')}}
+ function Page(){return h(RepoAccessRequestProvider,{request},h(Home,{api}))}
+ const app=await mount('/sample/repo','/:owner/:repo',Page,{})
+ try{
+   await flush();await flush()
+   assert.equal(app.host.querySelectorAll('[aria-label="仓库访问授权"]').length,1)
+   assert.equal(requests.length,2)
+   assert.equal(capability,0)
+   assert.ok(app.host.querySelector('a[href="https://github.com/apps/labourchain/installations/new"]'))
+   allowed=true
+   const retry=[...app.host.querySelectorAll('button')].find(b=>b.textContent==='重新核验并读取')
+   await act(async()=>retry.click());await flush()
+   assert.match(app.host.textContent,/Recovered repository/)
+   assert.equal(app.host.querySelectorAll('[aria-label="仓库访问授权"]').length,0)
+   assert.equal(requests.length,2)
+ }finally{await app.close()}
+ let anonymousCalls=0
+ assert.deepEqual(await inspectRepoAccess('sample','repo',new AbortController().signal,async()=>{anonymousCalls++;return Response.json({authenticated:false})}),{state:'login_required'})
+ assert.equal(anonymousCalls,1)
 })

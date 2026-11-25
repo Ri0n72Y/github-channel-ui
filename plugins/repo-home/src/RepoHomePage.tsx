@@ -1,3 +1,5 @@
+import RepoAccessNotice from '../../github-access/src/RepoAccessNotice'
+import { useRepoAccess } from '../../github-access/src/useRepoAccess'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { summarizeReadme } from './domain.mjs'
@@ -40,8 +42,8 @@ export default function RepoHomePage({ api, theme, coverUrl }: { api: RepoHomeAp
   const { owner = '', repo = '' } = useParams<'owner' | 'repo'>()
   // A local viewing preference. GitHub repository-wide configuration is managed separately.
   const branch = readDisplayBranch(owner, repo)
-  const memberWrite = useMemberWriteAccess(api, owner, repo, memberWriteBranch)
   const [data, setData] = useState<RepoHomeData | null>(null)
+  const memberWrite = useMemberWriteAccess(api, owner, repo, memberWriteBranch, 0, Boolean(data))
   const [homeError, setHomeError] = useState('')
   const [homeLoading, setHomeLoading] = useState(true)
   const [items, setItems] = useState<RepoFeedIssue[]>([])
@@ -49,6 +51,7 @@ export default function RepoHomePage({ api, theme, coverUrl }: { api: RepoHomeAp
   const [feedLoading, setFeedLoading] = useState(false)
   const [hasMore, setHasMore] = useState(true)
   const [generation, setGeneration] = useState(0)
+  const {reason:accessReason,report}=useRepoAccess(owner+'/'+repo+'/'+branch+'/'+generation)
   const nextPage = useRef(1), pendingPage = useRef<AbortController | null>(null), stopped = useRef(false)
   const controllers = useRef<Set<AbortController>>(new Set())
   const sentinel = useRef<HTMLDivElement>(null)
@@ -72,11 +75,11 @@ export default function RepoHomePage({ api, theme, coverUrl }: { api: RepoHomeAp
       void api.getHome(owner, repo, branch, controller.signal).then(result => {
         if (controller.signal.aborted) return
         setData(result)
-      }).catch(e => { if (!controller.signal.aborted) setHomeError(errorText(e)) })
+      }).catch(e => { if (!controller.signal.aborted && !report(e)) setHomeError(errorText(e)) })
         .finally(() => { if (!controller.signal.aborted) setHomeLoading(false) })
     } else { setHomeLoading(false); setHomeError('仓库 URL 参数无效') }
     return () => controller.abort()
-  }, [api, owner, repo, branch, generation])
+  }, [api, owner, repo, branch, generation, report])
 
   const loadPage = useCallback(async () => {
     if (!valid(owner, repo) || pendingPage.current || stopped.current) return
@@ -98,13 +101,13 @@ export default function RepoHomePage({ api, theme, coverUrl }: { api: RepoHomeAp
       setHasMore(result.hasMore)
       if (!result.hasMore) stopped.current = true
     } catch (e) {
-      if (!controller.signal.aborted) { stopped.current = true; setFeedError(errorText(e)) }
+      if (!controller.signal.aborted) { stopped.current = true; if(!report(e)) setFeedError(errorText(e)) }
     } finally {
       controllers.current.delete(controller)
       if (pendingPage.current === controller) pendingPage.current = null
       if (!controller.signal.aborted) setFeedLoading(false)
     }
-  }, [api, owner, repo])
+  }, [api, owner, repo, report])
 
   useEffect(() => {
     controllers.current.forEach(c => c.abort()); controllers.current.clear()
@@ -150,7 +153,8 @@ export default function RepoHomePage({ api, theme, coverUrl }: { api: RepoHomeAp
   const cover = data ? safeRepoTitleCover(coverUrl, owner, repo) : null
   return <section className={[styles.page, styles.homePage].join(' ')} data-lc-theme={theme}>
     <div className={styles.homeLayout}>
-    <div className={styles.titleCard} ref={titleCard} data-title-layout={layout}>
+    {accessReason&&<RepoAccessNotice owner={owner} repo={repo} reason={accessReason} onRetry={()=>setGeneration(n=>n+1)}/>}
+    <div className={styles.titleCard} ref={titleCard} data-title-layout={layout} hidden={Boolean(accessReason&&!data)}>
     {homeLoading && <p role="status">正在读取项目介绍与团队…</p>}
     {homeError && <p role="alert">{homeError} <button type="button" onClick={() => setGeneration(n => n + 1)}>重试介绍</button></p>}
     {data && <>
@@ -191,20 +195,20 @@ export default function RepoHomePage({ api, theme, coverUrl }: { api: RepoHomeAp
         </div>
       </header>
     </>}
-    <section className={[styles.section, styles.teamPanel].join(' ')} aria-labelledby="team-heading"
+    {(!accessReason||data)&&<section className={[styles.section, styles.teamPanel].join(' ')} aria-labelledby="team-heading"
       data-team-state={data?.team.state || (homeLoading ? 'loading' : 'unavailable')}>
       <h2 id="team-heading">团队成员</h2>
       {data ? <TeamStatus team={data.team} base={base} branch={branch}
-        onRetry={() => setGeneration(n => n + 1)} /> : !homeLoading && <p>团队信息不可用。</p>}
+        onRetry={() => setGeneration(n => n + 1)} /> : !homeLoading && !accessReason && <p>团队信息不可用。</p>}
       {data?.team.state === 'ready' && <TeamStrip members={data.team.members} base={base} />}
       <div className={[styles.sectionHead, styles.teamActions].join(' ')}>
         <Link to={base + '/members'}>查看全部成员</Link>
         {data && ['ready', 'empty', 'missing'].includes(data.team.state) &&
           <MemberManagementLink base={base} state={memberWrite.state} />}
       </div>
-    </section>
+    </section>}
     </div>
-    <section className={[styles.section, styles.feedSection].join(' ')} aria-labelledby="feed-heading">
+    {(!accessReason||items.length>0)&&<section className={[styles.section, styles.feedSection].join(' ')} aria-labelledby="feed-heading">
       <div className={styles.sectionHead}><h2 id="feed-heading" ref={feedHeading} tabIndex={-1}>Repo Issue 动态</h2>
         <Link to={base + '/issues/new'}>新建 Issue</Link>
         <button type="button" onClick={refresh}>刷新动态</button></div>
@@ -213,10 +217,10 @@ export default function RepoHomePage({ api, theme, coverUrl }: { api: RepoHomeAp
       {items.length === 0 && !feedLoading && !feedError && !hasMore && <p>暂无 Issue 动态。</p>}
       {feedError && <p role="alert">动态读取失败：{feedError} <button type="button" onClick={() => { stopped.current = false; setFeedError(''); void loadPage() }}>重试本页</button></p>}
       {feedLoading && <p role="status">正在加载 Issue…</p>}
-      {!feedLoading && !feedError && hasMore && <button type="button" onClick={() => void loadPage()}>加载更多</button>}
+      {!accessReason && !feedLoading && !feedError && hasMore && <button type="button" onClick={() => void loadPage()}>加载更多</button>}
       {!hasMore && <p className={styles.muted}>已加载全部 Issue</p>}
       <div ref={sentinel} aria-hidden="true" />
-    </section>
+    </section>}
     </div>
   </section>
 }

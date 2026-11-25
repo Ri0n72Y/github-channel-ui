@@ -1,3 +1,5 @@
+import RepoAccessNotice from '../../github-access/src/RepoAccessNotice'
+import { useRepoAccess } from '../../github-access/src/useRepoAccess'
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import { repoIssuesApi, type Repo, type RepoIssuesApi } from '../../repo-issues/src/api'
@@ -35,6 +37,7 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
     return_to: base + '/issues/new',
   }).toString()
   const [revision, setRevision] = useState(0)
+  const {reason:accessReason,report}=useRepoAccess(owner+'/'+repo+'/'+revision)
   const [status, setStatus] = useState<Status>('checking')
   const [verified, setVerified] = useState<Repo | null>(null)
   const [message, setMessage] = useState('')
@@ -66,11 +69,11 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
     }).catch(error => {
       if (!controller.signal.aborted) {
         setStatus('error')
-        setMessage(error instanceof Error ? error.message : '仓库或权限核验失败')
+        if(!report(error))setMessage(error instanceof Error ? error.message : '仓库或权限核验失败')
       }
     })
     return () => controller.abort()
-  }, [api, target, revision])
+  }, [api, target, revision, report])
 
   useEffect(() => () => { inflight.current?.abort() }, [])
   useEffect(() => {
@@ -114,7 +117,8 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
     <h1>新建 Issue</h1>
     <p>目标仓库：<strong>{owner}/{repo}</strong>。此页面只向该仓库提交，不枚举其他仓库。</p>
     {status === 'checking' && <p role="status">正在核验仓库 Installation 与 GitHub 登录状态…</p>}
-    {status === 'error' && <p role="alert">{message}
+    {accessReason&&<RepoAccessNotice owner={owner} repo={repo} reason={accessReason} onRetry={()=>setRevision(n=>n+1)}/>}
+    {status === 'error' && !accessReason && <p role="alert">{message}
       <button type="button" onClick={() => setRevision(n => n + 1)}>重新核验</button></p>}
     {status === 'anonymous' && <p>创建 Issue 需要 GitHub OAuth 登录。
       <a href={login}>登录 GitHub 后返回此仓库</a></p>}

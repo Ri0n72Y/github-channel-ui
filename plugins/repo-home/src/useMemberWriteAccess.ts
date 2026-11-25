@@ -13,7 +13,7 @@ const CHECKING: AccessSnapshot = { key: '', state: 'checking', capability: null,
 
 /** @summary Allow member-management links only after current repository, branch and session capability verify. */
 export function useMemberWriteAccess(api: RepoHomeApi, owner: string, repo: string,
-  branch: string, refresh = 0) {
+  branch: string, refresh = 0, enabled = true) {
   const [sessionRevision, setSessionRevision] = useState(0)
   const [attempt, setAttempt] = useState(0)
   const [snapshot, setSnapshot] = useState<AccessSnapshot>(CHECKING)
@@ -22,6 +22,7 @@ export function useMemberWriteAccess(api: RepoHomeApi, owner: string, repo: stri
   useEffect(() => {
     const abort = new AbortController()
     setSnapshot({ key, state: 'checking', capability: null, error: '' })
+    if(!enabled)return ()=>abort.abort()
     if (!/^[a-z\d-]{1,39}$/i.test(owner) || !/^[a-z\d._-]{1,100}$/i.test(repo) || !branch) {
       setSnapshot({ key, state: 'error', capability: null, error: '无效的仓库或分支' })
       return () => abort.abort()
@@ -45,9 +46,9 @@ export function useMemberWriteAccess(api: RepoHomeApi, owner: string, repo: stri
       })
     })
     return () => abort.abort()
-  }, [api, owner, repo, branch, key])
+  }, [api, owner, repo, branch, key, enabled])
   const retry = useCallback(() => setAttempt(value => value + 1), [])
-  const current = snapshot.key === key ? snapshot : CHECKING
+  const current = enabled && snapshot.key === key ? snapshot : CHECKING
   return { state: current.state, capability: current.capability,
     error: current.error, retry } as const
 }

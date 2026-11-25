@@ -1,5 +1,5 @@
 import { IssueAccessError } from '../../github-access/server/_issue-access.mjs'
-import { paramsFor, accessFor, pathFor, readRepo, reply, issueError } from '../../repo-home/server/_repo-home-access.mjs'
+import { paramsFor, accessFor, pathFor, readRepo, reply, issueError } from '../../github-access/server/_repository-access.mjs'
 import { decodeConfigFile } from '../../repo-config/server/_repo-config-preview.mjs'
 import { parseConfigNamespaces } from '../../repo-config/src/domain.mjs'
 import { selectChannelIssues } from '../src/domain.mjs'

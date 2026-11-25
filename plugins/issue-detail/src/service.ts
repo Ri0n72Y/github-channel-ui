@@ -1,3 +1,4 @@
+import { readSessionStatus } from '../../github-access/src/access'
 export interface GithubIssue {
   readonly number:number; readonly title:string; readonly body:string|null
   readonly state:string; readonly html_url:string
@@ -134,10 +135,7 @@ export function createIssueDetailApi(request:RequestFn=browserRequest):Readonly<
     return {items:body.map(parseComment),
       hasMore:/<[^>]+>;\s*rel="next"/.test(response.headers.get('link')||'')}
   }
-  async function getSession(signal:AbortSignal){
-    const {body}=await readResponse(request,'/api/github-session',signal)
-    return responseObject(body).authenticated===true
-  }
+  async function getSession(signal:AbortSignal){return readSessionStatus(signal,request)}
   async function verify(owner:string,repo:string,signal:AbortSignal){
     const {body}=await readResponse(request,'/api/github-verify'+query(owner,repo),signal)
     return parseVerification(body)

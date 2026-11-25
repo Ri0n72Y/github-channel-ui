@@ -107,7 +107,7 @@ test('#76 Header is mounted once, provides keyboard/touch menu and exposes retry
   const app=source('plugins/react-ui/src/index.tsx')
   const header=source('plugins/react-ui/src/SessionMenu.tsx')
   const css=source('plugins/react-ui/src/SessionMenu.module.css')
-  assert.match(app,/<SessionMenu request=\{sessionRequest\} \/>/)
+  assert.doesNotMatch(app,/SessionMenu|headerBrand|<header/)
   assert.doesNotMatch(header,/aria-haspopup="menu"|role="menuitem"/)
   assert.match(header,/role="group"/)
   assert.match(header,/aria-controls="lc-account-menu"/)

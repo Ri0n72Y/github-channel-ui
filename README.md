@@ -4,15 +4,15 @@ Reusable Cordis/React plugins for public GitHub repository discovery, Issues, ch
 
 ## Development
 
-`npm install --no-audit --no-fund && npm run build` builds the public Playground. `npm run dev` serves it locally. Select a standalone plugin with `?plugin=repo-home`, `repo-config`, `issue-detail`, `channel`, `topic-page` or `repo-panel`. The standalone fixture modes are for controlled UI verification.
+`npm install --no-audit --no-fund && npm run build` builds the public Playground. `npm run dev` serves it locally. Open `/` to enter an exact GitHub repository, Issue, or supported configuration-file URL; direct resource paths load real APIs. `/playground` lists six explicit Fixture entries, `/playground/:slug`; linked fixture routes retain mock services.
 
-The former combined Playground entry and public Vercel routes remain available on this migration branch for compatibility. They must not be removed or repointed until the deployment cutover is independently approved.
+Public has no global product Header or Navigator. The host places reusable theme and session controls. Legacy query-selected runtime is removed; current HTTP routes and Function budget are unchanged.
 
 ## Source boundaries
 
 - Browser-only entry: `plugins/public-entries/client.ts`.
 - Pure JS domain entry: `plugins/public-entries/domain.mjs`.
-- Node-only handlers: each plugin's `server/*.mjs`; direct imports must remain on the server.
+- Node-only handler entry: `plugins/public-entries/server.mjs`; direct imports must remain on the server.
 - `api/_*.mjs` files are backward-compatible server adapters, not client dependencies.
 - CSS Modules and public tests remain with the owning plugin.
 

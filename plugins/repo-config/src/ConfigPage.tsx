@@ -1,3 +1,6 @@
+import { loginHref } from '../../github-access/src/access'
+import RepoAccessNotice from '../../github-access/src/RepoAccessNotice'
+import { useRepoAccess } from '../../github-access/src/useRepoAccess'
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { parseConfigNamespaces } from './domain.mjs'
 import type { ConfigActionResult, ConfigSnapshot, RepoConfigApi } from './service'
@@ -13,7 +16,7 @@ export default function ConfigPage({ api, owner, repo }: {
   repo: string
 }) {
   const base = '/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo)
-  const login = '/api/github-login?return_to=' + encodeURIComponent(base + '/config')
+  const login = loginHref(base + '/config')
   const [snapshot, setSnapshot] = useState<ConfigSnapshot | null>(null)
   const [content, setContent] = useState('')
   const [loading, setLoading] = useState(true)
@@ -22,6 +25,7 @@ export default function ConfigPage({ api, owner, repo }: {
   const [result, setResult] = useState<ConfigActionResult | null>(null)
   const [confirmRemovals, setConfirmRemovals] = useState(false)
   const [revision, setRevision] = useState(0)
+  const {reason:accessReason,report}=useRepoAccess(owner+'/'+repo+'/'+revision)
   const readController = useRef<AbortController | null>(null)
   const writeController = useRef<AbortController | null>(null)
   const edited = useRef(false)
@@ -81,11 +85,11 @@ export default function ConfigPage({ api, owner, repo }: {
       }
     } catch (e) {
       if (signal.aborted) return
-      setError(e instanceof Error ? e.message : 'Config 读取失败')
+      if(!report(e))setError(e instanceof Error ? e.message : 'Config 读取失败')
     } finally {
       if (!signal.aborted) setLoading(false)
     }
-  }, [api, owner, repo])
+  }, [api, owner, repo, report])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -223,7 +227,8 @@ export default function ConfigPage({ api, owner, repo }: {
     }
   }
 
-  return <ConfigView
+  return <>{accessReason&&<RepoAccessNotice owner={owner} repo={repo} reason={accessReason} onRetry={()=>{if(!busy){setError('');setRevision(n=>n+1)}}}/>}
+    <ConfigView
     owner={owner}
     repo={repo}
     base={base}
@@ -249,5 +254,5 @@ export default function ConfigPage({ api, owner, repo }: {
     onConfirmRemovalsChange={setConfirmRemovals}
     onSave={save}
     onSync={() => void sync()}
-  />
+  /></>
 }

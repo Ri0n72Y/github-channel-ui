@@ -1,5 +1,8 @@
+import { loginHref } from '../../github-access/src/access'
+import RepoAccessNotice from '../../github-access/src/RepoAccessNotice'
+import { useRepoAccess } from '../../github-access/src/useRepoAccess'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useLocation, useParams } from 'react-router'
+import { useHref, useLocation, useParams } from 'react-router'
 import { formatLabourComment, summarizeIssueComments, validIssueTarget } from './domain.mjs'
 import { COMMENT_LIMIT, buildCommentReply, createQuoteReply, commentPermalink } from './quote-reply.mjs'
 import { loadIssueContent } from './load-issue.mjs'
@@ -68,7 +71,10 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
   const valid = validIssueTarget(owner, repo, number)
   const numberValue = Number(number)
   const target = (owner || '') + '/' + (repo || '')
+  const homeHref=useHref('/')
+  const repositoryHref=useHref('/'+target)
   const routeKey = target + '/issues/' + (number || '')
+  const {reason:accessReason,report}=useRepoAccess(routeKey+'/'+reload)
   const quote = selection?.key === routeKey ? selection.quote : null
   const commentBody = buildCommentReply(draft, quote)
 
@@ -99,11 +105,12 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
           lastRead: new Date().toISOString(), error: null, pageError: '' })
       } catch (error) {
         if (current !== revision.current || abort.signal.aborted) return
+        report(error)
         setState({ ...empty, key: routeKey, loading: false, error: asIssueError(error) })
       }
     })()
     return () => { abort.abort(); revision.current++ }
-  }, [service, owner, repo, number, valid, numberValue, routeKey, reload])
+  }, [service, owner, repo, number, valid, numberValue, routeKey, reload, report])
 
   useEffect(() => {
     const abort = new AbortController()
@@ -137,8 +144,8 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
     state.key === routeKey ? state.comments : [], completePages),
   [state.key, state.comments, routeKey, completePages])
   const authStatus = auth.key === routeKey ? auth.status : 'checking'
-  const canWrite = authStatus === 'authorized' && Boolean(issue) && !state.refreshing
-  const loginUrl = '/api/github-login?return_to=' + encodeURIComponent(location.pathname)
+  const canWrite = authStatus === 'authorized' && Boolean(issue) && !state.refreshing && !accessReason
+  const loginUrl = loginHref(location.pathname)
 
   const permission: PermissionView = {
     state: authStatus,
@@ -172,6 +179,7 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
     } catch (error) {
       if (current === revision.current) {
         if (pageInFlight.current === page) pageInFlight.current = null
+        report(error)
         setState(previous => ({
           ...previous, fetchingMore: false, pageError: asIssueError(error).message,
         }))
@@ -244,7 +252,7 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
       (Date.parse(a.comment.created_at) || 0))[0]
   const model: IssueDetailViewModel = {
     routeKey,
-    navigation: { homeHref: '/', repositoryHref: '/' + target, repository: target },
+    navigation: { homeHref, repositoryHref, repository: target },
     load: {
       phase: state.key !== routeKey || state.loading ? 'loading'
         : state.error ? 'error' : 'ready',
@@ -326,5 +334,6 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
     onSubmitComment: () => { if (draft.trim()) void submit(commentBody, 'comment') },
     onSubmitLabour: submitLabour,
   }
+  if(accessReason&&owner&&repo)return <RepoAccessNotice owner={owner} repo={repo} reason={accessReason} onRetry={()=>{if(!writeInFlight.current){setReload(n=>n+1);setAuthRevision(n=>n+1)}}}/>
   return <IssueDetailView key={routeKey} model={model} actions={actions}/>
 }

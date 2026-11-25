@@ -19,7 +19,7 @@ export default {
       const result = await inspectInstallation({ owner: params.get('owner'), repo: params.get('repo') })
       return json(result)
     } catch (error) {
-      if (error instanceof ProbeError) return json({ error: error.message }, error.status)
+      if (error instanceof ProbeError) return json({ error: error.message, ...(error.state ? {state:error.state} : {}) }, error.status)
       return json({ error: 'Installation verification unavailable' }, 502)
     }
   },

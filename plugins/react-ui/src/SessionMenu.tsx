@@ -1,3 +1,4 @@
+import { loginHref } from '../../github-access/src/access'
 import { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router'
 import { browserRequest, record, type RequestFn } from '../../shared/src/browser-http'
@@ -68,7 +69,7 @@ export default function SessionMenu({request=browserRequest}:{request?:RequestFn
       document.removeEventListener('keydown',keydown)
     }
   },[open])
-  const login='/api/github-login?'+new URLSearchParams({return_to:pathname}).toString()
+  const login=loginHref(pathname)
   async function logout(){
     if(pending)return
     setPending(true);setActionError('')

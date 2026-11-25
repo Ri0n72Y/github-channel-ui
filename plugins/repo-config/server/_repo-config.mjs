@@ -3,7 +3,7 @@ import { readSession } from '../../github-access/server/_oauth.mjs'
 import { resolveInstalledRepository, isGitHubRateLimited, ProbeError } from '../../github-access/server/_installation-probe.mjs'
 import { writeContext } from '../../github-access/server/_issue-interaction.mjs'
 import { IssueAccessError, issueReadAccess, readAuthorizationHeaders } from '../../github-access/server/_issue-access.mjs'
-import { paramsFor, pathFor, reply } from '../../repo-home/server/_repo-home-access.mjs'
+import { paramsFor, pathFor, reply } from '../../github-access/server/_repository-access.mjs'
 import { readRepoConfigPreview, decodeConfigFile } from './_repo-config-preview.mjs'
 import { parseConfigNamespaces } from '../src/domain.mjs'
 

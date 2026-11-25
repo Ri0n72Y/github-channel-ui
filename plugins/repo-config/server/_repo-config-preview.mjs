@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { issueReadAccess, IssueAccessError } from '../../github-access/server/_issue-access.mjs'
-import { paramsFor, pathFor, readRepo } from '../../repo-home/server/_repo-home-access.mjs'
+import { paramsFor, pathFor, readRepo } from '../../github-access/server/_repository-access.mjs'
 import { parseConfigNamespaces, planLabelChanges } from '../src/domain.mjs'
 
 const NEXT = /<[^>]+>;\s*rel="next"/
