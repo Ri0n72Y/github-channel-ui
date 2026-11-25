@@ -85,7 +85,8 @@
       "fix/issue-detail-central-20261125": false,
       "fix/issue-conversation-reply-20261125": false,
       "fix/repo-home-title-20261125": false,
-      "fix/members-page-20261125": false
+      "fix/members-page-20261125": false,
+      "fix/register-config-channel-20261125": false
     }
   }
 }

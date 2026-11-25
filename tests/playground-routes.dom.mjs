@@ -132,6 +132,17 @@ for (const plugin of PLAYGROUND_PLUGINS) {
         initialPath: plugin.initialPath })))
       try {
         await expectLoaded(deep.host, visible[plugin.slug], 'refresh ' + plugin.slug)
+        if (plugin.slug === 'channel') {
+          await expectLoaded(deep.host, /进入频道 Issue/, 'selected Channel Issue')
+          const cards=[...deep.host.querySelectorAll('li')].filter(li=>li.querySelector('h2'))
+          assert.deepEqual(cards.map(li=>li.querySelector('h2').textContent),['discussion','wishlist'])
+          const main=[...cards[0].querySelectorAll('a')].filter(a=>a.textContent.trim()==='进入频道 Issue')
+          assert.equal(main.length,1)
+          assert.equal(main[0].getAttribute('href'),'/playground/channel'+'/sample/repo/issues/1')
+          assert.equal(cards[1].querySelector('a'),null)
+          assert.match(cards[0].textContent,/fixture-author/)
+          assert.match(cards[1].textContent,/没有有效的 Open Channel Issue/)
+        }
       } finally { await deep.close() }
     } finally { await runtime.dispose() }
   })

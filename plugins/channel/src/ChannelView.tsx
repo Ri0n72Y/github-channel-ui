@@ -29,15 +29,17 @@ export default function ChannelView({ owner, repo, loading, snapshot, error, onR
     <nav className={styles.breadcrumb} aria-label="频道导航">
       <Link to={base}>项目主页</Link><span aria-hidden="true">/</span><span>频道</span>
     </nav>
-    <header>
-      <p className={styles.eyebrow}>{owner}/{repo}</p>
-      <h1>项目频道</h1>
-      <p>频道来自 <code>main</code> 的有效 <code>channel:*</code> 配置，每个频道只选择最新创建的有效 Open Issue。</p>
+    <header className={styles.header}>
+      <div className={styles.identity}>
+        <p className={styles.eyebrow}>{owner}/{repo}</p>
+        <h1>项目频道</h1>
+        <p>频道来自 <code>main</code> 的有效 <code>channel:*</code> 配置，每个频道只选择最新创建的有效 Open Issue。</p>
+      </div>
+      <div className={styles.actions}>
+        <button type="button" disabled={loading} onClick={onRetry}>从 GitHub 重新读取</button>
+        {snapshot?.headSha && <span>Config 分支 HEAD：<code title={snapshot.headSha}>{snapshot.headSha.slice(0, 12)}</code></span>}
+      </div>
     </header>
-    <div className={styles.actions}>
-      <button type="button" disabled={loading} onClick={onRetry}>从 GitHub 重新读取</button>
-      {snapshot?.headSha && <span>Config 分支 HEAD：<code>{snapshot.headSha.slice(0, 12)}</code></span>}
-    </div>
     {loading && <p role="status">正在读取频道配置与 GitHub Open Issues…</p>}
     {error && <p className={styles.error} role="alert">读取失败：{error}</p>}
     {!loading && snapshot && snapshot.state !== 'ready' &&
@@ -48,20 +50,29 @@ export default function ChannelView({ owner, repo, loading, snapshot, error, onR
         {snapshot.state === 'config_missing' && <Link to={base + '/config'}>查看配置初始化</Link>}
       </section>}
     {!loading && snapshot?.state === 'ready' && <>
-      <p className={styles.meta}>配置频道 {snapshot.channels.length} 个；
-        已完整检查 {snapshot.scannedIssues ?? 0} 个 GitHub Open Issue 对象。
-        频道 Issue 以 GitHub 创建时间为准。</p>
+      <div className={styles.summary}>
+        <dl className={styles.counts}>
+          <div><dt>配置频道</dt><dd>{snapshot.channels.length} 个</dd></div>
+          <div><dt>已完整检查的 GitHub Open Issue 对象</dt><dd>{snapshot.scannedIssues ?? '未返回'}{snapshot.scannedIssues !== undefined && ' 个'}</dd></div>
+        </dl>
+        <p className={styles.meta}>频道 Issue 以 GitHub 创建时间为准。</p>
+      </div>
       <ul className={styles.grid}>
         {snapshot.channels.map(channel => <li className={styles.card} key={channel.label}>
-          <h2>{channel.name}</h2>
-          <p className={styles.label}><code>{channel.label}</code></p>
+          <div className={styles.cardIdentity}>
+            <span className={styles.channelMark} aria-hidden="true">#</span>
+            <div><h2>{channel.name}</h2>
+              <p className={styles.label}><code>{channel.label}</code></p></div>
+          </div>
           {channel.issue ? <>
-            <p className={styles.status}>当前频道 · Issue #{channel.issue.number}</p>
-            <h3><Link to={issueUrl(owner, repo, channel.issue.number)}>
-              {channel.issue.title}</Link></h3>
-            <p className={styles.meta}>作者：{channel.issue.author || '未知'} ·
-              创建时间：{channel.issue.createdAt} · 评论：{channel.issue.comments}</p>
-            <p>本频道的讨论和劳动历史由该 Issue 详情提供，工时仅汇总该 Issue 中的有效结构化评论。</p>
+            <div className={styles.issueSummary}>
+              <p className={styles.status}>Open · 当前频道 · Issue #{channel.issue.number}</p>
+              <h3><Link to={issueUrl(owner, repo, channel.issue.number)}>
+                {channel.issue.title}</Link></h3>
+              <p className={styles.meta}>作者：{channel.issue.author || '未知'} ·
+                创建时间：{channel.issue.createdAt} · 评论：{channel.issue.comments}</p>
+            </div>
+            <p className={styles.explanation}>本频道的讨论和劳动历史由该 Issue 详情提供，工时仅汇总该 Issue 中的有效结构化评论。</p>
             <Link className={styles.enter} to={issueUrl(owner, repo, channel.issue.number)}>
               进入频道 Issue
             </Link>

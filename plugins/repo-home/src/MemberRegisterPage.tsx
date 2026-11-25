@@ -160,10 +160,15 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
       i === index ? { ...entry, [key]: value } : entry) }))
   }
   const resultUrl = result ? trustedMemberResultUrl(result, owner, repo) : null
-  return <section className={styles.page}>
-    <p><Link to={base}>项目</Link> / <Link to={base + '/members'}>团队成员</Link> / 添加成员</p>
-    <h1>添加团队成员</h1>
-    <p className={styles.muted}>目标：{owner}/{repo} · 成员登记写入固定分支 <strong>{branch}</strong>（不受本机展示偏好影响）</p>
+  return <section className={[styles.page, styles.registerPage].join(' ')}>
+    <nav className={styles.registerBreadcrumb} aria-label="成员登记导航">
+      <Link to={base}>项目</Link><span aria-hidden="true">/</span>
+      <Link to={base + '/members'}>团队成员</Link><span aria-hidden="true">/</span><span>添加成员</span>
+    </nav>
+    <header className={styles.registerHeader}>
+      <h1>添加团队成员</h1>
+      <p className={styles.muted}>目标：{owner}/{repo} · 成员登记写入固定分支 <strong>{branch}</strong>（不受本机展示偏好影响）</p>
+    </header>
     {result && <section className={styles.submitResult} role="status" aria-live="polite">
       <h2 ref={resultHeading} tabIndex={-1}>
         {result.status === 'pending_pr' ? '维护 PR 已创建' : '成员资料已提交'}
@@ -192,45 +197,51 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
     {authStatus === 401 && <a href={login}>登录 GitHub 后返回此表单</a>}
     {authStatus !== null && authStatus !== 401 && <button type="button"
       onClick={() => setRevision(n => n + 1)}>重新检查权限</button>}
-    {capability && <><p>GitHub 操作者：<strong>@{capability.user.login}</strong>。由 LabourChain Bot
+    {capability && <><p className={styles.registerOperator}>GitHub 操作者：<strong>@{capability.user.login}</strong>。由 LabourChain Bot
       {capability.mode === 'pr' ? ' 创建维护 PR，待审核合并后生效。' : ' 提交 Commit。'}</p>
       <form className={styles.memberForm} onSubmit={submit} noValidate>
-        <label>姓名（必填）<input required value={fields.name} maxLength={60}
-          ref={node => { fieldRefs.current.name = node }}
-          aria-invalid={Boolean(fieldErrors.name)}
-          aria-describedby={fieldErrors.name ? 'member-error-name' : undefined}
-          onChange={e => change('name', e.target.value)} />
-          {fieldErrors.name && <small id="member-error-name" className={styles.fieldError}>{fieldErrors.name}</small>}
-        </label>
-        <label>GitHub 用户名（选填）<input value={fields.githubUsername} maxLength={39}
-          ref={node => { fieldRefs.current.githubUsername = node }}
-          aria-invalid={Boolean(fieldErrors.githubUsername)}
-          aria-describedby={fieldErrors.githubUsername ? 'member-error-github' : undefined}
-          onChange={e => change('githubUsername', e.target.value)} />
-          {fieldErrors.githubUsername && <small id="member-error-github" className={styles.fieldError}>{fieldErrors.githubUsername}</small>}
-        </label>
-        <label>项目角色（选填）<input value={fields.role} maxLength={40}
-          ref={node => { fieldRefs.current.role = node }}
-          aria-invalid={Boolean(fieldErrors.role)}
-          aria-describedby={fieldErrors.role ? 'member-error-role' : undefined}
-          onChange={e => change('role', e.target.value)} />
-          {fieldErrors.role && <small id="member-error-role" className={styles.fieldError}>{fieldErrors.role}</small>}
-        </label>
-        <label>个人介绍（纯文本，选填）<textarea value={fields.bio} maxLength={280}
-          ref={node => { fieldRefs.current.bio = node }}
-          aria-invalid={Boolean(fieldErrors.bio)}
-          aria-describedby={fieldErrors.bio ? 'member-error-bio' : undefined}
-          onChange={e => change('bio', e.target.value)} rows={4} />
-          {fieldErrors.bio && <small id="member-error-bio" className={styles.fieldError}>{fieldErrors.bio}</small>}
-        </label>
-        <label>HTTPS 头像 URL（选填）<input type="url" value={fields.avatarUrl}
-          ref={node => { fieldRefs.current.avatarUrl = node }}
-          aria-invalid={Boolean(fieldErrors.avatarUrl)}
-          aria-describedby={fieldErrors.avatarUrl ? 'member-error-avatar' : undefined}
-          onChange={e => change('avatarUrl', e.target.value)} />
-          {fieldErrors.avatarUrl && <small id="member-error-avatar" className={styles.fieldError}>{fieldErrors.avatarUrl}</small>}
-        </label>
-        <fieldset><legend>个人链接（最多三条，选填）</legend>
+        <section className={styles.registerGroup} aria-labelledby="member-identity-heading">
+          <h2 id="member-identity-heading"><span aria-hidden="true">01</span> 成员身份</h2>
+          <label>姓名（必填）<input required value={fields.name} maxLength={60}
+            ref={node => { fieldRefs.current.name = node }}
+            aria-invalid={Boolean(fieldErrors.name)}
+            aria-describedby={fieldErrors.name ? 'member-error-name' : undefined}
+            onChange={e => change('name', e.target.value)} />
+            {fieldErrors.name && <small id="member-error-name" className={styles.fieldError}>{fieldErrors.name}</small>}
+          </label>
+          <label>GitHub 用户名（选填）<input value={fields.githubUsername} maxLength={39}
+            ref={node => { fieldRefs.current.githubUsername = node }}
+            aria-invalid={Boolean(fieldErrors.githubUsername)}
+            aria-describedby={fieldErrors.githubUsername ? 'member-error-github' : undefined}
+            onChange={e => change('githubUsername', e.target.value)} />
+            {fieldErrors.githubUsername && <small id="member-error-github" className={styles.fieldError}>{fieldErrors.githubUsername}</small>}
+          </label>
+          <label>项目角色（选填）<input value={fields.role} maxLength={40}
+            ref={node => { fieldRefs.current.role = node }}
+            aria-invalid={Boolean(fieldErrors.role)}
+            aria-describedby={fieldErrors.role ? 'member-error-role' : undefined}
+            onChange={e => change('role', e.target.value)} />
+            {fieldErrors.role && <small id="member-error-role" className={styles.fieldError}>{fieldErrors.role}</small>}
+          </label>
+        </section>
+        <section className={styles.registerGroup} aria-labelledby="member-public-heading">
+          <h2 id="member-public-heading"><span aria-hidden="true">02</span> 公开资料</h2>
+          <label>个人介绍（纯文本，选填）<textarea value={fields.bio} maxLength={280}
+            ref={node => { fieldRefs.current.bio = node }}
+            aria-invalid={Boolean(fieldErrors.bio)}
+            aria-describedby={fieldErrors.bio ? 'member-error-bio' : undefined}
+            onChange={e => change('bio', e.target.value)} rows={4} />
+            {fieldErrors.bio && <small id="member-error-bio" className={styles.fieldError}>{fieldErrors.bio}</small>}
+          </label>
+          <label>HTTPS 头像 URL（选填）<input type="url" value={fields.avatarUrl}
+            ref={node => { fieldRefs.current.avatarUrl = node }}
+            aria-invalid={Boolean(fieldErrors.avatarUrl)}
+            aria-describedby={fieldErrors.avatarUrl ? 'member-error-avatar' : undefined}
+            onChange={e => change('avatarUrl', e.target.value)} />
+            {fieldErrors.avatarUrl && <small id="member-error-avatar" className={styles.fieldError}>{fieldErrors.avatarUrl}</small>}
+          </label>
+        </section>
+        <fieldset className={styles.registerLinks}><legend><span aria-hidden="true">03</span> 个人链接（最多三条，选填）</legend>
           {fields.links.map((link, index) => {
             const labelKey = `links.${index}.label` as const
             const urlKey = `links.${index}.url` as const
@@ -254,7 +265,7 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
             </div>
           })}
         </fieldset>
-        <div className={styles.actions}><button type="submit" disabled={pending || writeOutcomeUnknown || result?.status === 'pending_pr'}>
+        <div className={[styles.actions, styles.registerActions].join(' ')}><button type="submit" disabled={pending || writeOutcomeUnknown || result?.status === 'pending_pr'}>
           {pending ? '正在提交…' : '提交成员资料'}</button><Link to={base + '/members'}>取消</Link></div>
       </form></>}
 
