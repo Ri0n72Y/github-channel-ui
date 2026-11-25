@@ -982,3 +982,37 @@ test('#99 compact team layout preserves missing, empty, error and unauthorized s
   }finally{await app.close()}
  }
 })
+
+test('#69 Issue Detail Markdown image fallback and keyboard tabs preserve the actual comment draft',async()=>{
+ const svc=issueService({authorized:true,comments:()=>Promise.resolve({items:[
+  comment(101,'## Comment heading\n\n**Readable comment**\n\n![broken picture](https://example.com/comment.png)'),
+  comment(102,'<script>alert(1)</script>\n\n[unsafe](javascript:alert(1))'),
+ ],hasMore:false})})
+ svc.getIssue=async(_o,_r,n)=>({...issue(n),body:'# Topic heading\n\n![topic image](https://example.com/topic.png)'})
+ const app=await mount('/sample/repo/issues/1','/:owner/:repo/issues/:number',Issue,
+   {service:svc},p=>p.owner+'/'+p.repo+'/issues/'+p.number)
+ try{
+  assert.match(app.host.textContent,/Topic heading/)
+  assert.match(app.host.textContent,/Comment heading/)
+  assert.match(app.host.textContent,/<script>alert\(1\)<\/script>/)
+  assert.equal(app.host.querySelector('script,iframe,a[href^="javascript:"]'),null)
+  const img=app.host.querySelector('img[alt="broken picture"]')
+  assert.ok(img)
+  assert.equal(img.getAttribute('referrerpolicy'),'no-referrer')
+  await act(async()=>img.dispatchEvent(new Event('error')))
+  assert.equal(app.host.querySelector('img[alt="broken picture"]'),null)
+  assert.match(app.host.textContent,/图片加载失败：broken picture/)
+  const draft=app.host.querySelector('textarea')
+  await act(async()=>input(draft,'kept across tabs'))
+  const [discussion,labour]=app.host.querySelectorAll('[role="tab"]')
+  discussion.focus()
+  await act(async()=>discussion.dispatchEvent(new window.KeyboardEvent('keydown',{key:'End',bubbles:true})))
+  assert.equal(document.activeElement,labour)
+  assert.equal(labour.getAttribute('aria-selected'),'true')
+  assert.equal(app.host.querySelector('[id="'+discussion.getAttribute('aria-controls')+'"]').hidden,true)
+  await act(async()=>labour.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Home',bubbles:true})))
+  assert.equal(document.activeElement,discussion)
+  assert.equal(discussion.getAttribute('aria-selected'),'true')
+  assert.equal(app.host.querySelector('textarea').value,'kept across tabs')
+ }finally{await app.close()}
+})

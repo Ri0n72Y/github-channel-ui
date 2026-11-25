@@ -32,7 +32,7 @@ const draft = () => ({
 test('#51 V1: safe Markdown exposes H1–H6 with distinct scoped level styles', () => {
   const markdown = ['# One', '## Two', '### Three', '#### Four', '##### Five', '###### Six'].join('\n\n')
   const html = renderToStaticMarkup(createElement(SafeMarkdown, { body: markdown }))
-  const styles = readFileSync(resolve(root, 'plugins/repo-home/src/SafeMarkdown.module.css'), 'utf8')
+  const styles = readFileSync(resolve(root, 'plugins/shared/src/SafeMarkdown.module.css'), 'utf8')
   for (let level = 1; level <= 6; level++) {
     assert.match(html, new RegExp('role="heading" aria-level="' + level + '"'))
     assert.ok(styles.includes('.heading[aria-level="' + level + '"]'))

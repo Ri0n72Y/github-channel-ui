@@ -7,7 +7,7 @@ const root = resolve(import.meta.dirname, '..')
 const read = p => readFileSync(resolve(root,p), 'utf8')
 const modules = [
   'plugins/repo-home/src/RepoHome.module.css',
-  'plugins/repo-home/src/SafeMarkdown.module.css',
+  'plugins/shared/src/SafeMarkdown.module.css',
   'plugins/issue-detail/src/IssueDetailView.module.css',
   'plugins/repo-config/src/ConfigPage.module.css',
   'plugins/channel/src/ChannelView.module.css',

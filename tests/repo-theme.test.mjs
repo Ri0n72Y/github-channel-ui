@@ -84,7 +84,7 @@ function focusSpecificity(selector) {
 
 test('#68 B1 scoped keyboard focus outranks legacy .page and Markdown links', () => {
   const css = source('plugins/repo-home/src/RepoHome.module.css')
-  const markdown = source('plugins/repo-home/src/SafeMarkdown.module.css')
+  const markdown = source('plugins/shared/src/SafeMarkdown.module.css')
   const page = source('plugins/repo-home/src/RepoHomePage.tsx')
   const scoped = '.page.homePage :is(a,button,input,textarea):focus-visible'
   const legacy = '.page a:focus-visible'
@@ -140,7 +140,7 @@ test('#67 Markdown stays in source sequence and uses responsive themed media sur
     .map(label => html.indexOf(label))
   assert.deepEqual(indexes,[...indexes].sort((a,b) => a-b))
   assert.doesNotMatch(html, /<iframe|<script/)
-  const css = source('plugins/repo-home/src/SafeMarkdown.module.css')
+  const css = source('plugins/shared/src/SafeMarkdown.module.css')
   assert.match(css, /var\(--lc-surface-input/)
   assert.match(css, /max-width:100%/)
   assert.match(css, /overflow-x:auto/)
