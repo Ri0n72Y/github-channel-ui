@@ -32,16 +32,33 @@ export function MemberManagementLink({ base, state }: {
 }) {
   return state === 'allowed' ? <Link to={base + '/members/register'}>添加成员</Link> : null
 }
-export function MemberProfile({ member }: { member: Member }) {
+/** @summary Preserve the default compact profile; only the Members directory uses the full-width card. */
+export function MemberProfile({ member, variant = 'popover' }: {
+  member: Member; variant?: 'popover' | 'card'
+}) {
+  const avatar = <MemberAvatar member={member} size="large" />
+  const role = member.role && <p>{member.role}</p>
+  const bio = member.bio && <p className={styles.bio}>{member.bio}</p>
+  const links = <>
+    {member.githubUsername && <a href={'https://github.com/' + encodeURIComponent(member.githubUsername)}
+      target="_blank" rel="noopener noreferrer">GitHub @{member.githubUsername}</a>}
+    {member.links?.map((item, i) => <a key={i} href={item.url}
+      target="_blank" rel="noopener noreferrer">{item.label}</a>)}
+  </>
+  if (variant === 'card') return <div className={styles.fullProfile}>
+    <div className={styles.fullProfileIdentity}>
+      {avatar}
+      <div className={styles.fullProfileName}><h2>{member.name}</h2>{role}</div>
+    </div>
+    {bio}
+    {(member.githubUsername || Boolean(member.links?.length)) && <div className={styles.fullProfileLinks}>{links}</div>}
+  </div>
   return <div className={styles.profile}>
-    <MemberAvatar member={member} size="large" />
+    {avatar}
     <div className={styles.profileText}><strong>{member.name}</strong>
-      {member.role && <p>{member.role}</p>}
-      {member.bio && <p className={styles.bio}>{member.bio}</p>}
-      {member.githubUsername && <a href={'https://github.com/' + encodeURIComponent(member.githubUsername)}
-        target="_blank" rel="noopener noreferrer">GitHub @{member.githubUsername}</a>}
-      {member.links?.map((item, i) => <a key={i} href={item.url}
-        target="_blank" rel="noopener noreferrer">{item.label}</a>)}
+      {role}
+      {bio}
+      {links}
     </div>
   </div>
 }
