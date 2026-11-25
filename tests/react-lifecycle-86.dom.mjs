@@ -112,16 +112,16 @@ test('#86 Issue A -> B: draft and late writes belong to their original controlle
  const app=await mount('/sample/repo/issues/1','/:owner/:repo/issues/:number',Issue,
    {service:svc},p=>p.owner+'/'+p.repo+'/issues/'+p.number)
  try{
-  const form=app.host.querySelector('textarea')
+  const form=app.host.querySelector('form[aria-label="参与讨论"] textarea')
   assert.ok(form)
   await act(async()=>input(form,'A-only draft'))
-  assert.equal(app.host.querySelector('textarea').value,'A-only draft')
+  assert.equal(app.host.querySelector('form[aria-label="参与讨论"] textarea').value,'A-only draft')
   const submit=[...app.host.querySelectorAll('button')].find(b=>b.textContent.includes('确认以 GitHub 身份评论'))
   assert.ok(submit&&!submit.disabled)
   await act(async()=>submit.click())
   assert.equal(writes,1)
   await app.go('/sample/repo/issues/2')
-  assert.equal(app.host.querySelector('textarea').value,'')
+  assert.equal(app.host.querySelector('form[aria-label="参与讨论"] textarea').value,'')
   pending.resolve({id:991})
   await flush()
   assert.doesNotMatch(app.host.textContent,/GitHub 已确认发表/)
@@ -1002,7 +1002,7 @@ test('#69 Issue Detail Markdown image fallback and keyboard tabs preserve the ac
   await act(async()=>img.dispatchEvent(new Event('error')))
   assert.equal(app.host.querySelector('img[alt="broken picture"]'),null)
   assert.match(app.host.textContent,/图片加载失败：broken picture/)
-  const draft=app.host.querySelector('textarea')
+  const draft=app.host.querySelector('form[aria-label="参与讨论"] textarea')
   await act(async()=>input(draft,'kept across tabs'))
   const [discussion,labour]=app.host.querySelectorAll('[role="tab"]')
   discussion.focus()
@@ -1013,6 +1013,165 @@ test('#69 Issue Detail Markdown image fallback and keyboard tabs preserve the ac
   await act(async()=>labour.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Home',bubbles:true})))
   assert.equal(document.activeElement,discussion)
   assert.equal(discussion.getAttribute('aria-selected'),'true')
-  assert.equal(app.host.querySelector('textarea').value,'kept across tabs')
+  assert.equal(app.host.querySelector('form[aria-label="参与讨论"] textarea').value,'kept across tabs')
  }finally{await app.close()}
+})
+
+const replyComment=(id,body,extra={})=>({...comment(id,body),html_url:'https://github.com/sample/repo/issues/1#issuecomment-'+id,...extra})
+const replyArea=app=>app.host.querySelector('form[aria-label="参与讨论"] textarea')
+const replySend=app=>app.host.querySelector('form[aria-label="参与讨论"] button[type="submit"]')
+const quoteButtons=app=>[...app.host.querySelectorAll('button[aria-label^="引用回复 "]')]
+const quotePreview=app=>app.host.querySelector('[aria-label="当前引用"]')
+const issueMount=svc=>mount('/sample/repo/issues/1','/:owner/:repo/issues/:number',Issue,
+  {service:svc},p=>p.owner+'/'+p.repo+'/issues/'+p.number)
+test('#69 quote choose/replace/cancel, tab and refresh preserve user draft; validates exact POST and clears on success',async()=>{
+ const rows=[replyComment(101,'first line\nsecond line'),replyComment(102,'second target',{user:{login:'bob'}}),
+  replyComment(103,'wrong permalink',{html_url:'https://github.com/other/repo/issues/1#issuecomment-103'})]
+ const writes=[]
+ const svc=issueService({authorized:true,comments:()=>Promise.resolve({items:rows,hasMore:false}),
+  postComment:async(o,r,n,body)=>{writes.push({o,r,n,body});return {id:999}}})
+ const app=await issueMount(svc)
+ const originalConfirm=window.confirm
+ try{
+  await act(async()=>input(replyArea(app),'my reply'))
+  await act(async()=>quoteButtons(app)[0].click())
+  assert.match(quotePreview(app).textContent,/回复 alice/)
+  assert.equal(replyArea(app).value,'my reply')
+  assert.equal(document.activeElement,replyArea(app))
+  await act(async()=>quoteButtons(app)[1].click())
+  assert.match(quotePreview(app).textContent,/回复 bob/)
+  await act(async()=>quotePreview(app).querySelector('button').click())
+  assert.equal(quotePreview(app),null)
+  assert.equal(replyArea(app).value,'my reply')
+  await act(async()=>quoteButtons(app)[2].click())
+  assert.equal(quotePreview(app).querySelector('a'),null)
+  await act(async()=>quoteButtons(app)[0].click())
+  const [discussion,labourTab]=app.host.querySelectorAll('[role="tab"]')
+  await act(async()=>labourTab.click())
+  assert.equal(replyArea(app).closest('form').hidden,true)
+  await act(async()=>discussion.click())
+  assert.equal(replyArea(app).value,'my reply')
+  assert.match(quotePreview(app).textContent,/回复 alice/)
+  const scroller=app.host.querySelector('[aria-label="Issue 阅读区"]')
+  scroller.scrollTop=150
+  await act(async()=>app.host.querySelector('[aria-label="从 GitHub 重新加载此 Issue"]').click())
+  await flush()
+  assert.equal(app.host.querySelector('[aria-label="Issue 阅读区"]'),scroller)
+  assert.equal(replyArea(app).value,'my reply')
+  assert.ok(quotePreview(app))
+  window.confirm=()=>false
+  await act(async()=>replySend(app).click())
+  assert.equal(writes.length,0)
+  assert.ok(quotePreview(app))
+  window.confirm=()=>true
+  await act(async()=>replySend(app).click())
+  await flush()
+  assert.deepEqual(writes,[{o:'sample',r:'repo',n:1,body:'回复 [alice](https://github.com/sample/repo/issues/1#issuecomment-101)\n\n> first line\n> second line\n\nmy reply'}])
+  assert.equal(replyArea(app).value,'')
+  assert.equal(quotePreview(app),null)
+  assert.match(app.host.textContent,/GitHub 已确认发表/)
+ }finally{window.confirm=originalConfirm;await app.close()}
+})
+test('#69 quote total length, empty reply and unauthorized state prevent writes',async()=>{
+ for(const authorized of [true,false]){
+  let writes=0
+  const svc=issueService({authorized,comments:()=>Promise.resolve({items:[replyComment(101,'长'.repeat(1500))],hasMore:false}),
+    postComment:async()=>{writes++;return {id:999}}})
+  const app=await issueMount(svc)
+  try{
+   await act(async()=>quoteButtons(app)[0].click())
+   assert.match(quotePreview(app).textContent,/引用已截取/)
+   assert.equal(replySend(app).disabled,true)
+   await act(async()=>input(replyArea(app),'x'.repeat(20000)))
+   assert.equal(replySend(app).disabled,true)
+   assert.match(app.host.textContent,/超过 20000 字符/)
+   await act(async()=>replyArea(app).closest('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})))
+   assert.equal(writes,0)
+   await act(async()=>input(replyArea(app),'short'))
+   assert.equal(replySend(app).disabled,!authorized)
+   if(!authorized){
+    await act(async()=>replyArea(app).closest('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})))
+    assert.equal(writes,0)
+   }
+  }finally{await app.close()}
+ }
+})
+test('#69 failed or uncertain reply retains quote/draft; same-tick double submit and newer editing are isolated',async()=>{
+ for(const outcome of ['failure','unknown','success']){
+  const pending=deferred()
+  let writes=0
+  const svc=issueService({authorized:true,comments:()=>Promise.resolve({items:[replyComment(101,'one'),replyComment(102,'two')],hasMore:false}),
+    postComment:()=>{writes++;return pending.promise}})
+  const app=await issueMount(svc)
+  try{
+   await act(async()=>quoteButtons(app)[0].click())
+   await act(async()=>input(replyArea(app),'submitted'))
+   const form=replyArea(app).closest('form')
+   await act(async()=>{form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))
+    form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))})
+   assert.equal(writes,1)
+   if(outcome==='success'){
+    await act(async()=>quoteButtons(app)[1].click())
+    await act(async()=>input(replyArea(app),'new draft'))
+    await act(async()=>pending.resolve({id:999}))
+   }else await act(async()=>pending.reject(Error(outcome==='unknown'?'网络中断，结果未知':'GitHub rejected')))
+   await flush()
+   assert.ok(quotePreview(app))
+   assert.equal(replyArea(app).value,outcome==='success'?'new draft':'submitted')
+   if(outcome!=='success')assert.match(app.host.textContent,/避免重复发表/)
+   else assert.match(quotePreview(app).textContent,/two/)
+   await app.go('/sample/repo/issues/2')
+   assert.equal(quotePreview(app),null)
+   assert.equal(replyArea(app).value,'')
+  }finally{await app.close()}
+ }
+})
+
+test('#69 B2 visual viewport resize keeps quote, feedback, last comment and pagination mounted in compact mode',async()=>{
+ const descriptor=Object.getOwnPropertyDescriptor(window,'visualViewport')
+ const viewport=new window.EventTarget()
+ viewport.height=812;viewport.offsetTop=0
+ Object.defineProperty(window,'visualViewport',{configurable:true,value:viewport})
+ let writes=0
+ const svc=issueService({authorized:true,comments:(_n,page)=>Promise.resolve({items:[
+  replyComment(100+page,'长引用'.repeat(500),{user:{login:'long-author'}}),
+  replyComment(200+page,'last comment page '+page)
+ ],hasMore:page===1}),postComment:async()=>{writes++;throw Error('GitHub rejected '.repeat(40))}})
+ let app
+ try{
+  app=await issueMount(svc)
+  const shell=app.host.querySelector('[aria-label="Issue 讨论面板"]')
+  const reading=app.host.querySelector('[aria-label="Issue 阅读区"]')
+  const page=shell.parentElement
+  assert.equal(page.dataset.heightMode,'split')
+  await act(async()=>quoteButtons(app)[0].click())
+  await act(async()=>input(replyArea(app),'long draft\n'.repeat(1000)))
+  await act(async()=>replySend(app).click())
+  await flush()
+  assert.equal(writes,1)
+  assert.match(app.host.textContent,/避免重复发表/)
+  for(const height of [480,479,320,280,240,200,160,120,80,812]){
+   await act(async()=>{viewport.height=height;viewport.dispatchEvent(new Event('resize'))})
+   assert.equal(page.dataset.heightMode,height<480?'compact':'split')
+   assert.equal(page.style.getPropertyValue('--issue-available-height'),height+'px')
+   assert.equal(app.host.querySelector('[aria-label="Issue 讨论面板"]'),shell)
+   assert.equal(app.host.querySelector('[aria-label="Issue 阅读区"]'),reading)
+   assert.equal(replyArea(app).value,'long draft\n'.repeat(1000))
+   assert.ok(quotePreview(app))
+   assert.ok(replySend(app))
+   assert.match(app.host.textContent,/last comment page 1|避免重复发表/)
+  }
+  await act(async()=>{viewport.height=160;viewport.dispatchEvent(new Event('resize'))})
+  await act(async()=>[...reading.querySelectorAll('button')].find(b=>b.textContent==='加载下一页评论').click())
+  await flush()
+  assert.match(reading.textContent,/last comment page 2/)
+  await act(async()=>quotePreview(app).querySelector('button').click())
+  assert.equal(quotePreview(app),null)
+  assert.equal(document.activeElement,replyArea(app))
+  assert.equal(replyArea(app).value,'long draft\n'.repeat(1000))
+ }finally{
+  if(app)await app.close()
+  if(descriptor)Object.defineProperty(window,'visualViewport',descriptor)
+  else delete window.visualViewport
+ }
 })

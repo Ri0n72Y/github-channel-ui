@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import { parseLabourComment, formatLabourComment, summarizeIssueComments,
   parseIssueLabels, validIssueTarget, validIssueForPage, validChannelIssue } from '../plugins/issue-detail/src/domain.mjs'
 
+import { createQuoteReply, buildCommentReply, commentPermalink } from '../plugins/issue-detail/src/quote-reply.mjs'
+
 const sha = 'a'.repeat(40)
 const labour = (hours, tail = '') => '```yaml\nlabour:\n  work: 测试工时\n  hr: ~' +
   hours + tail + '\n```'
@@ -93,4 +95,43 @@ test('real §9.4 no-suffix examples preserve multiline Markdown and inline outco
   assert.equal(result.hours, 4.5)
   assert.equal(result.complete, true)
   assert.equal(result.records.length, 3)
+})
+
+test('#69 quote replies bind permalink to owner/repo/issue/comment and never count quoted labour',()=>{
+ const target='https://github.com/example/repo/issues/1#issuecomment-1'
+ assert.equal(commentPermalink(target,'example','repo',1,1),target)
+ assert.equal(commentPermalink('https://github.com/EXAMPLE/REPO/issues/1#issuecomment-1','example','repo',1,1),target)
+ for(const url of [null,'javascript:alert(1)',target+'?x',target+'\n',
+  target.replace('github.com','github.com.evil.invalid'),target.replace('github.com','evil@github.com'),
+  target.replace('/example/','/other/'),target.replace('/repo/','/other/'),
+  target.replace('/issues/1','/issues/2'),target.replace('issuecomment-1','issuecomment-2'),
+  target.replace('/issues/','/pull/'),target.replace('/repo/','/%72epo/')])
+  assert.equal(commentPermalink(url,'example','repo',1,1),null,String(url))
+ for(const original of [labour(1),labour(0.3),'\x60\x60\x60yaml\nlabour:\n  hr: ~1\n\x60\x60\x60',
+  '@alice <script>bad</script>\r\n\r\nother']){
+  const q=createQuoteReply(comment(1,original),'example','repo',1)
+  const reply=buildCommentReply('reply',q)
+  assert.ok(reply.startsWith('回复 [worker]('+target+')\n\n> '))
+  const lines=reply.split('\n').slice(2,-2)
+  assert.ok(lines.every(line=>line.startsWith('> ')))
+  assert.doesNotMatch(reply,/(?:^|\n)labour:/)
+  assert.doesNotMatch(reply,/<script>/g.test(original)?/(^|[^\\])<script>/:/<script>/)
+  const result=summarizeIssueComments([comment(10,labour(2)),comment(11,reply)],true)
+  assert.equal(result.hours,2);assert.equal(result.records.length,1)
+  assert.deepEqual(result.invalidCandidates,[]);assert.equal(result.complete,true)
+ }
+ const forged=createQuoteReply({...comment(1,'@person <img>'),user:{login:'x](javascript:alert(1))\n@evil'},
+   html_url:'https://github.com/example/repo/issues/9#issuecomment-1'},'example','repo',1)
+ const reply=buildCommentReply('my draft',forged)
+ assert.equal(forged.sourceUrl,null)
+ assert.doesNotMatch(reply,/\]\(javascript:/)
+ assert.ok(reply.includes('\\@person'))
+ assert.ok(reply.includes('\\<img>'))
+ const bounded=createQuoteReply(comment(1,'😀'.repeat(1500)),'example','repo',1)
+ assert.equal(Array.from(bounded.excerpt).length,1000)
+ assert.equal(bounded.truncated,true)
+ assert.match(buildCommentReply('draft',bounded),/引用已截取/)
+ const malformed=summarizeIssueComments([comment(1,labour(0.3))],true)
+ assert.deepEqual(malformed.invalidCandidates,[1])
+ assert.equal(malformed.complete,false)
 })

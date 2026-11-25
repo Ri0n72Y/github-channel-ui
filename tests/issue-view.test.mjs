@@ -15,7 +15,7 @@ const controllerSource = readFileSync(controllerPath, 'utf8')
 let server, View, issueTabForKey
 const actions = {
   onRetry() {}, onRefresh() {}, onLoadMore() {},
-  onCommentChange() {}, onLabourChange() {}, onSubmitComment() {}, onSubmitLabour() {},
+  onCommentChange() {}, onQuoteComment() {}, onCancelQuote() {}, onLabourChange() {}, onSubmitComment() {}, onSubmitLabour() {},
 }
 const model = {
   routeKey: 'sample/repo/issues/1',
@@ -55,7 +55,7 @@ const model = {
     },
   },
   form: {
-    draft: '草稿不会自动提交',
+    draft: '草稿不会自动提交', quote: null, commentLength: 9, refreshing: false,
     labour: { work: '', hours: '0.5', outcome: '', commits: '', start: '', end: '' },
     pending: false, pendingKind: null, notice: null,
     permission: { state: 'anonymous', allowed: false,
@@ -211,4 +211,49 @@ test('#69 empty and incomplete discussion states are explicit; labour fields sta
   assert.match(css,/\.page button \{[^}]*min-height:\s*44px[^}]*min-width:\s*44px/s)
   assert.match(css,/\.commentCard \{[^}]*grid-template-columns:\s*32px minmax\(0, 1fr\)/s)
   assert.doesNotMatch(css,/position:\s*sticky|line-clamp|text-overflow/)
+})
+
+test('#69 one conversation shell has early tabs and a separate bounded composer with visible quote',()=>{
+  const payload=structuredClone(model)
+  payload.form.quote={id:6,author:'speaker',sourceUrl:payload.issue.discussion.comments[0].sourceUrl,
+    excerpt:'真实引用内容',truncated:true}
+  payload.form.commentLength=20001
+  const html=renderToStaticMarkup(createElement(View,{model:payload,actions}))
+  assert.equal((html.match(/aria-label="Issue 正文"/g)||[]).length,1)
+  assert.ok(html.indexOf('role="tablist"')<html.indexOf('aria-label="Issue 正文"'))
+  assert.ok(html.indexOf('aria-label="Issue 阅读区"')<html.indexOf('aria-label="参与讨论"'))
+  assert.match(html,/aria-label="引用回复 speaker"/)
+  assert.match(html,/回复 speaker/)
+  assert.match(html,/引用已截取/)
+  assert.match(html,/取消引用/)
+  assert.match(html,/20001 \/ 20000 字符（含引用）/)
+  assert.match(html,/超过 20000 字符/)
+  assert.match(html,/href="https:\/\/github\.com\/sample\/repo\/issues\/1#issuecomment-6"/)
+  const css=readFileSync(resolve(root,'plugins/issue-detail/src/IssueDetailView.module.css'),'utf8')
+  assert.match(css,/\.conversationShell\s*\{[^}]*grid-template-rows:\s*minmax\(0, 1fr\) auto/s)
+  assert.match(css,/\.conversationScroll\s*\{[^}]*overflow-y:\s*auto/s)
+  assert.match(css,/\.commentComposer\[hidden\]\s*\{\s*display:\s*none/)
+  assert.match(css,/safe-area-inset-bottom/)
+  assert.match(viewSource,/visualViewport/)
+  assert.match(viewSource,/getBoundingClientRect\(\)\.top/)
+})
+
+test('#69 B2 complete composer budget and compact single-scroll fallback retain all controls and feedback',()=>{
+ const payload=structuredClone(model)
+ payload.form.quote={id:6,author:'长'.repeat(100),excerpt:'引用内容'.repeat(400),truncated:true,sourceUrl:model.issue.discussion.comments[0].sourceUrl}
+ payload.form.draft='长'.repeat(20000)
+ payload.form.commentLength=21000
+ payload.form.notice={kind:'comment',tone:'error',message:'提交反馈'.repeat(100)}
+ payload.issue.pagination.hasMore=true
+ payload.issue.discussion.comments.push({...payload.issue.discussion.comments[0],id:9,body:'最后一条评论'})
+ const html=renderToStaticMarkup(createElement(View,{model:payload,actions}))
+ for(const label of ['Issue 讨论面板','Issue 阅读区','最后一条评论','加载下一页评论','取消引用','确认以 GitHub 身份评论','超过 20000 字符','提交反馈'])
+  assert.ok(html.includes(label),label)
+ assert.ok(html.indexOf('最后一条评论')<html.indexOf('aria-label="参与讨论"'))
+ const css=readFileSync(resolve(root,'plugins/issue-detail/src/IssueDetailView.module.css'),'utf8')
+ assert.match(css,/\.commentComposer \{[^}]*max-height:\s*calc\(var\(--issue-available-height, 100dvh\) \* \.5\)[^}]*overflow-y:\s*auto[^}]*grid-auto-rows:\s*max-content/s)
+ assert.match(css,/\.page\[data-height-mode='compact'\] \.conversationShell \{[^}]*display:\s*block;[^}]*overflow-y:\s*auto/s)
+ assert.match(css,/\.page\[data-height-mode='compact'\] \.conversationScroll \{[^}]*overflow:\s*visible/s)
+ assert.match(css,/\.page\[data-height-mode='compact'\] \.commentComposer \{[^}]*max-height:\s*none;[^}]*overflow:\s*visible/s)
+ assert.match(viewSource,/available < 480 \? 'compact' : 'split'/)
 })
