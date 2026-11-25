@@ -164,3 +164,21 @@ test('#67 visual scope leaves GitHub business actions and mounted siblings uncha
   assert.match(runtime, /createIssueDetailPlugin/)
   assert.doesNotMatch(home, /主题切换|localStorage\.setItem\(.*theme/i)
 })
+
+test('#99 Title ancestor does not clip or establish a fixed Popover containing block; only cover is clipped',async()=>{
+ const css=source('plugins/repo-home/src/RepoHome.module.css')
+ const mod=await vite.ssrLoadModule('/plugins/repo-home/src/RepoHomePage.tsx')
+ const sha='a'.repeat(40),base='https://raw.githubusercontent.com/sample/repo/'+sha+'/'
+ assert.equal(mod.safeRepoTitleCover(base+'banner.png','sample','repo'),base+'banner.png')
+ for(const url of ['javascript:alert(1)','data:image/png;base64,AA','http://raw.githubusercontent.com/sample/repo/'+sha+'/a.png',
+   base+'a.svg',base+'a.png?x=1',base+'a.png#x',base+'../a.png',base+'%2e%2e/a.png',base+'a.png\n',
+   'https://raw.githubusercontent.com/sample/repo/main/a.png','https://raw.githubusercontent.com/other/repo/'+sha+'/a.png',
+   'https://raw.githubusercontent.com.evil.invalid/sample/repo/'+sha+'/a.png'])
+   assert.equal(mod.safeRepoTitleCover(url,'sample','repo'),null,url)
+ const title=css.match(/\.homePage \.titleCard\s*\{([^}]+)\}/)?.[1]
+ assert.ok(title)
+ assert.doesNotMatch(title,/overflow:|transform:|contain:|container-type:|filter:/)
+ assert.match(css,/\.coverLayer \{[^}]*overflow:hidden/s)
+ assert.match(css,/\.titleCard\[data-title-layout='wide'\] \.titleContent \{[^}]*grid-template-columns:minmax\(0,1.55fr\)/s)
+ assert.match(css,/\.titleCard\[data-title-layout='medium'\] \.titleContent \{[^}]*grid-template-columns:minmax\(0,1.4fr\)/s)
+})

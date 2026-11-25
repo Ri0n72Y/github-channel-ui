@@ -14,8 +14,29 @@ const errorText = (e: unknown) => e instanceof Error ? e.message : '网络请求
 
 export type RepoHomeTheme = 'dark' | 'light'
 
+/** Optional presentation input only. No production source or file convention is enabled. */
+export function safeRepoTitleCover(value: unknown, owner: string, repo: string): string | null {
+  if (typeof value !== 'string' || value.length > 2048) return null
+  const match = /^https:\/\/raw\.githubusercontent\.com\/([a-z\d-]{1,39})\/([a-z\d._-]{1,100})\/([a-f\d]{40})\/([a-z\d._/-]+\.(?:png|jpe?g|gif|webp|avif))$/i.exec(value)
+  if (!match || match[0] !== value || ['.','..'].includes(match[2]) || match[1].toLowerCase() !== owner.toLowerCase() ||
+      match[2].toLowerCase() !== repo.toLowerCase() || match[4].split('/').some(p => !p || p === '.' || p === '..')) return null
+  return value
+}
+
+function TitleCover({ url }: { url: string }) {
+  const [failed, setFailed] = useState(false)
+  return failed ? null : <div className={styles.coverLayer} aria-hidden="true">
+    <img src={url} alt="" referrerPolicy="no-referrer" onError={() => setFailed(true)} />
+  </div>
+}
+
+/** Use measured card width without CSS containment on the fixed Popover ancestors. */
+export function titleLayout(width: number) {
+  return width >= 1100 ? 'wide' : width >= 700 ? 'medium' : width >= 480 ? 'narrow' : 'small'
+}
+
 /** @summary Orchestrate independent hero/team loading and one-at-a-time cancellable issue pagination. */
-export default function RepoHomePage({ api, theme }: { api: RepoHomeApi; theme?: RepoHomeTheme }) {
+export default function RepoHomePage({ api, theme, coverUrl }: { api: RepoHomeApi; theme?: RepoHomeTheme; coverUrl?: string }) {
   const { owner = '', repo = '' } = useParams<'owner' | 'repo'>()
   // A local viewing preference. GitHub repository-wide configuration is managed separately.
   const branch = readDisplayBranch(owner, repo)
@@ -31,6 +52,19 @@ export default function RepoHomePage({ api, theme }: { api: RepoHomeApi; theme?:
   const nextPage = useRef(1), pendingPage = useRef<AbortController | null>(null), stopped = useRef(false)
   const controllers = useRef<Set<AbortController>>(new Set())
   const sentinel = useRef<HTMLDivElement>(null)
+  const [layout, setLayout] = useState<ReturnType<typeof titleLayout>>('small')
+  const titleCard = useRef<HTMLDivElement>(null)
+  const feedHeading = useRef<HTMLHeadingElement>(null)
+  useEffect(() => {
+    const node = titleCard.current
+    if (!node) return
+    const measure = () => setLayout(titleLayout(node.getBoundingClientRect().width))
+    measure()
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    observer?.observe(node)
+    window.addEventListener('resize', measure)
+    return () => { observer?.disconnect(); window.removeEventListener('resize', measure) }
+  }, [])
   useEffect(() => {
     const controller = new AbortController()
     setHomeLoading(true); setHomeError(''); setData(null)
@@ -104,36 +138,59 @@ export default function RepoHomePage({ api, theme }: { api: RepoHomeApi; theme?:
     ? 'https://github.com/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo) +
       '/blob/' + encodeURIComponent(data.branch) + '/' + data.readme.path.split('/').map(encodeURIComponent).join('/')
     : ''
-  const description = data?.repository.description?.trim() ||
-    (data?.readme.state === 'ready' ? summarizeReadme(data.readme.content || '', data.repository.name) : '')
+  const description = data?.repository.description?.trim() || ''
+  const readmeSummary = data?.readme.state === 'ready'
+    ? summarizeReadme(data.readme.content || '', data.repository.name).trim() : ''
+  const compact = (value: string) => value.replace(/\s+/g, ' ').trim()
+  const descKey = compact(description).toLowerCase(), readmeText = compact(readmeSummary)
+  const readmeKey = readmeText.toLowerCase()
+  const summary = descKey && readmeKey && !descKey.includes(readmeKey)
+    ? (readmeKey.startsWith(descKey)
+      ? readmeText.slice(compact(description).length).replace(/^[\s.。:：;；,，-]+/, '') : readmeText) : ''
+  const cover = data ? safeRepoTitleCover(coverUrl, owner, repo) : null
   return <section className={[styles.page, styles.homePage].join(' ')} data-lc-theme={theme}>
     <div className={styles.homeLayout}>
+    <div className={styles.titleCard} ref={titleCard} data-title-layout={layout}>
     {homeLoading && <p role="status">正在读取项目介绍与团队…</p>}
     {homeError && <p role="alert">{homeError} <button type="button" onClick={() => setGeneration(n => n + 1)}>重试介绍</button></p>}
-    {data && <header className={styles.hero}>
-      <div className={styles.heroCopy}>
-        <p className={styles.eyebrow}>{data.repository.full_name}</p>
-        <h1>{data.repository.name}</h1>
-        {description ? <p className={styles.intro}>{description}</p> :
-          <p className={styles.muted}>暂无项目简介。</p>}
-        <div className={styles.actions}>
-          <a className={styles.primaryLink} href={data.repository.html_url}
-            target="_blank" rel="noopener noreferrer">GitHub 仓库</a>
-          {readmeUrl && <a href={readmeUrl} target="_blank" rel="noopener noreferrer">完整 README</a>}
+    {data && <>
+      {cover && <TitleCover key={cover} url={cover}/>}
+      <header className={styles.titleContent}>
+        <div className={styles.titleIdentity}>
+          <span className={styles.projectMark} aria-hidden="true">{Array.from(data.repository.name.trim())[0]?.toUpperCase() || '?'}</span>
+          <div className={styles.identityCopy}>
+            <p className={styles.eyebrow}>{data.repository.full_name}</p>
+            <h1>{data.repository.name}</h1>
+            {description || readmeSummary ? <p className={styles.titleIntro}>{description || readmeSummary}</p> :
+              <p className={styles.muted}>暂无项目简介。</p>}
+            <p className={styles.branchNote}>当前展示分支：<code>{branch}</code> ·
+              <Link to={base + '/config'}>本机偏好设置</Link></p>
+          </div>
+        </div>
+        <div className={styles.titleReadme}>
+          <h2>README</h2>
+          {summary && <p>{summary}</p>}
+          {data.readme.state === 'ready' && !summary && <p className={styles.muted}>查看完整项目说明。</p>}
+          {data.readme.state === 'missing' && <p className={styles.muted}>暂无 README。</p>}
+          {data.readme.state === 'error' && <p role="status">
+            README 读取失败：{data.readme.error} <button type="button" onClick={() => setGeneration(n => n + 1)}>重试</button>
+          </p>}
+          {readmeUrl && <a className={styles.readmeLink} href={readmeUrl} target="_blank" rel="noopener noreferrer">完整 README</a>}
+        </div>
+        <div className={[styles.actions, styles.titleActions].join(' ')}>
+          <a className={styles.primaryLink} href="#feed-heading" onClick={event => {
+            const target = feedHeading.current
+            if (!target) return
+            event.preventDefault()
+            target.focus()
+            target.scrollIntoView?.({block:'start',behavior:'auto'})
+          }}>项目动态</a>
+          <a href={data.repository.html_url} target="_blank" rel="noopener noreferrer">GitHub 仓库</a>
           <Link to={base + '/config'}>仓库配置与 Labels</Link>
           <Link to={base + '/channels'}>项目频道</Link>
         </div>
-        <p className={styles.branchNote}>当前展示分支：<code>{branch}</code> ·
-          <Link to={base + '/config'}>本机偏好设置</Link></p>
-        {data.readme.state === 'error' && <p role="status">
-          README 读取失败：{data.readme.error} <button type="button" onClick={() => setGeneration(n => n + 1)}>重试</button>
-        </p>}
-      </div>
-      <div className={styles.heroVisual} aria-hidden="true">
-        <span className={styles.heroGlyph}>LC</span>
-        <span className={styles.heroBrand}>LabourChain</span>
-      </div>
-    </header>}
+      </header>
+    </>}
     <section className={[styles.section, styles.teamPanel].join(' ')} aria-labelledby="team-heading"
       data-team-state={data?.team.state || (homeLoading ? 'loading' : 'unavailable')}>
       <h2 id="team-heading">团队成员</h2>
@@ -146,8 +203,9 @@ export default function RepoHomePage({ api, theme }: { api: RepoHomeApi; theme?:
           <MemberManagementLink base={base} state={memberWrite.state} />}
       </div>
     </section>
+    </div>
     <section className={[styles.section, styles.feedSection].join(' ')} aria-labelledby="feed-heading">
-      <div className={styles.sectionHead}><h2 id="feed-heading">Repo Issue 动态</h2>
+      <div className={styles.sectionHead}><h2 id="feed-heading" ref={feedHeading} tabIndex={-1}>Repo Issue 动态</h2>
         <Link to={base + '/issues/new'}>新建 Issue</Link>
         <button type="button" onClick={refresh}>刷新动态</button></div>
       <div className={styles.feed}>{items.map(issue => <RepoIssueActivityCard

@@ -1175,3 +1175,71 @@ test('#69 B2 visual viewport resize keeps quote, feedback, last comment and pagi
   else delete window.visualViewport
  }
 })
+
+test('#99 Title layout uses measured card width, one identity/README/actions/team order, safe optional cover and feed focus',async()=>{
+ const source=(await server.ssrLoadModule('/plugins/repo-home/src/RepoHomePage.tsx'))
+ for(const [width,layout] of [[320,'small'],[479,'small'],[480,'narrow'],[699,'narrow'],[700,'medium'],[1099,'medium'],[1100,'wide']])
+  assert.equal(source.titleLayout(width),layout)
+ const cover='https://raw.githubusercontent.com/sample/repo/'+'a'.repeat(40)+'/banner.png'
+ const api={getHome:async()=>({repository:{name:'repo',full_name:'sample/repo',description:'Real description',
+  html_url:'https://github.com/sample/repo'},branch:'main',readme:{state:'ready',path:'README.md',content:'# repo\n\nReal description\n\nUnique README prose'},
+  team:{state:'ready',members:[{id:'1',name:'Alice',role:'Reviewer'}]}}),
+  getFeed:async(_o,_r,page)=>({page,hasMore:false,items:[]}),getCapability:async()=>({user:{login:'operator'},mode:'direct',branch:'main'})}
+ for(const url of [undefined,cover,'javascript:alert(1)','https://raw.githubusercontent.com/other/repo/'+'a'.repeat(40)+'/banner.png']){
+  const app=await mount('/sample/repo','/:owner/:repo',Home,{api,coverUrl:url})
+  try{
+   const title=app.host.querySelector('[data-title-layout]')
+   const header=title.querySelector('header')
+   assert.equal(header.children.length,3)
+   assert.match(header.children[0].textContent,/sample\/repo.*Real description/)
+   assert.match(header.children[1].textContent,/Unique README prose/)
+   assert.doesNotMatch(header.children[1].textContent,/Real description/)
+   assert.match(header.children[2].textContent,/项目动态.*GitHub 仓库.*仓库配置与 Labels.*项目频道/)
+   assert.ok(title.contains(app.host.querySelector('#team-heading')))
+   assert.equal(title.querySelector('img')?.getAttribute('src'),url===cover?cover:undefined)
+   if(url===cover){
+    const img=title.querySelector('img')
+    assert.equal(img.getAttribute('referrerpolicy'),'no-referrer')
+    assert.equal(img.getAttribute('alt'),'')
+    await act(async()=>img.dispatchEvent(new Event('error')))
+    assert.equal(title.querySelector('img'),null)
+   }
+   await act(async()=>title.querySelector('a[href="#feed-heading"]').click())
+   assert.equal(document.activeElement,app.host.querySelector('#feed-heading'))
+   assert.equal(title.querySelector('a[href="https://github.com/sample/repo/blob/main/README.md"]').textContent,'完整 README')
+  }finally{await app.close()}
+ }
+})
+
+test('#99 Title reacts to card width changes without remounting Team or reloading data',async()=>{
+ const original=globalThis.ResizeObserver
+ const rect=HTMLElement.prototype.getBoundingClientRect
+ let width=1160, callback, observed, disconnects=0
+ globalThis.ResizeObserver=class {
+  constructor(cb){callback=cb}
+  observe(node){observed=node}
+  disconnect(){disconnects++}
+ }
+ HTMLElement.prototype.getBoundingClientRect=function(){
+  return this.hasAttribute('data-title-layout')?{width,height:250,x:0,y:0,top:0,left:0,bottom:250,right:width,toJSON(){}}:rect.call(this)
+ }
+ let app,homeCalls=0,feedCalls=0
+ const api={getHome:async()=>{homeCalls++;return {repository:{name:'repo',full_name:'sample/repo',description:'Description',html_url:'https://github.com/sample/repo'},branch:'main',readme:{state:'missing'},team:{state:'ready',members:[{id:'1',name:'Alice',role:'Reviewer'}]}}},
+ getFeed:async(_o,_r,page)=>{feedCalls++;return {page,hasMore:false,items:[]}},
+ getCapability:async()=>({user:{login:'operator'},mode:'direct',branch:'main'})}
+ try{
+  app=await mount('/sample/repo','/:owner/:repo',Home,{api})
+  const title=app.host.querySelector('[data-title-layout]'), strip=title.querySelector('[aria-label="团队成员"]')
+  assert.equal(observed,title)
+  assert.equal(title.dataset.titleLayout,'wide')
+  const initial=[homeCalls,feedCalls]
+  for(const [w,mode] of [[1099,'medium'],[700,'medium'],[699,'narrow'],[480,'narrow'],[479,'small'],[320,'small'],[1100,'wide']]){
+   await act(async()=>{width=w;callback()})
+   assert.equal(title.dataset.titleLayout,mode)
+   assert.equal(title.querySelector('[aria-label="团队成员"]'),strip)
+   assert.deepEqual([homeCalls,feedCalls],initial)
+  }
+  await app.close();app=null
+  assert.ok(disconnects>=1)
+ }finally{if(app)await app.close();HTMLElement.prototype.getBoundingClientRect=rect;if(original===undefined)delete globalThis.ResizeObserver;else globalThis.ResizeObserver=original}
+})
