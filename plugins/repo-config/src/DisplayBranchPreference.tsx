@@ -37,7 +37,7 @@ export default function DisplayBranchPreference({ owner, repo, base }: {
       setMessage('')
     }
   }
-  return <section className={styles.panel} aria-labelledby="display-branch-heading">
+  return <section className={[styles.panel, styles.localPanel].join(' ')} aria-labelledby="display-branch-heading">
     <h2 id="display-branch-heading">本机展示分支偏好</h2>
     <p>当前浏览器：<strong>{branch}</strong>。仅影响你在项目主页和成员列表阅读的 README、成员文件；
       成员登记始终写入 main，不修改 GitHub 仓库默认分支、全局平台配置或 Label 同步使用的 main。</p>

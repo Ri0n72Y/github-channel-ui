@@ -685,6 +685,9 @@ test('#99 Member pending PR prioritizes the exact external GitHub link with acce
  try{
   const field=app.host.querySelector('input[required]')
   assert.ok(field)
+  const fields=[...app.host.querySelectorAll('form input, form textarea')]
+  assert.deepEqual(fields.map(el=>el.getAttribute('maxlength')),['60','39','40','280',null,'24',null,'24',null,'24',null])
+  assert.equal(fields[0],field)
   await act(async()=>input(field,'Alice'))
   await act(async()=>app.host.querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})))
   await flush()

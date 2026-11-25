@@ -70,7 +70,7 @@ export default function ConfigView(props: Props) {
     {loading && <p role="status">正在读取 main、Config 与 Label 差异…</p>}
     {error && <p className={styles.error} role="alert">{error}</p>}
     {draftStale && <p className={styles.error} role="alert">GitHub 配置版本已变化，草稿仍保留。请先复制草稿并确认刷新，重新核对后才能提交。</p>}
-    {writeOutcomeUnknown && <section className={styles.panel} role="alert">
+    {writeOutcomeUnknown && <section className={[styles.panel, styles.warningPanel].join(' ')} role="alert">
       <p className={styles.error}>GitHub 写入结果未知，可能已有 Config、Label 或维护 PR 变更。请先在 GitHub 核查，禁止直接重复提交。</p>
       <div className={styles.actions}>
         <button type="button" onClick={onUnlockUnknownWrite} disabled={busy || loading}>
@@ -86,7 +86,7 @@ export default function ConfigView(props: Props) {
     {!snapshot && !loading && error && <div className={styles.actions}>
       <button type="button" onClick={onRefresh}>重新读取 GitHub 配置</button>
     </div>}
-    {snapshot && <section className={styles.panel} aria-labelledby="state-heading">
+    {snapshot && <section className={[styles.panel, styles.statusPanel].join(' ')} aria-labelledby="state-heading">
       <div className={styles.panelHead}>
         <div><h2 id="state-heading">当前状态</h2>
           <p className={styles.state}>{stateText[state] || state}</p></div>
@@ -94,8 +94,8 @@ export default function ConfigView(props: Props) {
       </div>
       <dl className={styles.metadata}>
         <div><dt>同步分支</dt><dd>main</dd></div>
-        <div><dt>HEAD</dt><dd><code>{shaText(snapshot.headSha)}</code></dd></div>
-        <div><dt>Config Blob</dt><dd><code>{shaText(snapshot.fileSha)}</code></dd></div>
+        <div><dt>HEAD</dt><dd><code title={snapshot.headSha || undefined}>{shaText(snapshot.headSha)}</code></dd></div>
+        <div><dt>Config Blob</dt><dd><code title={snapshot.fileSha || undefined}>{shaText(snapshot.fileSha)}</code></dd></div>
         {snapshot.counts && <div><dt>快照</dt><dd>{snapshot.counts.labels} Labels · {snapshot.counts.issueObjects} Issue API 对象</dd></div>}
       </dl>
       {capability?.state === 'unauthenticated' &&
@@ -123,11 +123,11 @@ export default function ConfigView(props: Props) {
       {snapshot.configText != null && <pre className={styles.raw}>{snapshot.configText}</pre>}
     </section>}
 
-    {snapshot && editorEnabled && <section className={styles.panel}>
-      <h2>labourchain.config.yaml</h2>
+    {snapshot && editorEnabled && <section className={[styles.panel, styles.editorPanel].join(' ')} aria-labelledby="config-editor-heading">
+      <h2 id="config-editor-heading"><span className={styles.step} aria-hidden="true">01</span> Config YAML</h2>
       <p>文件固定在仓库根目录。编辑后先校验，再提交到 main 或创建维护 PR。</p>
       <form onSubmit={onSave}>
-        <label className={styles.editorLabel} htmlFor="repo-config-source">Config YAML</label>
+        <label className={styles.editorLabel} htmlFor="repo-config-source">Config YAML · labourchain.config.yaml</label>
         <textarea id="repo-config-source" className={styles.editor}
           value={content} onChange={event => onContentChange(event.target.value)}
           spellCheck={false} maxLength={262144} rows={18} disabled={busy || !editorEnabled} />
@@ -147,8 +147,8 @@ export default function ConfigView(props: Props) {
       </form>
     </section>}
 
-    {snapshot?.state === 'sync_pending' && plan && <section className={styles.panel}>
-      <h2>Label 同步预览</h2>
+    {snapshot?.state === 'sync_pending' && plan && <section className={[styles.panel, styles.syncPanel].join(' ')} aria-labelledby="label-sync-heading">
+      <h2 id="label-sync-heading"><span className={styles.step} aria-hidden="true">02</span> Label 同步预览</h2>
       <p>以下差异来自 main 当前生效的 Config。同步必须由用户单独触发。</p>
       <dl className={styles.impact}>
         <div><dt>待创建仓库 Label</dt><dd>{plan.impact.definitions}</dd></div>
@@ -190,7 +190,7 @@ export default function ConfigView(props: Props) {
 
     {snapshot?.state === 'snapshot_incomplete' &&
       <p className={styles.error}>GitHub Labels 或 Issues 分页未完整读取。本次不生成同步计划，也不允许写入。</p>}
-    {result && <section className={styles.panel} aria-live="polite">
+    {result && <section className={[styles.panel, styles.resultPanel].join(' ')} aria-live="polite">
       <h2>最近一次操作</h2>
       <p>{stateText[result.state] || result.state}</p>
       {result.prUrl && <a href={result.prUrl} target="_blank" rel="noopener noreferrer">查看维护 PR</a>}

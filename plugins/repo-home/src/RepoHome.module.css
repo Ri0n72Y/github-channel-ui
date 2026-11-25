@@ -456,3 +456,40 @@
   .membersPage .memberGrid {grid-template-columns:minmax(0,1fr)}
   .membersPage .memberCard {padding:16px}
 }
+
+/* Register only: one aligned reading/form column and continuous field groups. */
+.registerPage {width:100%;max-width:680px;padding:12px 20px 64px}
+.registerPage .registerBreadcrumb {display:flex;align-items:center;flex-wrap:wrap;gap:6px;
+  color:var(--lc-text-muted);font-size:13px}
+.registerPage .registerBreadcrumb a {display:inline-flex;align-items:center;min-height:44px;min-width:44px}
+.registerPage .registerHeader {border-inline-start:4px solid var(--lc-primary);padding-inline-start:12px;margin:4px 0 14px}
+.registerPage .registerHeader h1 {font-size:clamp(24px,3vw,30px);line-height:1.3;margin:0 0 6px}
+.registerPage .registerHeader p {font-size:13px;line-height:1.5;margin:0}
+.registerPage .memberForm {width:100%;max-width:none;gap:14px;padding:18px 20px;border-radius:var(--lc-radius)}
+.registerPage .registerGroup {display:grid;gap:12px;min-width:0}
+.registerPage .registerGroup + .registerGroup {padding-top:14px;border-top:1px solid var(--lc-stroke)}
+.registerPage .registerGroup h2,.registerPage .registerLinks legend {font-size:16px;font-weight:700;line-height:1.4;margin:0}
+.registerPage :is(.registerGroup h2,.registerLinks legend) span {color:var(--lc-text-muted);font-size:12px;margin-inline-end:6px}
+.registerPage .registerGroup label,.registerPage .registerLinks label {display:grid;gap:5px;color:var(--lc-text-secondary);font-size:14px}
+.registerPage .memberForm input {min-height:44px}
+.registerPage .memberForm textarea {min-height:100px;resize:vertical}
+.registerPage .memberForm .registerLinks {padding:8px 0 0;margin:0;border:0;border-top:1px solid var(--lc-stroke);
+  border-radius:0;min-width:0;gap:12px}
+.registerPage .registerLinks legend {padding-inline-end:10px}
+.registerPage .linkFields {grid-template-columns:minmax(0,1fr) minmax(0,1.9fr);gap:8px 12px}
+.registerPage .registerActions {justify-content:flex-end;padding-top:12px;border-top:1px solid var(--lc-stroke)}
+.registerPage .registerActions a,.registerPage > a {display:inline-flex;align-items:center;justify-content:center;
+  min-height:44px;min-width:44px;max-width:100%;padding:8px 12px}
+.registerPage .registerOperator {margin:12px 0;padding:10px 12px;border:1px solid var(--lc-stroke);
+  border-radius:var(--lc-radius);background:var(--lc-surface-raised);font-size:14px;line-height:1.55}
+.registerPage > :is([role="alert"],[role="status"]):not(.submitResult) {padding:10px 12px;margin:10px 0;
+  border:1px solid var(--lc-stroke);border-radius:var(--lc-radius);background:var(--lc-surface);line-height:1.55;font-size:14px}
+.registerPage > [role="alert"] {border-inline-start:3px solid var(--lc-error)}
+.registerPage > [role="alert"] button {max-width:100%;white-space:normal;overflow-wrap:anywhere}
+.registerPage .submitResult {border-radius:var(--lc-radius);padding:16px 18px;margin:12px 0}
+@media(max-width:680px) {
+  .registerPage {padding:10px 14px 60px}
+  .registerPage .memberForm {padding:14px 16px}
+  .registerPage .linkFields {grid-template-columns:minmax(0,1fr)}
+  .registerPage .registerActions {justify-content:flex-start}
+}
