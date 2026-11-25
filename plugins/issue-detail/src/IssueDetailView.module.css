@@ -1,7 +1,7 @@
 .page {
   width: min(100%, 960px);
   margin-inline: auto;
-  padding: 12px clamp(12px, 2.5vw, 24px) 64px;
+  padding: 6px clamp(8px, 2vw, 20px) 0;
   box-sizing: border-box;
   color: var(--lc-text);
   line-height: 1.6;
@@ -15,28 +15,36 @@
 .page :where(a, button, input, textarea):focus-visible,
 .tabpanel:focus-visible { outline: 3px solid var(--lc-focus); outline-offset: 3px; }
 .page :where(h1, h2, h3) { line-height: 1.3; overflow-wrap: anywhere; }
-.page h1 { font-size: clamp(24px, 3vw, 28px); line-height: 1.25; margin: 6px 0; }
+.page h1 { font-size: clamp(22px, 3vw, 26px); line-height: 1.25; margin: 6px 0; }
 .page h2 { font-size: 17px; margin: 6px 0; }
 .page h3 { font-size: 16px; margin: 0; }
 .page :where(p, div, article, section, header, li) { min-width: 0; overflow-wrap: anywhere; }
 .top { display: flex; align-items: center; gap: 8px 18px; flex-wrap: wrap; margin-bottom: 8px; }
 .top a { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; font-size: 13px; }
-.context, .tabpanel, .errorPanel {
-  min-width: 0; border: 1px solid var(--lc-stroke); border-radius: var(--lc-radius);
-  background: var(--lc-surface); padding: 16px 20px;
+.page[data-ready="true"] { height: var(--issue-available-height, 100vh); height: var(--issue-available-height, 100dvh); min-height: 0; }
+.conversationShell {
+  display: grid; grid-template-rows: minmax(0, 1fr) auto; height: 100%; min-height: 0; min-width: 0;
+  border: 1px solid var(--lc-stroke); border-radius: var(--lc-radius); background: var(--lc-surface);
 }
+.conversationScroll { min-height: 0; min-width: 0; overflow-y: auto; overflow-x: hidden;
+  overscroll-behavior-y: contain; scrollbar-gutter: stable; padding: 8px 16px 12px; }
+.conversationScroll:focus-visible { outline: 3px solid var(--lc-focus); outline-offset: -3px; }
+.context, .tabpanel { min-width: 0; padding: 0; }
+.errorPanel { min-width: 0; border: 1px solid var(--lc-stroke); border-radius: var(--lc-radius);
+  background: var(--lc-surface); padding: 16px 20px; }
 .identity { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 13px; }
 .repository { color: var(--lc-text-muted); }
 .issueNumber, .issueState { display: inline-flex; align-items: center; border-radius: 999px;
   padding: 2px 8px; border: 1px solid var(--lc-stroke); font-weight: 650; }
 .issueNumber { color: var(--lc-accent-ink); background: var(--lc-accent-soft); }
 .issueState { color: var(--lc-text-secondary); background: var(--lc-surface-raised); }
+.issueState[data-state='open'] { color: var(--lc-success); border-color: var(--lc-success); }
 .meta { color: var(--lc-text-muted); font-size: 13px; line-height: 1.45; }
 .context > .meta { margin: 0; }
 .body { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
 .summary {
   display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
-  gap: 8px 16px; padding: 10px 12px; margin: 12px 0;
+  gap: 6px 12px; padding: 6px 10px; margin: 8px 0;
   border: 1px solid var(--lc-stroke); border-left: 3px solid var(--lc-primary);
   background: var(--lc-surface-raised); border-radius: 8px;
 }
@@ -46,8 +54,9 @@
 .summaryPart .body { font-size: 14px; line-height: 1.55; }
 .hours { font-size: 14px; }
 .hours strong { font-size: 23px; line-height: 1.25; }
-.issueBody { min-width: 0; }
-.issueBody h2 { margin: 0 0 6px; }
+.issueBody { min-width: 0; padding: 10px 12px; margin: 8px 0 12px;
+  background: var(--lc-surface-raised); border: 1px solid var(--lc-stroke); border-radius: 8px; }
+.issueBody h2 { font-size: 15px; margin: 0 0 4px; }
 .markdownBody { min-width: 0; max-width: 100%; }
 .markdownBody > div { font-size: 15px; line-height: 1.65; }
 .markdownBody > div > div, .markdownBody > div > blockquote,
@@ -56,9 +65,8 @@
 .markdownBody > div > :last-child { margin-bottom: 0; }
 .empty { color: var(--lc-text-muted); font-size: 14px; margin: 8px 0; }
 .readStatus {
-  color: var(--lc-text-secondary); padding: 8px 12px; margin: 12px 0;
-  border: 1px solid var(--lc-stroke); border-radius: 10px; background: var(--lc-surface);
-  font-size: 14px;
+  color: var(--lc-text-secondary); padding: 4px 0; margin: 4px 0;
+  font-size: 13px;
 }
 .readStatus p { margin: 3px 0; }
 .readActions { display: flex; gap: 4px 12px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
@@ -73,8 +81,8 @@
 }
 .page button:hover:not(:disabled) { background: var(--lc-surface-raised); border-color: var(--lc-focus); }
 .page button:disabled { opacity: .65; cursor: not-allowed; }
-.tabs { display: flex; gap: 6px; flex-wrap: wrap; padding: 6px; margin: 0 0 8px;
-  background: var(--lc-surface); border: 1px solid var(--lc-stroke); border-radius: 10px; }
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; padding: 6px 0; margin: 0;
+  border-bottom: 1px solid var(--lc-stroke); }
 .tabs button { flex: 0 1 auto; padding-inline: 18px; background: var(--lc-surface); }
 .tabs button[aria-selected="true"] {
   border-color: var(--lc-primary); background: var(--lc-primary);
@@ -83,10 +91,17 @@
 .tabs button[aria-selected="true"]:hover:not(:disabled) { background: var(--lc-primary-hover); color: var(--lc-on-primary); }
 .tabpanel[hidden] { display: none; }
 .tabpanel > h2 { margin-top: 0; }
-.panelTitle { font-size: 16px; }
+.panelTitle { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .list { display: grid; gap: 10px; padding: 0; margin: 8px 0; list-style: none; border: 0; background: transparent; }
 .listItem { display: block; border: 0; border-bottom: 1px solid var(--lc-stroke); padding: 0 0 10px; min-width: 0; }
 .listItem:last-child { border-bottom: 0; padding-bottom: 0; }
+.discussionList { position: relative; padding-inline-start: 14px; gap: 12px; }
+.discussionList::before { content: ''; position: absolute; inset-block: 16px 12px; inset-inline-start: 3px;
+  width: 1px; background: var(--lc-stroke); pointer-events: none; }
+.discussionList .listItem { position: relative; border: 0; padding: 0; }
+.discussionList .listItem::before { content: ''; position: absolute; inset-inline-start: -14px; top: 13px;
+  width: 7px; height: 7px; border-radius: 50%; background: var(--lc-stroke-strong); pointer-events: none; }
 .commentCard { display: grid; grid-template-columns: 32px minmax(0, 1fr); align-items: start; gap: 10px; }
 .authorMark { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
   background: var(--lc-accent-soft); color: var(--lc-accent-ink); font-size: 14px; font-weight: 700; overflow: hidden; }
@@ -94,6 +109,8 @@
 .commentHeader { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 10px; margin-bottom: 4px; }
 .commentHeader strong { font-size: 15px; }
 .commentHeader a { font-size: 13px; margin-inline-start: auto; }
+.page .quoteAction { border-color: transparent; background: transparent; color: var(--lc-link); font-size: 12px; padding: 4px 6px; }
+
 .record { border-inline-start: 3px solid var(--lc-primary); padding-inline-start: 12px; }
 .record p { margin-block: 6px; }
 .commit { font: .85rem/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
@@ -115,14 +132,42 @@
 .error { color: var(--lc-error); }
 .success { color: var(--lc-success); }
 .composer > .error, .composer > .success { margin: 0; padding: 8px 10px; border: 1px solid var(--lc-stroke); border-radius: 8px; }
+.commentComposer { min-width: 0; min-height: 0; margin: 0; padding: 6px 12px max(6px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--lc-stroke); background: var(--lc-surface); gap: 4px;
+  border-radius: 0 0 var(--lc-radius) var(--lc-radius); }
+.commentComposer[hidden] { display: none; }
+.composerInfo { min-height: 0; max-height: min(100px, max(20px, calc(var(--issue-available-height, 100dvh) * .15)));
+  overflow-y: auto; overflow-wrap: anywhere; padding: 3px; scrollbar-gutter: stable; }
+.composerInfo > p { margin: 3px 0; }
+.quotePreview { display: flex; align-items: center; gap: 8px; padding: 2px 3px; }
+.quoteCopy { flex: 1; min-width: 0; font-size: 13px; }
+.quoteCopy p { margin: 2px 0; font-size: 12px; }
+.quotePreview button { flex: none; }
+.commentComposerRow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+  align-items: end; gap: 8px; }
+.commentComposerRow textarea { min-height: 44px; max-height: min(150px, max(44px, calc(var(--issue-available-height, 100dvh) * .25)));
+  overflow-y: auto; }
+.sendActions { min-width: 0; display: grid; gap: 2px; justify-items: end; max-width: 180px; }
+.sendActions button { background: var(--lc-primary); border-color: var(--lc-primary); color: var(--lc-on-primary); font-weight: 700; }
+.page .sendActions button:hover:not(:disabled) { background: var(--lc-primary-hover); color: var(--lc-on-primary); }
+.sendActions .meta { font-size: 11px; text-align: right; }
+.commentComposer > .error { margin: 0; font-size: 12px; }
 @media (max-width: 600px) {
-  .context, .tabpanel, .errorPanel { padding: 12px; }
+  .conversationScroll { padding: 8px 10px 12px; }
+  .errorPanel { padding: 12px; }
+  .discussionList { padding-inline-start: 0; }
+  .discussionList::before, .discussionList .listItem::before { display: none; }
+  .sendActions { max-width: 112px; }
+  .sendActions button { font-size: 12px; padding: 6px 8px; }
   .summary, .dateFields { grid-template-columns: minmax(0, 1fr); }
   .readActions { align-items: stretch; }
   .page h1 { font-size: 23px; }
 }
 @media (max-width: 380px) {
-  .page { padding: 8px 10px 48px; }
+  .page { padding: 4px 6px 0; }
+  .commentComposer { padding-inline: 8px; }
+  .commentComposerRow { gap: 5px; }
+  .sendActions { max-width: 100px; }
   .commentCard { grid-template-columns: 28px minmax(0, 1fr); gap: 8px; }
   .authorMark { width: 28px; height: 28px; }
   .commentHeader a { margin-inline-start: 0; }

@@ -5,6 +5,7 @@ export type LabourDraft = Record<LabourField, string>
 export type CommentItemView = {
   id: number; author: string; time: string; body: string; sourceUrl: string | null
 }
+export type QuoteReply = { id: number; author: string; sourceUrl: string | null; excerpt: string; truncated: boolean }
 export type LabourItemView = {
   id: number; author: string; time: string; work: string; hours: number;
   outcome: string | null; occurrence: string; conflicted: boolean;
@@ -37,7 +38,8 @@ export type IssueDetailViewModel = {
     labour: { records: LabourItemView[]; emptyText: string; invalidCount: number }
   }
   form: {
-    draft: string; labour: LabourDraft; pending: boolean;
+    draft: string; quote: QuoteReply | null; commentLength: number; refreshing: boolean;
+    labour: LabourDraft; pending: boolean;
     pendingKind: 'comment' | 'labour' | null; notice: FormNotice | null;
     permission: PermissionView
   }
@@ -45,6 +47,7 @@ export type IssueDetailViewModel = {
 export type IssueDetailViewActions = {
   onRetry(): void; onRefresh(): void; onLoadMore(): void
   onCommentChange(value: string): void
+  onQuoteComment(id: number): void; onCancelQuote(): void
   onLabourChange(field: LabourField, value: string): void
   onSubmitComment(): void; onSubmitLabour(): void
 }
