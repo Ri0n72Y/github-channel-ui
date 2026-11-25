@@ -237,3 +237,23 @@ test('#69 one conversation shell has early tabs and a separate bounded composer 
   assert.match(viewSource,/visualViewport/)
   assert.match(viewSource,/getBoundingClientRect\(\)\.top/)
 })
+
+test('#69 B2 complete composer budget and compact single-scroll fallback retain all controls and feedback',()=>{
+ const payload=structuredClone(model)
+ payload.form.quote={id:6,author:'长'.repeat(100),excerpt:'引用内容'.repeat(400),truncated:true,sourceUrl:model.issue.discussion.comments[0].sourceUrl}
+ payload.form.draft='长'.repeat(20000)
+ payload.form.commentLength=21000
+ payload.form.notice={kind:'comment',tone:'error',message:'提交反馈'.repeat(100)}
+ payload.issue.pagination.hasMore=true
+ payload.issue.discussion.comments.push({...payload.issue.discussion.comments[0],id:9,body:'最后一条评论'})
+ const html=renderToStaticMarkup(createElement(View,{model:payload,actions}))
+ for(const label of ['Issue 讨论面板','Issue 阅读区','最后一条评论','加载下一页评论','取消引用','确认以 GitHub 身份评论','超过 20000 字符','提交反馈'])
+  assert.ok(html.includes(label),label)
+ assert.ok(html.indexOf('最后一条评论')<html.indexOf('aria-label="参与讨论"'))
+ const css=readFileSync(resolve(root,'plugins/issue-detail/src/IssueDetailView.module.css'),'utf8')
+ assert.match(css,/\.commentComposer \{[^}]*max-height:\s*calc\(var\(--issue-available-height, 100dvh\) \* \.5\)[^}]*overflow-y:\s*auto[^}]*grid-auto-rows:\s*max-content/s)
+ assert.match(css,/\.page\[data-height-mode='compact'\] \.conversationShell \{[^}]*display:\s*block;[^}]*overflow-y:\s*auto/s)
+ assert.match(css,/\.page\[data-height-mode='compact'\] \.conversationScroll \{[^}]*overflow:\s*visible/s)
+ assert.match(css,/\.page\[data-height-mode='compact'\] \.commentComposer \{[^}]*max-height:\s*none;[^}]*overflow:\s*visible/s)
+ assert.match(viewSource,/available < 480 \? 'compact' : 'split'/)
+})

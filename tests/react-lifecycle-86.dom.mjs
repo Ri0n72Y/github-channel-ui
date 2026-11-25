@@ -1126,3 +1126,52 @@ test('#69 failed or uncertain reply retains quote/draft; same-tick double submit
   }finally{await app.close()}
  }
 })
+
+test('#69 B2 visual viewport resize keeps quote, feedback, last comment and pagination mounted in compact mode',async()=>{
+ const descriptor=Object.getOwnPropertyDescriptor(window,'visualViewport')
+ const viewport=new window.EventTarget()
+ viewport.height=812;viewport.offsetTop=0
+ Object.defineProperty(window,'visualViewport',{configurable:true,value:viewport})
+ let writes=0
+ const svc=issueService({authorized:true,comments:(_n,page)=>Promise.resolve({items:[
+  replyComment(100+page,'长引用'.repeat(500),{user:{login:'long-author'}}),
+  replyComment(200+page,'last comment page '+page)
+ ],hasMore:page===1}),postComment:async()=>{writes++;throw Error('GitHub rejected '.repeat(40))}})
+ let app
+ try{
+  app=await issueMount(svc)
+  const shell=app.host.querySelector('[aria-label="Issue 讨论面板"]')
+  const reading=app.host.querySelector('[aria-label="Issue 阅读区"]')
+  const page=shell.parentElement
+  assert.equal(page.dataset.heightMode,'split')
+  await act(async()=>quoteButtons(app)[0].click())
+  await act(async()=>input(replyArea(app),'long draft\n'.repeat(1000)))
+  await act(async()=>replySend(app).click())
+  await flush()
+  assert.equal(writes,1)
+  assert.match(app.host.textContent,/避免重复发表/)
+  for(const height of [480,479,320,280,240,200,160,120,80,812]){
+   await act(async()=>{viewport.height=height;viewport.dispatchEvent(new Event('resize'))})
+   assert.equal(page.dataset.heightMode,height<480?'compact':'split')
+   assert.equal(page.style.getPropertyValue('--issue-available-height'),height+'px')
+   assert.equal(app.host.querySelector('[aria-label="Issue 讨论面板"]'),shell)
+   assert.equal(app.host.querySelector('[aria-label="Issue 阅读区"]'),reading)
+   assert.equal(replyArea(app).value,'long draft\n'.repeat(1000))
+   assert.ok(quotePreview(app))
+   assert.ok(replySend(app))
+   assert.match(app.host.textContent,/last comment page 1|避免重复发表/)
+  }
+  await act(async()=>{viewport.height=160;viewport.dispatchEvent(new Event('resize'))})
+  await act(async()=>[...reading.querySelectorAll('button')].find(b=>b.textContent==='加载下一页评论').click())
+  await flush()
+  assert.match(reading.textContent,/last comment page 2/)
+  await act(async()=>quotePreview(app).querySelector('button').click())
+  assert.equal(quotePreview(app),null)
+  assert.equal(document.activeElement,replyArea(app))
+  assert.equal(replyArea(app).value,'long draft\n'.repeat(1000))
+ }finally{
+  if(app)await app.close()
+  if(descriptor)Object.defineProperty(window,'visualViewport',descriptor)
+  else delete window.visualViewport
+ }
+})

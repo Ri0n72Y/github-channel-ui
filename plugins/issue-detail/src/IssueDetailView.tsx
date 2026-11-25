@@ -64,7 +64,7 @@ function CommentComposer({ model, actions, inputRef, hidden }: Props & { inputRe
   const form = model.form
   const tooLong = form.commentLength > 20000
   const preview = Array.from((form.quote?.excerpt || '').replace(/\s+/g, ' '))
-  return <form hidden={hidden} className={[styles.composer, styles.commentComposer].join(' ')} aria-label="参与讨论"
+  return <form hidden={hidden} tabIndex={0} className={[styles.composer, styles.commentComposer].join(' ')} aria-label="参与讨论"
     onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); actions.onSubmitComment() }}>
     {form.quote && <div className={styles.quotePreview} aria-label="当前引用">
         <div className={styles.quoteCopy}>
@@ -72,7 +72,7 @@ function CommentComposer({ model, actions, inputRef, hidden }: Props & { inputRe
           {form.quote.sourceUrl && <> · <a href={form.quote.sourceUrl} target="_blank" rel="noopener noreferrer">原评论</a></>}
           <p>摘要：{preview.slice(0, 36).join('')}{preview.length > 36 ? '…' : ''}{form.quote.truncated && '（引用已截取）'}</p>
         </div>
-        <button type="button" onClick={() => { actions.onCancelQuote(); inputRef.current?.focus({preventScroll:true}) }}>取消引用</button>
+        <button type="button" onClick={() => { actions.onCancelQuote(); inputRef.current?.focus() }}>取消引用</button>
       </div>}
     <div className={styles.composerInfo}>
       <PermissionHint permission={form.permission}/>
@@ -172,6 +172,8 @@ export default function IssueDetailView({ model, actions }: Props) {
   const baseId = useId()
   const pageRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const shellRef = useRef<HTMLDivElement>(null)
+  const readingRef = useRef<HTMLDivElement>(null)
   const discussionTab = useRef<HTMLButtonElement>(null)
   const labourTab = useRef<HTMLButtonElement>(null)
   const tabId = (name: IssueTab) => baseId + '-tab-' + name
@@ -192,11 +194,33 @@ export default function IssueDetailView({ model, actions }: Props) {
     if (!page) return
     const viewport = window.visualViewport
     const update = () => {
-      const bottom = viewport ? viewport.offsetTop + viewport.height : window.innerHeight
-      const available = Math.max(120, Math.floor(bottom - page.getBoundingClientRect().top))
+      const height = Math.max(1, Math.floor(viewport?.height ?? window.innerHeight))
+      const top = viewport?.offsetTop ?? 0
+      // If the host toolbar fills the visible area, allow the document to scroll
+      // to a small usable shell, without creating a shell taller than the viewport.
+      const available = Math.max(Math.min(120, height),
+        Math.floor(top + height - Math.max(top, page.getBoundingClientRect().top)))
+      const mode = available < 480 ? 'compact' : 'split'
+      const previous = page.dataset.heightMode
+      const shell = shellRef.current
+      const reading = readingRef.current
+      const position = previous === 'compact' ? shell?.scrollTop : reading?.scrollTop
       const value = available + 'px'
       if (page.style.getPropertyValue('--issue-available-height') !== value)
         page.style.setProperty('--issue-available-height', value)
+      if (previous !== mode) {
+        page.dataset.heightMode = mode
+        // Transfer the reading position, not an unconditional jump to the bottom.
+        if (previous && shell && reading && position !== undefined) {
+          if (mode === 'compact') shell.scrollTop = position
+          else { shell.scrollTop = 0; reading.scrollTop = position }
+        }
+        // An already-focused editor/control must remain reachable after a keyboard resize.
+        const active = document.activeElement
+        if (active instanceof HTMLElement && shell?.contains(active) &&
+            active.closest('form[aria-label="参与讨论"]'))
+          active.scrollIntoView?.({block:'nearest',inline:'nearest'})
+      }
     }
     update()
     window.addEventListener('resize', update)
@@ -226,8 +250,8 @@ export default function IssueDetailView({ model, actions }: Props) {
       <p role="alert">{model.load.error}（HTTP {model.load.statusCode}）</p>
       <button type="button" onClick={actions.onRetry}>重试读取</button>
     </section>}
-    {model.load.phase === 'ready' && model.issue && <div className={styles.conversationShell}>
-      <div className={styles.conversationScroll} role="region" aria-label="Issue 阅读区" tabIndex={0}>
+    {model.load.phase === 'ready' && model.issue && <div ref={shellRef} className={styles.conversationShell} role="region" aria-label="Issue 讨论面板" tabIndex={0}>
+      <div ref={readingRef} className={styles.conversationScroll} role="region" aria-label="Issue 阅读区" tabIndex={0}>
       {navigation}
       <header className={styles.context}>
         <div className={styles.identity}>
@@ -299,7 +323,7 @@ export default function IssueDetailView({ model, actions }: Props) {
         </section>
       <section role="tabpanel" id={panelId('discussion')} aria-labelledby={tabId('discussion')}
         tabIndex={0} hidden={tab !== 'discussion'} className={styles.tabpanel}>
-        <DiscussionView model={model} actions={actions} onReplyFocus={() => inputRef.current?.focus({preventScroll:true})}/>
+        <DiscussionView model={model} actions={actions} onReplyFocus={() => inputRef.current?.focus()}/>
       </section>
       <section role="tabpanel" id={panelId('labour')} aria-labelledby={tabId('labour')}
         tabIndex={0} hidden={tab !== 'labour'} className={styles.tabpanel}>

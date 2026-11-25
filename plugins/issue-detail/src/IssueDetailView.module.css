@@ -28,7 +28,9 @@
 }
 .conversationScroll { min-height: 0; min-width: 0; overflow-y: auto; overflow-x: hidden;
   overscroll-behavior-y: contain; scrollbar-gutter: stable; padding: 8px 16px 12px; }
-.conversationScroll:focus-visible { outline: 3px solid var(--lc-focus); outline-offset: -3px; }
+.conversationScroll:focus-visible, .conversationShell:focus-visible, .commentComposer:focus-visible {
+  outline: 3px solid var(--lc-focus); outline-offset: -3px;
+}
 .context, .tabpanel { min-width: 0; padding: 0; }
 .errorPanel { min-width: 0; border: 1px solid var(--lc-stroke); border-radius: var(--lc-radius);
   background: var(--lc-surface); padding: 16px 20px; }
@@ -134,10 +136,14 @@
 .composer > .error, .composer > .success { margin: 0; padding: 8px 10px; border: 1px solid var(--lc-stroke); border-radius: 8px; }
 .commentComposer { min-width: 0; min-height: 0; margin: 0; padding: 6px 12px max(6px, env(safe-area-inset-bottom));
   border-top: 1px solid var(--lc-stroke); background: var(--lc-surface); gap: 4px;
-  border-radius: 0 0 var(--lc-radius) var(--lc-radius); }
+  border-radius: 0 0 var(--lc-radius) var(--lc-radius);
+  /* Budget the entire composer, including quote, feedback, safe area and controls.
+     Its content may scroll; the reading track keeps at least half the shell. */
+  max-height: calc(var(--issue-available-height, 100dvh) * .5);
+  overflow-y: auto; overflow-x: hidden; align-content: start; grid-auto-rows: max-content;
+  scroll-padding-block: 6px; }
 .commentComposer[hidden] { display: none; }
-.composerInfo { min-height: 0; max-height: min(100px, max(20px, calc(var(--issue-available-height, 100dvh) * .15)));
-  overflow-y: auto; overflow-wrap: anywhere; padding: 3px; scrollbar-gutter: stable; }
+.composerInfo { min-height: 0; overflow-wrap: anywhere; padding: 3px; }
 .composerInfo > p { margin: 3px 0; }
 .quotePreview { display: flex; align-items: center; gap: 8px; padding: 2px 3px; }
 .quoteCopy { flex: 1; min-width: 0; font-size: 13px; }
@@ -152,6 +158,22 @@
 .page .sendActions button:hover:not(:disabled) { background: var(--lc-primary-hover); color: var(--lc-on-primary); }
 .sendActions .meta { font-size: 11px; text-align: right; }
 .commentComposer > .error { margin: 0; font-size: 12px; }
+/* With a keyboard or a short host viewport, a single scroll surface is safer
+   than squeezing two independently scrollable panels. Keep all controls in
+   the document order; no clipping, overlay, or forced bottom jump. */
+.page[data-height-mode='compact'] .conversationShell {
+  display: block; overflow-y: auto; overflow-x: hidden;
+  scrollbar-gutter: stable; overscroll-behavior-y: contain;
+}
+.page[data-height-mode='compact'] .conversationScroll {
+  overflow: visible; scrollbar-gutter: auto; min-height: 0;
+}
+.page[data-height-mode='compact'] .commentComposer {
+  max-height: none; overflow: visible;
+}
+.page[data-height-mode='compact'] .commentComposerRow textarea {
+  max-height: 150px;
+}
 @media (max-width: 600px) {
   .conversationScroll { padding: 8px 10px 12px; }
   .errorPanel { padding: 12px; }
