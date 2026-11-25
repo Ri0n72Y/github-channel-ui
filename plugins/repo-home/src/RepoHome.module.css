@@ -419,42 +419,56 @@
 }
 .homePage .titleCard[data-title-layout='wide'] .teamActions {justify-content:flex-end}
 
-/* Members directory only: full profiles without changing the shared compact Popover. */
+/* Members directory only: layered full profiles, independent of the compact Popover. */
 .membersPage {width:100%;max-width:960px;padding:12px 20px 64px}
-.membersPage .membersBreadcrumb {display:flex;flex-wrap:wrap;align-items:center;gap:4px;
+.membersPage .membersBreadcrumb {display:flex;flex-wrap:wrap;align-items:center;gap:6px;
   color:var(--lc-text-muted);font-size:13px;line-height:1.4}
 .membersPage .membersBreadcrumb a {display:inline-flex;align-items:center;min-height:44px;min-width:44px}
 .membersPage .membersHeader {display:flex;align-items:center;justify-content:space-between;
-  gap:8px 16px;flex-wrap:wrap;margin:2px 0 12px}
-.membersPage .membersHeading {flex:1 1 160px;min-width:0}
+  gap:8px 16px;flex-wrap:wrap;margin:4px 0 12px}
+.membersPage .membersHeading {flex:1 1 160px;min-width:0;
+  border-inline-start:4px solid var(--lc-primary);padding-inline-start:12px}
 .membersPage .membersHeading h1 {font-size:clamp(24px,3vw,30px);line-height:1.3;margin:0}
-.membersPage .membersHeading p {margin:4px 0 0;font-size:13px}
+.membersPage .membersHeading p {display:flex;align-items:baseline;flex-wrap:wrap;gap:6px;margin:5px 0 0;font-size:13px}
+.membersPage .membersHeading code {padding:2px 7px;border:1px solid var(--lc-stroke);
+  border-radius:6px;background:var(--lc-surface-raised);overflow-wrap:anywhere}
 .membersPage .membersHeader > a {display:inline-flex;align-items:center;justify-content:center;
   min-height:44px;min-width:44px;max-width:100%;padding:8px 16px;border-radius:8px;
   color:var(--lc-on-primary);background:var(--lc-primary);font-weight:700;text-decoration:none}
 .membersPage .membersHeader > a:hover {background:var(--lc-primary-hover);color:var(--lc-on-primary)}
-.membersPage .memberPermission,.membersPage .memberReadStatus {margin:0 0 12px;padding:8px 12px;
+.membersPage .memberPermission,.membersPage .memberReadStatus {margin:0 0 12px;padding:9px 14px;
   border:1px solid var(--lc-stroke);border-radius:var(--lc-radius);background:var(--lc-surface);font-size:14px}
+.membersPage .memberPermission {background:var(--lc-surface-raised)}
 .membersPage .memberPermission p,.membersPage .memberReadStatus p {margin:0;line-height:1.6}
-.membersPage .memberPermission button,.membersPage .memberReadStatus button {margin:4px 0 4px 8px;max-width:100%}
+.membersPage .memberPermission button,.membersPage .memberReadStatus button {margin:4px 0 4px 8px;
+  max-width:100%;white-space:normal;overflow-wrap:anywhere}
 .membersPage .memberReadStatus a {display:inline-flex;align-items:center;min-height:44px;
   min-width:44px;margin-inline-start:8px;max-width:100%}
 .membersPage .memberGrid {grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:16px;margin:12px 0 0}
-.membersPage .memberCard {padding:18px;border-radius:var(--lc-radius);box-shadow:none;min-width:0}
-.membersPage .fullProfile {display:grid;gap:10px;min-width:0}
-.membersPage .fullProfileIdentity {display:flex;align-items:center;gap:12px;min-width:0}
+.membersPage .memberCard {padding:0;border-radius:var(--lc-radius);box-shadow:none;min-width:0}
+.membersPage .fullProfile {display:grid;min-width:0}
+.membersPage .fullProfileIdentity {display:flex;align-items:center;gap:14px;min-width:0;padding:16px 20px;
+  border-radius:var(--lc-radius);background:var(--lc-surface-raised);
+  background-image:linear-gradient(135deg,transparent 80%,var(--lc-surface) 80%,var(--lc-surface) 81%,transparent 81%)}
+.membersPage .fullProfileIdentity:not(:last-child) {border-radius:14px 14px 0 0;border-bottom:1px solid var(--lc-stroke)}
+.membersPage .fullProfileIdentity .avatarLarge {border:1px solid var(--lc-stroke-strong)}
 .membersPage .fullProfileName {min-width:0;flex:1}
-.membersPage .fullProfileName h2 {font-size:18px;font-weight:700;line-height:1.35;margin:0;overflow-wrap:anywhere}
-.membersPage .fullProfileName p {font-size:14px;line-height:1.45;color:var(--lc-text-secondary);margin:3px 0 0}
-.membersPage .fullProfile > .bio {font-size:14px;line-height:1.6;margin:0;color:var(--lc-text-secondary)}
-.membersPage .fullProfileLinks {display:flex;flex-wrap:wrap;align-items:center;gap:0 14px}
+.membersPage .fullProfileName h2 {font-size:21px;font-weight:700;line-height:1.3;margin:0;overflow-wrap:anywhere}
+.membersPage .fullProfileName p {display:inline-block;max-width:100%;padding:3px 9px;
+  border:1px solid var(--lc-stroke);border-radius:999px;background:var(--lc-accent-soft);
+  color:var(--lc-accent-ink);font-size:12px;line-height:1.4;margin:5px 0 0;overflow-wrap:anywhere}
+.membersPage .fullProfile > .bio {padding:16px 20px;font-size:15px;line-height:1.65;margin:0;color:var(--lc-text-secondary)}
+.membersPage .fullProfileLinks {display:flex;flex-wrap:wrap;align-items:center;gap:0 14px;padding:6px 20px}
+.membersPage .bio + .fullProfileLinks {border-top:1px solid var(--lc-stroke)}
 .membersPage .fullProfileLinks a {display:inline-flex;align-items:center;min-width:44px;min-height:44px;
   max-width:100%;overflow-wrap:anywhere;font-size:14px}
 .membersPage :is(a,button):focus-visible {outline:3px solid var(--lc-focus);outline-offset:3px}
 @media(max-width:680px) {
   .membersPage {padding:10px 16px 60px}
   .membersPage .memberGrid {grid-template-columns:minmax(0,1fr)}
-  .membersPage .memberCard {padding:16px}
+  .membersPage .fullProfileIdentity {padding:14px 16px;gap:12px}
+  .membersPage .fullProfile > .bio {padding:14px 16px}
+  .membersPage .fullProfileLinks {padding:6px 16px}
 }
 
 /* Register only: one aligned reading/form column and continuous field groups. */
