@@ -86,11 +86,7 @@
 .homePage .eyebrow,.homePage .muted,.homePage .cardMeta {color:var(--lc-text-muted)}
 .homePage .eyebrow {font-size:13px;letter-spacing:.04em;overflow-wrap:anywhere}
 .homePage .intro {max-width:70ch;color:var(--lc-text-secondary);line-height:1.75}
-.homePage .hero {
-  position:relative;display:block;min-width:0;padding:clamp(20px,3vw,30px);
-  border:1px solid var(--lc-stroke);border-radius:var(--lc-radius);
-  background:var(--lc-surface-raised);box-shadow:var(--lc-shadow);
-}
+
 .homePage .actions {gap:10px 12px;margin-top:18px}
 .homePage .actions a {
   display:inline-flex;align-items:center;justify-content:center;
@@ -190,7 +186,6 @@
 @media(max-width:899px) {.homeLayout {padding-inline:24px}}
 @media(max-width:680px) {
   .homeLayout {padding:18px 16px 60px}
-  .homePage .hero {padding:18px 16px}
   .homePage .teamPanel {padding:14px 12px}
   .homePage .card {padding:16px}
   .homePage .avatar,.homePage .avatarButton {width:36px;height:36px;min-width:36px;min-height:36px}
@@ -210,11 +205,8 @@
 
 /* #99: compact project identity, real member labels and first-screen Issue density. */
 .homeLayout {max-width:1220px;padding:20px 28px 64px}
-.homePage .hero {
-  display:grid;grid-template-columns:minmax(0,1fr) minmax(180px,.34fr);
-  align-items:center;gap:22px;min-height:200px;padding:18px 24px;
-}
-.heroCopy {min-width:0}
+
+
 .homePage h1 {font-size:clamp(27px,3vw,35px);margin:4px 0 8px}
 .homePage .intro {
   display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;
@@ -222,17 +214,9 @@
 }
 .homePage .actions {gap:8px;margin-top:12px}
 .homePage .actions a {min-height:44px;padding:8px 12px}
-.heroVisual {
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:9px;min-height:160px;border-radius:16px;border:1px solid var(--lc-stroke);
-  background:radial-gradient(circle at 70% 25%,var(--lc-accent-soft),transparent 58%),var(--lc-surface);
-}
-.heroGlyph {
-  display:grid;place-items:center;width:94px;height:94px;border-radius:25px;
-  background:var(--lc-accent-soft);color:var(--lc-accent-ink);
-  border:2px solid var(--lc-stroke-strong);font-size:36px;font-weight:800;letter-spacing:-.06em;
-}
-.heroBrand {font-weight:650;letter-spacing:.09em;font-size:12px;color:var(--lc-text-secondary)}
+
+
+
 .homePage .branchNote {margin:10px 0 0;color:var(--lc-text-muted);font-size:12px}
 .homePage .branchNote code {color:var(--lc-text);font-weight:650}
 .homePage .branchNote a {margin-left:4px}
@@ -272,12 +256,10 @@
 .page .resultPrimary:hover {background:var(--lc-primary-hover)}
 @media(max-width:899px) {
   .homeLayout {padding-inline:24px}
-  .homePage .hero {grid-template-columns:minmax(0,1fr)}
-  .heroVisual {display:none}
+  
 }
 @media(max-width:680px) {
   .homeLayout {padding:16px 14px 60px}
-  .homePage .hero {padding:16px}
   .homePage .teamPanel {padding:12px}
   .homePage .card {padding:15px}
   .homePage .actions {align-items:stretch}
@@ -289,20 +271,17 @@
 }
 
 /* #99 D2 follow-through: preserve 44px actions while exposing the first Issue sooner. */
-.homePage .hero {
-  grid-template-columns:minmax(0,1fr) minmax(160px,210px);
-  gap:16px;padding:16px 20px;min-height:0;
-}
-.homePage .heroCopy .eyebrow {margin:0 0 4px}
-.homePage .heroCopy h1 {font-size:clamp(28px,3vw,34px);line-height:1.2}
+
+
+
 .homePage .intro { -webkit-line-clamp:2;font-size:15px;line-height:1.45;margin:5px 0 6px }
 .homePage .actions {gap:6px 9px;margin-top:8px}
 .homePage .actions a {padding:7px 12px;min-width:44px;min-height:44px;text-align:center}
-.homePage .heroCopy .actions a:not(.primaryLink) {background:transparent;border-color:transparent}
-.homePage .heroCopy .actions a:not(.primaryLink):hover {border-color:var(--lc-focus);background:var(--lc-surface)}
+
+
 .homePage .branchNote {margin:6px 0 0}
-.heroVisual {min-height:132px;gap:5px}
-.heroGlyph {width:76px;height:76px;border-radius:20px;font-size:30px}
+
+
 .homePage .section {margin-top:12px}
 .homePage .sectionHead {margin-bottom:7px;align-items:center}
 .homePage .teamPanel {padding:10px 14px;display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px}
@@ -342,12 +321,10 @@
 .homePage .cardMeta time {color:var(--lc-text-muted)}
 .homePage .cardActions {margin-top:8px;padding-top:8px}
 @media(max-width:899px) {
-  .homePage .hero {grid-template-columns:minmax(0,1fr)}
   .homePage .teamPanel[data-team-state='ready'] {grid-template-columns:minmax(0,1fr);gap:6px}
   .homePage .teamPanel .teamActions {justify-content:flex-start}
 }
 @media(max-width:680px) {
-  .homePage .hero {padding:14px}
   .homePage .card {padding:13px}
   .homePage .actions a {flex:1 1 130px;max-width:100%}
   .homePage .avatarButton {min-height:44px;max-width:200px}
@@ -370,3 +347,74 @@
   .homePage .sectionHead {justify-content:flex-start;gap:6px 8px}
   .homePage .sectionHead > h2 {flex:1 0 100%}
 }
+
+/* #99 Title: measured width, one DOM order; never establish a fixed-position
+   containing block or clip Team Popover/focus on a Title ancestor. */
+.homeLayout {max-width:1360px}
+.homePage .titleCard {
+  min-width:0;border:1px solid var(--lc-stroke);border-radius:var(--lc-radius);
+  background:var(--lc-surface);box-shadow:var(--lc-shadow);
+}
+.homePage .titleCard > [role] {margin:12px}
+.coverLayer {
+  position:relative;height:88px;overflow:hidden;
+  border-radius:var(--lc-radius) var(--lc-radius) 0 0;
+}
+.coverLayer img {display:block;width:100%;height:100%;object-fit:cover}
+.coverLayer::after {content:"";position:absolute;inset:0;
+  background:linear-gradient(to bottom,transparent 20%,var(--lc-surface));pointer-events:none}
+.homePage .titleContent {
+  display:grid;grid-template-columns:minmax(0,1fr);gap:12px;padding:12px 14px;
+  align-items:start;min-width:0;
+}
+.titleIdentity {display:flex;gap:12px;align-items:flex-start;min-width:0}
+.projectMark {display:grid;place-items:center;flex:none;width:52px;height:52px;border-radius:14px;
+  border:1px solid var(--lc-stroke-strong);background:var(--lc-accent-soft);
+  color:var(--lc-accent-ink);font-size:26px;font-weight:750}
+.identityCopy {flex:1;min-width:0}
+.homePage .titleIdentity .eyebrow {margin:0;font-size:12px;letter-spacing:0}
+.homePage .titleIdentity h1 {font-size:clamp(24px,3vw,34px);margin:2px 0 5px;line-height:1.2}
+.titleIntro,.titleReadme p {font-size:14px;line-height:1.5;margin:4px 0;overflow-wrap:anywhere}
+.homePage .titleReadme h2 {font-size:15px;line-height:1.4;margin:0 0 4px}
+.homePage .titleReadme {color:var(--lc-text-secondary);min-width:0}
+.homePage .titleCard .branchNote a,.homePage .readmeLink {
+  display:inline-flex;align-items:center;min-width:44px;min-height:44px;max-width:100%;
+  overflow-wrap:anywhere
+}
+.homePage .titleCard .branchNote {margin:0}
+.homePage .titleActions {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,128px),1fr));
+  gap:6px;margin:0;align-items:stretch}
+.homePage .titleActions a {min-width:44px;min-height:44px;max-width:100%;padding:6px 10px;font-size:13px;
+  line-height:1.35;overflow-wrap:anywhere}
+.homePage .titleActions .primaryLink {grid-column:1/-1}
+.homePage .titleCard .teamPanel {
+  border:0;border-top:1px solid var(--lc-stroke);border-radius:0;
+  box-shadow:none;background:transparent;margin:0;padding:8px 14px;
+}
+.homePage .titleCard .teamPanel[data-team-state='ready'] {
+  grid-template-columns:minmax(0,1fr);gap:6px;align-items:center;
+}
+.homePage .titleCard .teamPanel .teamActions {justify-content:flex-start;gap:4px;margin:0}
+.homePage .titleCard .teamPanel > h2 {font-size:16px}
+.homePage .titleCard .teamPanel > p {padding:0;max-width:none}
+.homePage .titleCard .teamPanel > p[role] {padding:8px}
+.homePage .feedSection h2:focus-visible {outline:3px solid var(--lc-focus);outline-offset:3px}
+.homePage .feedSection h2 {scroll-margin-top:12px}
+.titleCard[data-title-layout='narrow'] .titleContent {padding:14px 16px;gap:14px}
+.titleCard[data-title-layout='medium'] .titleContent {
+  grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);padding:16px 20px;gap:12px 20px;
+}
+.titleCard[data-title-layout='medium'] .titleIdentity {grid-column:1/-1}
+.titleCard[data-title-layout='medium'] .projectMark {width:60px;height:60px;font-size:30px}
+.titleCard[data-title-layout='medium'] .coverLayer {height:104px}
+.titleCard[data-title-layout='wide'] .titleContent {
+  grid-template-columns:minmax(0,1.55fr) minmax(0,1fr) minmax(160px,.65fr);
+  padding:18px 24px;gap:24px;
+}
+.titleCard[data-title-layout='wide'] .projectMark {width:72px;height:72px;font-size:34px}
+.titleCard[data-title-layout='wide'] .coverLayer {height:124px}
+.homePage .titleCard[data-title-layout='wide'] .titleActions {grid-template-columns:repeat(2,minmax(0,1fr))}
+.homePage .titleCard[data-title-layout='wide'] .teamPanel[data-team-state='ready'] {
+  grid-template-columns:auto minmax(0,1fr) auto;gap:12px;padding:8px 24px;
+}
+.homePage .titleCard[data-title-layout='wide'] .teamActions {justify-content:flex-end}
