@@ -303,6 +303,7 @@ export default function IssueDetailView({ model, actions, accessNotice, paginati
     const top=target.scrollTop+distance()
     if(typeof target.scrollTo==='function')target.scrollTo({top,behavior:'auto'})
     else target.scrollTop=top
+    readingRef.current?.focus({preventScroll:true})
     setCanScrollDown(false)
   }
   const navigation = <nav className={styles.top} aria-label="Issue 导航">
@@ -314,7 +315,7 @@ export default function IssueDetailView({ model, actions, accessNotice, paginati
   return <div ref={pageRef} className={styles.page} data-ready={ready}>
     {!ready && navigation}
     {!ready && accessNotice}
-    {model.load.phase === 'loading' && <p role="status">正在读取 GitHub Issue、配置与评论…</p>}
+    {model.load.phase === 'loading' && <p role="status">正在读取讨论与相关记录…</p>}
     {model.load.phase === 'error' && !accessNotice && <section className={styles.errorPanel}>
       <h1>{model.load.statusCode === 404 ? '404 · Issue 不存在' : 'Issue 无法加载'}</h1>
       <p role="alert">{model.load.error}（HTTP {model.load.statusCode}）</p>

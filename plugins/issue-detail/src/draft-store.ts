@@ -55,7 +55,10 @@ export class IssueDraftStore {
     try {raw=window.localStorage.getItem(key);this.inaccessible.delete(key)}
     catch {
       this.inaccessible.add(key)
-      return {record:this.memory.get(key)||fresh(),warning:failedMessage}
+      const local=this.memory.get(key)||fresh()
+      if(this.conflict.has(key))return {record:{...local,pending:'conflict'},warning:this.conflictWarning}
+      if(this.corrupt.has(key))return {record:{...local,pending:local.pending||'corrupt'},warning:corruptMessage+' '+failedMessage}
+      return {record:local,warning:failedMessage}
     }
     const local=this.memory.get(key)||fresh()
     if(this.unsaved.has(key)&&(!this.seen.has(key)||this.seen.get(key)!==raw)){
