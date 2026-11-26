@@ -1366,7 +1366,7 @@ test('#115 actual RepoPanel route keeps current list and refresh after invalid o
    assert.match(app.host.textContent,/List sample\/repo/)
    assert.equal(store.getSnapshot(),initial)
    assert.equal(reads.length,count)
-   assert.doesNotMatch(app.host.textContent,/正在核验公开仓库/)
+   assert.doesNotMatch(app.host.textContent,/正在读取项目/)
    assert.equal([...app.host.querySelectorAll('button')].find(x=>x.textContent==='重新核验').disabled,false)
   }
   await act(async()=>[...app.host.querySelectorAll('button')].find(x=>x.textContent==='重新核验').click());await flush()

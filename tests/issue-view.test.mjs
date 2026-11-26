@@ -249,7 +249,7 @@ test('#69 B2 complete composer budget and compact single-scroll fallback retain 
  payload.issue.pagination.hasMore=true
  payload.issue.discussion.comments.push({...payload.issue.discussion.comments[0],id:9,body:'最后一条评论'})
  const html=renderToStaticMarkup(createElement(View,{model:payload,actions}))
- for(const label of ['Issue 讨论面板','Issue 阅读区','最后一条评论','加载下一页评论','取消引用','确认以 GitHub 身份评论','超过 20000 字符','提交反馈'])
+ for(const label of ['Issue 讨论面板','Issue 阅读区','最后一条评论','加载下一页评论','取消引用','发表评论','超过 20000 字符','提交反馈'])
   assert.ok(html.includes(label),label)
  assert.ok(html.indexOf('最后一条评论')<html.indexOf('aria-label="参与讨论"'))
  const css=readFileSync(resolve(root,'plugins/issue-detail/src/IssueDetailView.module.css'),'utf8')
