@@ -855,13 +855,13 @@ test('#15 publishing restores and overwrites one repository-scoped draft until G
  try{
   await act(async()=>input(page.host.querySelector('#create-issue-title'),'Scoped task'))
   await act(async()=>input(page.host.querySelector('#create-issue-body'),'first body'))
-  await act(async()=>input(page.host.querySelector('#create-issue-title'),'Latest title'))
+  await act(async()=>input(page.host.querySelector('#create-issue-title'),'  Latest title  '))
   await act(async()=>input(page.host.querySelector('#create-issue-body'),'Latest body'))
-  assert.deepEqual(JSON.parse(localStorage.getItem(storageKey)),{title:'Latest title',description:'Latest body'})
+  assert.deepEqual(JSON.parse(localStorage.getItem(storageKey)),{title:'  Latest title  ',description:'Latest body'})
   assert.equal(Object.keys(localStorage).filter(key=>key===storageKey).length,1)
   await page.close()
   page=await mount('/sample/repo/issues/new','/:owner/:repo/issues/new',CreateIssue,{api,owner:'sample',repo:'repo'})
-  assert.equal(page.host.querySelector('#create-issue-title').value,'Latest title')
+  assert.equal(page.host.querySelector('#create-issue-title').value,'  Latest title  ')
   assert.equal(page.host.querySelector('#create-issue-body').value,'Latest body')
   assert.equal(writes,0,'restoring a draft must never submit it')
   const form=page.host.querySelector('form')
@@ -1113,7 +1113,7 @@ test('#69 quote choose/replace/cancel and tabs preserve current-page input; conf
   assert.deepEqual(writes,[{o:'sample',r:'repo',n:1,body:'回复 [alice](https://github.com/sample/repo/issues/1#issuecomment-101)\n\n> first line\n> second line\n\nmy reply'}])
   assert.equal(replyArea(app).value,'')
   assert.equal(quotePreview(app),null)
-  assert.match(app.host.textContent,/GitHub 已确认发表/)
+  assert.match(app.host.textContent,/已发表；讨论列表已重新读取/)
  }finally{window.confirm=originalConfirm;await app.close()}
 })
 test('#69 quote total length, empty reply and unauthorized state prevent writes',async()=>{

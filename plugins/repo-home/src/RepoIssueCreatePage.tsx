@@ -107,7 +107,8 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const name = title.trim()
+    const submittedTitle = title
+    const name = submittedTitle.trim()
     const body = description
     if (!verified || status !== 'ready' || pending || inflight.current ||
         created || unknown || !name || name.length > 256 || description.length > 20000 ||
@@ -124,12 +125,10 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
         setMessage('GitHub 返回的发布链接无法确认；请先在目标仓库核实动态（Issue），禁止直接重试。')
         return
       }
-      if(draftRef.current.title===name&&draftRef.current.description===body){
-        try{
-          window.localStorage.removeItem(storageKey)
-          draftRef.current={title:'',description:''}
-          setTitle('');setDescription('')
-        }catch{}
+      if(draftRef.current.title===submittedTitle&&draftRef.current.description===body){
+        try{window.localStorage.removeItem(storageKey)}catch{}
+        draftRef.current={title:'',description:''}
+        setTitle('');setDescription('')
       }
       setCreated({ number: result.number, url })
     } catch (error) {
