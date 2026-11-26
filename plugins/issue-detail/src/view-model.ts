@@ -12,7 +12,7 @@ export type LabourItemView = {
   sourceUrl: string | null; commits: Array<{ sha: string; href: string }>
 }
 export type FormNotice = {
-  kind: 'comment' | 'labour'; tone: 'error' | 'success'; message: string
+  kind: 'comment' | 'labour'; tone: 'error' | 'success'; message: string; url?:string
 }
 export type PermissionView = {
   state: 'checking' | 'anonymous' | 'authorized' | 'denied' | 'error'

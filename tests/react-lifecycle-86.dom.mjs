@@ -1810,3 +1810,15 @@ test('#20 feed card preserves title, independent markdown link, expansion, selec
   assert.equal(app.host.contains(card),false)
  }finally{window.getSelection().removeAllRanges();document.removeEventListener('click',cancel);await app.close()}
 })
+
+
+test('#20 round four: published comment permalink and confirmation are explicit',async()=>{
+ const svc=issueService({authorized:true,postComment:async()=>({id:771})})
+ const app=await issueMount(svc)
+ try{
+  await act(async()=>input(replyArea(app),'publish once'))
+  await act(async()=>replySend(app).click());await flush()
+  assert.match(app.host.textContent,/GitHub 已确认发表/)
+  assert.ok([...app.host.querySelectorAll('a')].some(a=>a.href.endsWith('#issuecomment-771')))
+ }finally{await app.close()}
+})

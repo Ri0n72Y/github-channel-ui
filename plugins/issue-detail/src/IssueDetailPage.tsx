@@ -70,6 +70,7 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
   }),[])
   useEffect(()=>()=>{activeScope.current='';writeInFlight.current?.abort.abort();writeInFlight.current=null},[])
   const [notice, setNotice] = useState<FormNotice | null>(null)
+  const publishedRefresh=useRef<string|null>(null)
   const revision = useRef(0)
   const controller = useRef<AbortController | null>(null)
   const pageInFlight = useRef<number | null>(null)
@@ -108,12 +109,14 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
         if (!loaded) throw issueRequestError('该地址不是有效的 GitHub Issue', 404)
         const { issue, first } = loaded
         if (current !== revision.current || abort.signal.aborted) return
+        if(publishedRefresh.current){setNotice(previous=>previous?.url===publishedRefresh.current?{...previous,message:'已发表；讨论列表已重新读取。'}:previous);publishedRefresh.current=null}
         setState({ key: routeKey, loading: false, refreshing: false, issue, comments: uniqueComments(first.items),
           page: 1, hasMore: first.hasMore, fetchingMore: false,
           lastRead: new Date().toISOString(), error: null, pageError: '' })
       } catch (error) {
         if (current !== revision.current || abort.signal.aborted) return
         report(error)
+        if(publishedRefresh.current){setNotice(previous=>previous?.url===publishedRefresh.current?{...previous,message:'GitHub 已确认发表；讨论列表刷新失败，请通过评论来源核实。'}:previous);publishedRefresh.current=null}
         const failure=asIssueError(error)
         setState(previous=>previous.key===routeKey&&previous.issue
           ? {...previous,refreshing:false,fetchingMore:false,error:failure,pageError:failure.message}
@@ -196,13 +199,13 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
   const permission: PermissionView = {
     state: authStatus,
     allowed: canWrite,
-    reason: accessReason ? '仓库访问授权需要恢复；已读内容及草稿暂保留，禁止提交。'
+    reason: accessReason ? '仓库访问授权需要恢复；已读内容暂时保留，禁止提交。'
       : state.error && issue ? '重新读取失败；已读内容可能过时，暂不能提交。'
       : authStatus === 'checking' ? '正在检查登录和提交权限。'
       : authStatus === 'anonymous' ? '登录后即可发表评论或登记劳动。'
       : authStatus === 'denied' ? '当前账号没有此项目的访问授权，不能提交。'
       : authStatus === 'error' ? '无法确认写入权限：' + auth.message + '。'
-      : !hydrated ? '正在恢复当前账号的浏览器草稿。'
+      : !hydrated ? '正在准备评论表单。'
       : state.refreshing ? '正在刷新讨论，暂不能提交。'
       : canWrite ? '' : '讨论尚未成功加载，暂不能提交。',
     loginHref: authStatus === 'anonymous' || authStatus === 'denied' ||
@@ -267,7 +270,9 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
       if(!Number.isSafeInteger(response.id)||response.id<=0||!commentPermalink(response.html_url,owner,repo,numberValue,response.id))
         throw issueRequestError('GitHub 返回的评论结果无法确认',502)
       syncDraft(kind,draftStore.settle(key,started.token,started.version,'success'))
-      setNotice({kind,tone:'success',message:'GitHub 已确认发表：评论 #'+response.id+'。正在刷新讨论。'})
+      const permalink=commentPermalink(response.html_url,owner,repo,numberValue,response.id)!
+      publishedRefresh.current=permalink
+      setNotice({kind,tone:'success',message:'GitHub 已确认发表：评论 #'+response.id+'。',url:permalink})
       setReload(value=>value+1)
     } catch(error) {
       if(!active())return
@@ -275,7 +280,7 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
       syncDraft(kind,draftStore.settle(key,started.token,started.version,unknown?'unknown':'rejected'))
       setNotice({kind,tone:'error',message:asIssueError(error).message+(unknown
         ? '。提交状态未知，请先在 GitHub 检查，避免重复发表。'
-        : '。提交未成功，草稿已保留，可修正后重试。')})
+        : '。提交未成功，请修正内容后重试。')})
     } finally {
       if(writeInFlight.current===flight){writeInFlight.current=null;setPendingKind(null)}
     }
@@ -296,7 +301,7 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
   }
 
   const warnings: string[] = []
-  if(issue&&(accessReason||state.error))warnings.push('当前保留上次已读取的内容；恢复授权后重新读取 Issue 与第一页评论，不会自动提交草稿。')
+  if(issue&&(accessReason||state.error))warnings.push('当前保留上次已读取的内容；恢复授权后重新读取 Issue 与第一页评论。')
 
   const latestOutcome = [...summary.records].filter(record => !record.conflicted && record.outcome)
     .sort((a, b) => (Date.parse(b.comment.created_at) || 0) -
