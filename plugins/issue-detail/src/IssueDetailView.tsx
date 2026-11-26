@@ -139,7 +139,7 @@ function LabourHistoryView({ model, actions }: Props) {
       actions.onSubmitLabour()
     }}>
       <h3>登记劳动记录</h3>
-      <fieldset disabled={form.permission.state!=='authorized' className={styles.labourFields}>
+      <fieldset disabled={form.permission.state!=='authorized'} className={styles.labourFields}>
       <label>工作内容（必填）
         <textarea rows={4} required value={form.labour.work}
           onChange={event => update('work', event.target.value)}/>
