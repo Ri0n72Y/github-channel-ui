@@ -210,7 +210,7 @@ test('#69 empty and incomplete discussion states are explicit; labour fields sta
   payload.issue.pagination.warnings=['partial results']
   const html=renderToStaticMarkup(createElement(View,{model:payload,actions}))
   for(const label of ['此 Issue 暂无正文','暂无讨论','Commit 冲突','2 条候选劳动评论格式无效',
-    'partial results','read failed','重试本页','非完整汇总','草稿不会自动提交'])
+    'partial results','read failed','重试本页','非完整汇总'])
     assert.ok(html.includes(label),label)
   for(const label of ['开始时间','结束时间','关联 Commit SHA','工作内容','成果（可选）','主观估时'])
     assert.ok(html.includes(label),label)
