@@ -1,5 +1,9 @@
+import { loginHref } from '../../github-access/src/access'
+import { RepositoryLink as Link } from '../../repo-issues/src/RepositoryLink'
+import RepoAccessNotice from '../../github-access/src/RepoAccessNotice'
+import { useRepoAccess } from '../../github-access/src/useRepoAccess'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { Link, useParams } from 'react-router'
+import { useParams } from 'react-router'
 import { safeHttps, validLogin, validateMemberInput } from './domain.mjs'
 import { memberWriteBranch, repoHomeStatus, type MemberCapability, type MemberSubmitResult,
   type RepoHomeApi } from './service'
@@ -62,7 +66,7 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
   const { owner = '', repo = '' } = useParams<'owner' | 'repo'>()
   const base = '/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo)
   const branch = memberWriteBranch
-  const login = '/api/github-login?return_to=' + encodeURIComponent(base + '/members/register')
+  const login = loginHref(base + '/members/register')
   const [fields, setFields] = useState<Fields>(initial)
   const [capability, setCapability] = useState<MemberCapability | null>(null)
   const [authStatus, setAuthStatus] = useState<number | null>(null)
@@ -76,6 +80,7 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
   const resultHeading = useRef<HTMLHeadingElement>(null)
   const [writeOutcomeUnknown, setWriteOutcomeUnknown] = useState(false)
   const [revision, setRevision] = useState(0)
+  const {reason:accessReason,report}=useRepoAccess(owner+'/'+repo+'/'+revision)
   const pendingController = useRef<AbortController | null>(null)
   useEffect(() => { if (result) resultHeading.current?.focus() }, [result])
   useEffect(() => subscribeSessionChanged(() => {
@@ -106,10 +111,10 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
     }).catch(e => {
       if (controller.signal.aborted) return
       setAuthStatus(repoHomeStatus(e))
-      setError(e instanceof Error ? e.message : '权限验证失败')
+      if(!report(e))setError(e instanceof Error ? e.message : '权限验证失败')
     })
     return () => controller.abort()
-  }, [api, owner, repo, branch, revision])
+  }, [api, owner, repo, branch, revision, report])
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!capability || pending || result?.status === 'pending_pr' || writeOutcomeUnknown || pendingController.current) return
@@ -185,7 +190,8 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
       </div>
     </section>}
     {authStatus === null && !capability && <p role="status">正在验证操作者和仓库写权限…</p>}
-    {error && <p role="alert">{error}</p>}
+    {accessReason&&<RepoAccessNotice owner={owner} repo={repo} reason={accessReason} onRetry={()=>setRevision(n=>n+1)}/>}
+    {error && !accessReason && <p role="alert">{error}</p>}
     {writeOutcomeUnknown && <div role="alert">
       <p>提交结果未知，GitHub 可能已经接收请求。请先核查成员文件和维护 PR，禁止直接重复提交。</p>
       <button type="button" onClick={unlockUnknownWrite} disabled={pending}>
@@ -195,7 +201,7 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
     {submitAttempted && Object.keys(fieldErrors).length > 0 &&
       <p role="alert">请修正标记的字段后重新提交。</p>}
     {authStatus === 401 && <a href={login}>登录 GitHub 后返回此表单</a>}
-    {authStatus !== null && authStatus !== 401 && <button type="button"
+    {authStatus !== null && authStatus !== 401 && !accessReason && <button type="button"
       onClick={() => setRevision(n => n + 1)}>重新检查权限</button>}
     {capability && <><p className={styles.registerOperator}>GitHub 操作者：<strong>@{capability.user.login}</strong>。由 LabourChain Bot
       {capability.mode === 'pr' ? ' 创建维护 PR，待审核合并后生效。' : ' 提交 Commit。'}</p>

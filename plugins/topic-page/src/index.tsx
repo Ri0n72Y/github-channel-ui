@@ -1,3 +1,5 @@
+import { resourcePath } from '../../repo-issues/src/target.mjs'
+import { UnsupportedRepositoryRoute } from '../../repo-issues/src/RepositoryLink'
 import type { Context } from '@deepseek-ai/cordis'
 import { lazy, Suspense } from 'react'
 import { useParams } from 'react-router'
@@ -14,6 +16,7 @@ export function createTopicPagePlugin(api: TopicPageApi = topicPageApi) {
     apply(ctx: Context) {
       function TopicEntry() {
         const { owner = '', repo = '' } = useParams<'owner' | 'repo'>()
+        if(!resourcePath(owner,repo,'topic'))return <UnsupportedRepositoryRoute/>
         return <Suspense fallback={<p role="status">正在加载 TopicPage…</p>}>
           <TopicPageContainer key={topicTargetKey(owner, repo)} owner={owner}
             repo={repo} api={api}/>

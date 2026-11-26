@@ -1,4 +1,4 @@
-import { Link } from 'react-router'
+import { RepositoryLink as Link } from '../../repo-issues/src/RepositoryLink'
 import type { ChannelSnapshot } from './service'
 import styles from './ChannelView.module.css'
 

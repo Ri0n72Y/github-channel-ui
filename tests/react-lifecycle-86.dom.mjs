@@ -662,7 +662,7 @@ test('#96 root RepoPanel: URL target is required, anonymous read works, OAuth wr
   const form=app.host.querySelector('form')
   await act(async()=>form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})))
   await flush()
-  assert.deepEqual(calls.lookups,['sample/repo'])
+  assert.deepEqual(calls.lookups,[],'successful read must not probe Installation')
   assert.deepEqual(calls.reads,['sample/repo'])
   assert.match(app.host.textContent,/受控公开 Issue/)
   assert.match(app.host.textContent,/可匿名阅读/)
@@ -1294,4 +1294,156 @@ test('#69 Members full cards preserve stored order, complete profile content, sa
    assert.ok(checks.length&&checks.every(b=>b==='main'))
    assert.equal(app.host.querySelectorAll('article').length,2)
  }finally{if(app)await app.close();if(original===null)localStorage.removeItem(key);else localStorage.setItem(key,original)}
+})
+
+test('structured repository denial coalesces read failures and retry adds no success probe',async()=>{
+ const {RepoAccessRequestProvider}=await server.ssrLoadModule('/plugins/github-access/src/RepoAccessNotice.tsx')
+ const {inspectRepoAccess}=await server.ssrLoadModule('/plugins/github-access/src/access.ts')
+ let allowed=false,capability=0
+ const requests=[]
+ const request=async(path,init)=>{
+   requests.push(path)
+   assert.ok(init.signal)
+   if(path==='/api/github-session')return Response.json({authenticated:true})
+   assert.match(path,/github-installation-probe/)
+   return Response.json({state:'needs_installation',repository:'sample/repo',action_url:'https://github.com/apps/labourchain/installations/new'})
+ }
+ const denial=()=>Object.assign(Error('denied'),{status:403,state:'repo_access_required'})
+ const api={getHome:async(o,r,b)=>{if(!allowed)throw denial();return {repository:{name:r,full_name:o+'/'+r,description:'Recovered repository'},branch:b,team:{state:'empty',members:[]},readme:{state:'missing'}}},
+   getFeed:async(o,r,page)=>{if(!allowed)throw denial();return {page,items:[],hasMore:false}},
+   getCapability:async()=>{capability++;throw Error('denied')}}
+ function Page(){return h(RepoAccessRequestProvider,{request},h(Home,{api}))}
+ const app=await mount('/sample/repo','/:owner/:repo',Page,{})
+ try{
+   await flush();await flush()
+   assert.equal(app.host.querySelectorAll('[aria-label="仓库访问授权"]').length,1)
+   assert.equal(requests.length,2)
+   assert.equal(capability,0)
+   assert.ok(app.host.querySelector('a[href="https://github.com/apps/labourchain/installations/new"]'))
+   allowed=true
+   const retry=[...app.host.querySelectorAll('button')].find(b=>b.textContent==='重新核验并读取')
+   await act(async()=>retry.click());await flush()
+   assert.match(app.host.textContent,/Recovered repository/)
+   assert.equal(app.host.querySelectorAll('[aria-label="仓库访问授权"]').length,0)
+   assert.equal(requests.length,2)
+ }finally{await app.close()}
+ let anonymousCalls=0
+ assert.deepEqual(await inspectRepoAccess('sample','repo',new AbortController().signal,async()=>{anonymousCalls++;return Response.json({authenticated:false})}),{state:'login_required'})
+ assert.equal(anonymousCalls,1)
+})
+
+test('#115 actual RepoPanel route keeps current list and refresh after invalid or reserved URL',async()=>{
+ const reads=[],probes=[]
+ const api=Object.freeze({
+  getRepositories:async(...args)=>{probes.push(args);throw Error('unexpected probe')},
+  getIssues:async(owner,name)=>{reads.push(owner+'/'+name);return [{number:1,title:'List '+owner+'/'+name,comments:0,html_url:'https://github.com/'+owner+'/'+name+'/issues/1'}]},
+  getSession:async()=>false,verify:async()=>{throw Error('unexpected verify')},
+  createIssue:async()=>{throw Error('unexpected write')},
+ })
+ const store=makeRepoStore(api)
+ const app=await mount('/sample/repo/issues','/:owner/:repo/issues',RepoPanel,{store})
+ try{
+  assert.match(app.host.textContent,/List sample\/repo/)
+  const initial=store.getSnapshot(),count=reads.length
+  const field=app.host.querySelector('input[type="url"]')
+  const submit=async value=>{
+   await act(async()=>input(field,value))
+   await act(async()=>app.host.querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})))
+   await flush()
+  }
+  for(const value of ['https://evil.example/sample/repo','https://github.com/playground/repo','https://github.com/assets/repo','https://github.com/api/repo','https://github.com/topic/repo']){
+   await submit(value)
+   assert.equal(field.getAttribute('aria-invalid'),'true')
+   assert.match(app.host.textContent,/保留路径冲突/)
+   assert.match(app.host.textContent,/List sample\/repo/)
+   assert.equal(store.getSnapshot(),initial)
+   assert.equal(reads.length,count)
+   assert.doesNotMatch(app.host.textContent,/正在核验公开仓库/)
+   assert.equal([...app.host.querySelectorAll('button')].find(x=>x.textContent==='重新核验').disabled,false)
+  }
+  await act(async()=>[...app.host.querySelectorAll('button')].find(x=>x.textContent==='重新核验').click());await flush()
+  assert.equal(reads.length,count+1)
+  assert.equal(reads.at(-1),'sample/repo')
+  await submit('https://github.com/other/second')
+  assert.match(app.host.textContent,/List other\/second/)
+  assert.doesNotMatch(app.host.textContent,/List sample\/repo|保留路径冲突/)
+  assert.equal(reads.at(-1),'other/second')
+  assert.equal(store.getSnapshot().selected,'other/second')
+  await submit(' HTTPS://GITHUB.COM/OTHER/SECOND/ ')
+  assert.match(app.host.textContent,/List other\/second/)
+  assert.equal(store.getSnapshot().targetUrl,'https://github.com/other/second')
+  assert.deepEqual(probes,[])
+ }finally{await app.close();store.dispose()}
+})
+test('#115 Issue pagination denial preserves reading nodes, drafts and uncertain-write feedback through failed and successful recovery',async()=>{
+ const {RepoAccessRequestProvider}=await server.ssrLoadModule('/plugins/github-access/src/RepoAccessNotice.tsx')
+ let blocked=false,failRefresh=false,writes=0
+ const reads=[]
+ const denied=()=>Object.assign(Error('仓库授权失败'),{status:403,state:'repo_access_required'})
+ const svc=issueService({authorized:true,comments:(_n,page,signal)=>{
+   reads.push(page)
+   if(page===2&&blocked||page===1&&failRefresh)return Promise.reject(denied())
+   return Promise.resolve({items:[comment(page,'Read comment '+page)],hasMore:page===1})
+ },postComment:async()=>{writes++;throw Error('连接中断，提交状态未知')}})
+ const request=async()=>Response.json({authenticated:false})
+ function Page(){return h(RepoAccessRequestProvider,{request},h(Issue,{service:svc}))}
+ const app=await mount('/sample/repo/issues/1','/:owner/:repo/issues/:number',Page,{})
+ try{
+  const field=app.host.querySelector('form[aria-label="参与讨论"] textarea')
+  const reading=app.host.querySelector('[aria-label="Issue 阅读区"]')
+  await act(async()=>input(field,'Retain draft'))
+  const send=()=>app.host.querySelector('form[aria-label="参与讨论"] button[type="submit"]')
+  assert.ok(!send().disabled)
+  await act(async()=>send().click());await flush()
+  assert.equal(writes,1)
+  assert.match(app.host.textContent,/提交状态未知/)
+  blocked=true
+  const next=[...app.host.querySelectorAll('button')].find(b=>b.textContent==='加载下一页评论')
+  await act(async()=>next.click());await flush()
+  assert.equal(app.host.querySelector('[aria-label="Issue 阅读区"]'),reading)
+  assert.equal(app.host.querySelector('form[aria-label="参与讨论"] textarea'),field)
+  assert.equal(field.value,'Retain draft')
+  assert.match(app.host.textContent,/Read comment 1/)
+  assert.match(app.host.textContent,/提交状态未知/)
+  assert.equal(app.host.querySelectorAll('[aria-label="仓库访问授权"]').length,1)
+  assert.ok(send().disabled)
+  assert.ok(next.disabled)
+  const retry=()=>[...app.host.querySelectorAll('button')].find(b=>b.textContent==='重新核验并读取')
+  failRefresh=true
+  await act(async()=>retry().click());await flush()
+  assert.equal(app.host.querySelector('[aria-label="Issue 阅读区"]'),reading)
+  assert.equal(field.value,'Retain draft')
+  assert.match(app.host.textContent,/Read comment 1/)
+  assert.match(app.host.textContent,/提交状态未知/)
+  assert.ok(send().disabled)
+  failRefresh=false;blocked=false
+  await act(async()=>retry().click());await flush()
+  assert.equal(app.host.querySelector('[aria-label="Issue 阅读区"]'),reading)
+  assert.equal(field.value,'Retain draft')
+  assert.equal(app.host.querySelectorAll('[aria-label="仓库访问授权"]').length,0)
+  assert.match(app.host.textContent,/Read comment 1/)
+  assert.match(app.host.textContent,/提交状态未知/)
+  assert.equal(reads.at(-1),1,'recovery restarts the Issue and first page, not a POST')
+  assert.equal(writes,1)
+ }finally{await app.close()}
+})
+
+test('#115 case-insensitive resource route emits canonical OAuth return target',async()=>{
+ const reads=[]
+ const store=makeRepoStore(Object.freeze({
+  getRepositories:async()=>{throw Error('unexpected probe')},
+  getIssues:async(owner,name)=>{reads.push(owner+'/'+name);return []},
+  getSession:async()=>false,verify:async()=>{throw Error('unexpected verify')},
+  createIssue:async()=>{throw Error('unexpected write')},
+ }))
+ const app=await mount('/OwNeR/RePo/ISSUES','/:owner/:repo/issues',RepoPanel,{store})
+ try{
+  assert.ok(reads.length>0)
+  assert.ok(reads.every(value=>value==='OwNeR/RePo'))
+  const link=app.host.querySelector('a[href^="/api/github-login?"]')
+  assert.ok(link)
+  assert.equal(new URL(link.getAttribute('href'),'https://local.test').searchParams.get('return_to'),
+   '/OwNeR/RePo/issues')
+  assert.equal(store.getSnapshot().selected,'OwNeR/RePo')
+ }finally{await app.close();store.dispose()}
 })

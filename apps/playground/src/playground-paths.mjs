@@ -1,6 +1,6 @@
 /** @summary Canonical public Playground entries and their plugin-owned initial routes. */
 export const PLAYGROUND_PLUGINS = Object.freeze([
-  Object.freeze({ slug: 'repo-panel', name: '仓库面板', summary: '仓库与 Issue 列表，以及受控创建交互', initialPath: '/' }),
+  Object.freeze({ slug: 'repo-panel', name: '仓库面板', summary: '仓库与 Issue 列表，以及受控创建交互', initialPath: '/sample/repo/issues' }),
   Object.freeze({ slug: 'repo-home', name: '仓库主页', summary: 'README、成员与仓库动态', initialPath: '/sample/repo' }),
   Object.freeze({ slug: 'repo-config', name: '仓库配置', summary: 'Config 编辑与 Label 同步预览', initialPath: '/sample/repo/config' }),
   Object.freeze({ slug: 'issue-detail', name: 'Issue 详情', summary: 'Issue 正文、评论与劳动记录', initialPath: '/sample/repo/issues/1' }),
@@ -20,5 +20,5 @@ export function resolvePlaygroundPath(pathname) {
     if (!plugin) return { kind: 'not-found' }
     return { kind: 'plugin', plugin, basename: '/playground/' + slug }
   }
-  return { kind: 'legacy' }
+  return { kind: 'resource' }
 }

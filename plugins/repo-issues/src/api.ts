@@ -1,3 +1,4 @@
+import { officialActionUrl, readSessionStatus } from '../../github-access/src/access'
 import { browserRequest, readResponse, record, requestFailure,
   responseObject, type RequestFn } from '../../shared/src/browser-http'
 
@@ -31,17 +32,6 @@ function number(value:unknown,name:string):number {
 }
 const allowedStates = new Set(['repository_unavailable', 'installation_suspended',
   'needs_installation', 'needs_repository_authorization'])
-function officialActionUrl(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined
-  try {
-    const url = new URL(value)
-    if (url.origin !== 'https://github.com' || url.username || url.password ||
-        url.search || url.hash) return undefined
-    if (/^\/apps\/[a-z\d-]{1,100}\/installations\/new$/i.test(url.pathname) ||
-        /^\/(?:settings|organizations\/[a-z\d-]{1,39}\/settings)\/installations\/[1-9]\d*\/?$/i.test(url.pathname)) return url.href
-  } catch { /* Never render a server-supplied unsafe management link. */ }
-  return undefined
-}
 function parseScopedRepository(value:unknown,target:Repo):readonly Repo[] {
   const data=responseObject(value,'仓库安装状态响应无效')
   if (data.state === 'connected') {
@@ -101,12 +91,7 @@ export function createRepoIssuesApi(request:RequestFn=browserRequest):Readonly<R
       '/api/issues?'+new URLSearchParams({owner,repo}),signal)
     return parseIssues(body)
   }
-  async function getSession(signal:AbortSignal){
-    const {body}=await readResponse(request,'/api/github-session',signal)
-    const data=responseObject(body)
-    if(typeof data.authenticated!=='boolean')throw requestFailure('Session 响应无效',502)
-    return data.authenticated
-  }
+  async function getSession(signal:AbortSignal){return readSessionStatus(signal,request)}
   async function verify(owner:string,repo:string,signal:AbortSignal){
     const {body}=await readResponse(request,
       '/api/github-verify?'+new URLSearchParams({owner,repo}),signal)

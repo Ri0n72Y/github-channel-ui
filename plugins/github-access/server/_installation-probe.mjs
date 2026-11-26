@@ -8,9 +8,10 @@ const HEADERS = {
 }
 
 export class ProbeError extends Error {
-  constructor(message, status = 502) {
+  constructor(message, status = 502, state) {
     super(message)
     this.status = status
+    if (state) this.state = state
   }
 }
 
@@ -164,19 +165,19 @@ export async function resolveInstalledRepository({ owner, repo, env = process.en
   if (!validRepository(owner, repo)) throw new ProbeError('Invalid repository', 400)
   const path = '/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo)
   const metadata = await query(path, { fetcher })
-  if (metadata.status === 404) throw new ProbeError('Public repository not found', 404)
+  if (metadata.status === 404) throw new ProbeError('Public repository not found', 404, 'repository_unavailable')
   const target = metadata.data
   if (target?.private !== false || !Number.isSafeInteger(target.id) ||
       target.owner?.login?.toLowerCase() !== owner.toLowerCase() ||
       target.full_name?.toLowerCase() !== (owner + '/' + repo).toLowerCase() ||
       !['User', 'Organization'].includes(target.owner?.type)) {
-    if (target?.private === true) throw new ProbeError('Public repository not found', 404)
+    if (target?.private === true) throw new ProbeError('Public repository not found', 404, 'repository_unavailable')
     throw new ProbeError('Invalid public repository metadata', 502)
   }
   const jwt = appJwt(env)
   const result = await query(path + '/installation', { token: jwt, fetcher })
-  if (result.status === 404) throw new ProbeError('Repository is not authorized for this App', 403)
+  if (result.status === 404) throw new ProbeError('Repository is not authorized for this App', 403, 'repo_access_required')
   const installation = checkedInstallation(result.data, target.owner.login)
-  if (installation.suspended_at) throw new ProbeError('Repository App installation is suspended', 403)
+  if (installation.suspended_at) throw new ProbeError('Repository App installation is suspended', 403, 'installation_suspended')
   return { installationId: installation.id, repositoryId: target.id, jwt }
 }

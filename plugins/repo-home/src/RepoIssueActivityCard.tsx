@@ -1,5 +1,5 @@
+import { RepositoryLink as Link } from '../../repo-issues/src/RepositoryLink'
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router'
 import type { RepoFeedIssue } from './service'
 import { SafeMarkdown } from './SafeMarkdown'
 import { previewMarkdown } from './domain.mjs'

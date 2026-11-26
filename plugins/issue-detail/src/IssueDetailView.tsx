@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type RefObject } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type RefObject, type ReactNode } from 'react'
 import type { CommentItemView, IssueDetailViewActions, IssueDetailViewModel, IssueTab,
   LabourField, LabourItemView, PermissionView, FormNotice } from './view-model'
 import { SafeMarkdown } from '../../shared/src/SafeMarkdown'
@@ -167,7 +167,7 @@ function LabourHistoryView({ model, actions }: Props) {
 }
 
 /** @summary Render Issue identity, conversation and labour forms from typed props, without business dependencies. */
-export default function IssueDetailView({ model, actions }: Props) {
+export default function IssueDetailView({ model, actions, accessNotice, paginationBlocked=false }: Props & {accessNotice?:ReactNode;paginationBlocked?:boolean}) {
   const [tab, setTab] = useState<IssueTab>('discussion')
   const baseId = useId()
   const pageRef = useRef<HTMLDivElement>(null)
@@ -239,13 +239,14 @@ export default function IssueDetailView({ model, actions }: Props) {
   }, [])
   const ready = model.load.phase === 'ready' && Boolean(model.issue)
   const navigation = <nav className={styles.top} aria-label="Issue 导航">
-    <a href={model.navigation.homeHref}>Playground</a>
+    <a href={model.navigation.homeHref}>返回首页</a>
     <a href={model.navigation.repositoryHref}>返回仓库页</a>
   </nav>
   return <div ref={pageRef} className={styles.page} data-ready={ready}>
     {!ready && navigation}
+    {!ready && accessNotice}
     {model.load.phase === 'loading' && <p role="status">正在读取 GitHub Issue、配置与评论…</p>}
-    {model.load.phase === 'error' && <section className={styles.errorPanel}>
+    {model.load.phase === 'error' && !accessNotice && <section className={styles.errorPanel}>
       <h1>{model.load.statusCode === 404 ? '404 · Issue 不存在' : 'Issue 无法加载'}</h1>
       <p role="alert">{model.load.error}（HTTP {model.load.statusCode}）</p>
       <button type="button" onClick={actions.onRetry}>重试读取</button>
@@ -286,11 +287,12 @@ export default function IssueDetailView({ model, actions }: Props) {
 
       </header>
       <section className={styles.readStatus} aria-label="读取状态">
+        {accessNotice}
         <div className={styles.readActions}>
           <p>已读取 {model.issue.pagination.loaded} / {model.issue.pagination.expected} 条 GitHub 评论。
             {' '}{model.issue.pagination.complete ? '已取得全部评论。' : '评论可能未全部取得。'}
           </p>
-          <button type="button" onClick={actions.onRefresh} disabled={model.form.pending || model.form.refreshing}
+          <button type="button" onClick={actions.onRefresh} disabled={Boolean(accessNotice) || model.form.pending || model.form.refreshing}
             aria-label="从 GitHub 重新加载此 Issue">{model.form.refreshing ? '正在刷新…' : '刷新 Issue 与评论'}</button>
         </div>
         <p className={styles.meta}>本次从服务器读取：{model.issue.pagination.lastRead}。
@@ -299,12 +301,12 @@ export default function IssueDetailView({ model, actions }: Props) {
           <ul className={styles.warnings}>{model.issue.pagination.warnings.map(message =>
             <li key={message}>{message}</li>)}</ul>}
         {model.issue.pagination.hasMore && <button type="button"
-          disabled={model.issue.pagination.fetchingMore || model.form.refreshing} onClick={actions.onLoadMore}>
+          disabled={paginationBlocked || model.issue.pagination.fetchingMore || model.form.refreshing} onClick={actions.onLoadMore}>
           {model.issue.pagination.fetchingMore ? '加载中…' : '加载下一页评论'}
         </button>}
         {model.issue.pagination.error && <p className={styles.error} role="alert">
           分页失败：{model.issue.pagination.error}。
-          <button type="button" disabled={model.form.refreshing} onClick={actions.onLoadMore}>重试本页</button>
+          <button type="button" disabled={paginationBlocked || model.form.refreshing} onClick={actions.onLoadMore}>重试本页</button>
         </p>}
       </section>
       <div className={styles.tabs} role="tablist" aria-label="Issue 内容">

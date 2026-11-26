@@ -1,3 +1,5 @@
+import { validLoginReturnPath } from '../../repo-issues/src/target.mjs'
+export { validLoginReturnPath }
 import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 
 export const FLOW_COOKIE = '__Host-lc-oauth'
@@ -76,26 +78,6 @@ export function oauthHeaders() {
 
 export function validOrigin(request, origin) {
   return new URL(request.url).origin === origin
-}
-
-export function validLoginReturnPath(path) {
-  // Never treat application/API routes as repository home return targets.
-  if (typeof path === 'string' && (path === '/api' || path.startsWith('/api/'))) return '/'
-  if (path === '/installation-probe.html') return path
-  if (typeof path === 'string' &&
-      /^\/[a-z\d-]{1,39}\/[a-z\d._-]{1,100}\/?$/i.test(path)) return path
-  if (typeof path === 'string' &&
-      /^\/[a-z\d-]{1,39}\/[a-z\d._-]{1,100}\/channels$/i.test(path)) return path
-  if (typeof path === 'string' &&
-      /^\/[a-z\d-]{1,39}\/[a-z\d._-]{1,100}\/issues\/[1-9]\d*$/i.test(path) &&
-      Number.isSafeInteger(Number(path.split('/').at(-1)))) return path
-  if (typeof path === 'string' &&
-      /^\/[a-z\d-]{1,39}\/[a-z\d._-]{1,100}\/members(?:\/register)?$/i.test(path)) return path
-  if (typeof path === 'string' &&
-      /^\/[a-z\d-]{1,39}\/[a-z\d._-]{1,100}\/config$/i.test(path)) return path
-  if (typeof path === 'string' &&
-      /^\/topic\/[a-z\d-]{1,39}\/[a-z\d._-]{1,100}\/?$/i.test(path)) return path
-  return '/'
 }
 
 export function newFlow(key, returnPath = '/') {

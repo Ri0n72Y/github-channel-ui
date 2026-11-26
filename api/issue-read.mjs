@@ -1,6 +1,6 @@
-import endpoint1 from './_issue-detail.mjs'
-import endpoint2 from './_issue-comments.mjs'
-import endpoint3 from './_issue-config.mjs'
+import endpoint1 from '../plugins/issue-detail/server/_issue-detail.mjs'
+import endpoint2 from '../plugins/issue-detail/server/_issue-comments.mjs'
+import endpoint3 from '../plugins/issue-detail/server/_issue-config.mjs'
 
 const handlers = Object.freeze({
   'issue-detail': endpoint1,

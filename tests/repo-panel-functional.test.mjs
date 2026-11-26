@@ -8,7 +8,7 @@ import { ProbeError } from '../api/_installation-probe.mjs'
 import { auth as oldAuth, repos as oldRepos, issues as oldIssues } from '../api/_github.mjs'
 import { createReposHandler } from '../api/repos.mjs'
 import { createIssuesHandler } from '../api/issues.mjs'
-import { parseGitHubRepositoryUrl } from '../plugins/repo-issues/src/target.mjs'
+import { parseGitHubResourceUrl, parseGitHubRepositoryUrl, repositoryLinkPath, resourcePath } from '../plugins/repo-issues/src/target.mjs'
 
 let vite, createRepoIssuesApi, createRepoIssuesStore
 before(async () => {
@@ -51,8 +51,9 @@ test('#77 Repo Panel uses a frozen functional API and immutable store with stabl
   assert.ok(Object.isFrozen(snapshot.repos))
   assert.ok(Object.isFrozen(snapshot.issues))
   assert.notEqual(old,snapshot)
-  assert.equal(updates.length>=3,true)
-  assert.equal(calls.length,2)
+  assert.equal(updates.length>=2,true)
+  assert.equal(calls.length,1)
+  assert.match(calls[0].url,/^\/api\/issues\?/)
   assert.equal(calls[0].init.credentials,'same-origin')
   assert.equal(snapshot.availability,'connected')
   assert.equal(snapshot.targetUrl,'https://github.com/sample/repo')
@@ -150,13 +151,12 @@ test('#96 missing, suspended and not-selected Installation results preserve safe
 test('#96 store rejects unsafe URLs and keeps exact-target state after revoked installation',async()=>{
   const calls=[]
   const api=Object.freeze({
-    getRepositories:async(_signal,target)=>{
-      calls.push(target.full_name)
-      if(target.full_name==='sample/repo')return [repo,{owner:'other',
-        name:'repo',full_name:'other/repo'}]
-      throw Object.assign(new Error('仓库授权已撤销'),{state:'needs_installation'})
+    getRepositories:async()=>{throw Error('unexpected success-path probe')},
+    getIssues:async(owner,name)=>{
+      calls.push(owner+'/'+name)
+      if(owner==='sample'&&name==='repo')return [issue]
+      throw Object.assign(new Error('仓库授权已撤销'),{state:'repo_access_required'})
     },
-    getIssues:async()=>[issue],
     getSession:async()=>false,
     verify:async()=>{throw Error('OAuth not requested')},
     createIssue:async()=>{throw Error('Write not requested')},
@@ -166,7 +166,7 @@ test('#96 store rejects unsafe URLs and keeps exact-target state after revoked i
   assert.equal(store.getSnapshot().selected,'sample/repo')
   assert.deepEqual(store.getSnapshot().repos,[repo])
   await store.connect('https://github.com/other/repo')
-  assert.equal(store.getSnapshot().availability,'needs_installation')
+  assert.equal(store.getSnapshot().availability,'repo_access_required')
   assert.equal(store.getSnapshot().selected,'')
   assert.deepEqual(store.getSnapshot().issues,[])
   await store.connect('https://github.com/sample/repo/issues/1')
@@ -190,6 +190,8 @@ test('#96 repository URL accepts only exact github.com/owner/repo paths', () => 
     ' HTTPS://GITHUB.COM/Sample/Repo/ ',
     'https://github.com/a/b.c-d_1',
   ]
+  assert.equal(parseGitHubResourceUrl('https://github.com/sample/repo/issues/28')?.path,'/sample/repo/issues/28')
+  for(const url of ['https://github.com/sample/repo/issues/0','https://github.com/sample/repo/issues/9007199254740992','https://github.com/sample/repo/issues/2?x=1','https://github.com/sample/repo/pull/2'])assert.equal(parseGitHubResourceUrl(url),null)
   for (const value of good) {
     const parsed = parseGitHubRepositoryUrl(value)
     assert.ok(parsed, value)
@@ -355,4 +357,24 @@ test('#96 legacy global auth/repo enumeration exports reject instead of selectin
     await assert.rejects(call(),error=>
       error.status===400&&error.state==='target_required')
   }
+})
+
+test('#115 canonical ordinary links and reserved namespace precedence',()=>{
+ for(const kind of ['config','channels','members','issues']){
+  assert.equal(resourcePath('topic','repo',kind),null)
+  assert.equal(repositoryLinkPath('/topic/repo/'+kind),null)
+ }
+ for(const owner of ['api','assets','playground','API','ASSETS','Playground']){
+  assert.equal(resourcePath(owner,'repo'),null)
+  assert.equal(repositoryLinkPath('/'+owner+'/repo/issues/1'),null)
+  assert.equal(parseGitHubResourceUrl('https://github.com/'+owner+'/repo'),null)
+ }
+ assert.equal(resourcePath('topic','repo'),'/topic/repo')
+ assert.equal(repositoryLinkPath('/topic/repo/issues/1'),'/topic/repo/issues/1')
+ assert.equal(repositoryLinkPath('/topic/repo/members/register'),'/topic/repo/members/register')
+ assert.equal(resourcePath('repo','config','topic'),'/topic/repo/config')
+ assert.equal(parseGitHubResourceUrl('https://github.com/repo/config/blob/main/topics.config.yaml')?.path,'/topic/repo/config')
+ assert.equal(repositoryLinkPath('/sample/repo/issues/0'),null)
+ assert.equal(repositoryLinkPath('/sample/repo/issues/9007199254740992'),null)
+ assert.equal(repositoryLinkPath('/sample/repo/issues/1?x=1'),null)
 })

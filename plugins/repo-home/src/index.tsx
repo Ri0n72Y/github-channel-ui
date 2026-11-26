@@ -1,3 +1,6 @@
+import { resourcePath } from '../../repo-issues/src/target.mjs'
+import { UnsupportedRepositoryRoute } from '../../repo-issues/src/RepositoryLink'
+import type { RepoIssuesApi } from '../../repo-issues/src/api'
 import type { Context } from '@deepseek-ai/cordis'
 import { lazy, Suspense, type ComponentType } from 'react'
 import { useParams } from 'react-router'
@@ -16,10 +19,13 @@ function ScopedMemberRegisterPage({ api }: { api: RepoHomeApi }) {
 }
 /** @summary Register the independently testable Repo homepage, team listing and registration routes. */
 export function createRepoHomePlugin(api: RepoHomeApi = repoHomeApi,
-  options: { theme?: RepoHomeTheme } = {}) {
+  options: { theme?: RepoHomeTheme; issueApi?: Pick<RepoIssuesApi,'getRepositories'|'getSession'|'createIssue'> } = {}) {
   return { name: 'repo-home', inject: ['reactUI'], apply(ctx: Context) {
     const register = (id: string, path: string, Component: ComponentType<{ api: RepoHomeApi }>) => {
       function Entry() {
+        const {owner='',repo=''}=useParams<'owner'|'repo'>()
+        const kind=id==='repo-home'?'repository':id==='repo-home-members'?'members':'members/register'
+        if(!resourcePath(owner,repo,kind))return <UnsupportedRepositoryRoute/>
         return <Suspense fallback={<p role="status">正在加载项目页面…</p>}><Component api={api} /></Suspense>
       }
       ctx.effect(() => ctx.reactUI.registerPage({ id, path, Component: Entry }))
@@ -34,7 +40,8 @@ export function createRepoHomePlugin(api: RepoHomeApi = repoHomeApi,
 
     function ScopedIssueCreatePage() {
       const { owner = '', repo = '' } = useParams<'owner' | 'repo'>()
-      return <RepoIssueCreatePage key={owner + '/' + repo} owner={owner} repo={repo} />
+      if(!resourcePath(owner,repo,'issues/new'))return <UnsupportedRepositoryRoute/>
+      return <RepoIssueCreatePage key={owner + '/' + repo} owner={owner} repo={repo} api={options.issueApi} />
     }
     ctx.effect(() => ctx.reactUI.registerPage({
       id: 'repo-home-issue-create',

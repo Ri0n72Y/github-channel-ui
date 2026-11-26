@@ -1,3 +1,5 @@
+import { resourcePath } from '../../repo-issues/src/target.mjs'
+import { UnsupportedRepositoryRoute } from '../../repo-issues/src/RepositoryLink'
 import type { Context } from '@deepseek-ai/cordis'
 import { lazy, Suspense } from 'react'
 import { useParams } from 'react-router'
@@ -14,6 +16,7 @@ export function createIssueDetailPlugin(service: IssueDetailApi = issueDetailApi
       function IssueDetailEntry() {
         const { owner = '', repo = '', number = '' } = useParams<'owner' | 'repo' | 'number'>()
         const routeKey = owner + '/' + repo + '/issues/' + number
+        if(!resourcePath(owner,repo,'issue',Number(number))||!/^[1-9]\d*$/.test(number))return <UnsupportedRepositoryRoute/>
         return <Suspense fallback={<p role="status">正在加载 Issue 页面…</p>}>
           <IssueDetailPage key={routeKey} service={service} />
         </Suspense>

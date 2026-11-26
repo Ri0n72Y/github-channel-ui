@@ -1,3 +1,4 @@
+import { readSessionStatus } from '../../github-access/src/access'
 export type TopicRoute = { owner: string; repo: string }
 export type TopicSlugRoute = { topic: string }
 export type TopicReadRoute = TopicRoute | TopicSlugRoute
@@ -187,9 +188,7 @@ export function createTopicPageApi(request:RequestFn=browserRequest):Readonly<To
       nextOffset:moreLocal?offset+25:whole.nextOffset,
       windowExhausted:!moreLocal&&whole.windowExhausted}
   }
-  async function getSession(signal:AbortSignal){
-    return responseObject(await read(request,'/api/github-session',signal)).authenticated===true
-  }
+  async function getSession(signal:AbortSignal){return readSessionStatus(signal,request)}
   async function getReportTarget(route:TopicRoute,signal:AbortSignal){
     const data=responseObject(await read(request,'/api/topic-report?'+query(route),signal))
     if(data.state!=='ready'||typeof data.proof!=='string'||!data.proof)

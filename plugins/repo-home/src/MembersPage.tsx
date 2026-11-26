@@ -1,5 +1,8 @@
+import { RepositoryLink as Link } from '../../repo-issues/src/RepositoryLink'
+import RepoAccessNotice from '../../github-access/src/RepoAccessNotice'
+import { useRepoAccess } from '../../github-access/src/useRepoAccess'
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router'
+import { useParams } from 'react-router'
 import { memberWriteBranch, readDisplayBranch, type RepoHomeApi, type RepoHomeData } from './service'
 import { MemberManagementLink, MemberProfile, TeamStatus } from './Team'
 import styles from './RepoHome.module.css'
@@ -12,17 +15,18 @@ export default function MembersPage({ api }: { api: RepoHomeApi }) {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const branch = readDisplayBranch(owner, repo)
+  const {reason:accessReason,report}=useRepoAccess(owner+'/'+repo+'/'+branch+'/'+revision)
   const base = '/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo)
-  const memberWrite = useMemberWriteAccess(api, owner, repo, memberWriteBranch, revision)
+  const memberWrite = useMemberWriteAccess(api, owner, repo, memberWriteBranch, revision, Boolean(data))
   useEffect(() => {
     const controller = new AbortController()
     setLoading(true); setError(''); setData(null)
     void api.getHome(owner, repo, branch, controller.signal).then(result => {
       if (!controller.signal.aborted) setData(result)
-    }).catch(e => { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : String(e)) })
+    }).catch(e => { if (!controller.signal.aborted && !report(e)) setError(e instanceof Error ? e.message : String(e)) })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
-  }, [api, owner, repo, branch, revision])
+  }, [api, owner, repo, branch, revision, report])
   return <section className={[styles.page, styles.membersPage].join(' ')}>
     <nav className={styles.membersBreadcrumb} aria-label="成员页面导航">
       <Link to={base}>项目主页</Link><span aria-hidden="true"> / </span><span>团队成员</span>
@@ -33,9 +37,10 @@ export default function MembersPage({ api }: { api: RepoHomeApi }) {
           ? '(' + data.team.members.length + ')' : ''}</h1>
         <p className={styles.muted}>展示分支 <code>{branch}</code></p>
       </div>
-      <MemberManagementLink base={base} state={memberWrite.state} />
+      {!accessReason&&<MemberManagementLink base={base} state={memberWrite.state} />}
     </header>
-    {(memberWrite.capability || memberWrite.state === 'denied' || memberWrite.state === 'error') &&
+    {accessReason&&<RepoAccessNotice owner={owner} repo={repo} reason={accessReason} onRetry={()=>setRevision(n=>n+1)}/>}
+    {!accessReason&&(memberWrite.capability || memberWrite.state === 'denied' || memberWrite.state === 'error') &&
       <div className={styles.memberPermission}>
         {memberWrite.capability &&
           <p className={styles.muted}>已验证操作者 @{memberWrite.capability.user.login}，写入分支 {memberWriteBranch}</p>}

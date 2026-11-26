@@ -117,9 +117,9 @@ test('#31 route remount, abort and separate plugin fixture wiring remain in main
   assert.match(entry, /key=\{topicTargetKey\(owner, repo\)\}/)
   assert.match(entry, /ctx.effect/)
   assert.match(control, /return \(\) => abort.abort\(\)/)
-  for (const name of ['repoHome', 'repoConfig', 'channelPlugin', 'createIssueDetailPlugin'])
+  for (const name of ['repoHome', 'repoConfig', 'channel', 'createIssueDetailPlugin'])
     assert.ok(runtime.includes(name))
-  assert.match(runtime, /topicFixture/)
+  assert.doesNotMatch(runtime,/URLSearchParams|Fixture/)
 })
 
 

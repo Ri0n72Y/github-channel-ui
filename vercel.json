@@ -87,7 +87,8 @@
       "fix/repo-home-title-20261125": false,
       "fix/members-page-20261125": false,
       "fix/register-config-channel-20261125": false,
-      "fix/members-profile-visual-20261125": false
+      "fix/members-profile-visual-20261125": false,
+      "refactor/public-responsibility-20261125": false
     }
   }
 }

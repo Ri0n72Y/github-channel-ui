@@ -1,5 +1,9 @@
+import { resourcePath } from '../../repo-issues/src/target.mjs'
+import { loginHref } from '../../github-access/src/access'
+import RepoAccessNotice from '../../github-access/src/RepoAccessNotice'
+import { useRepoAccess } from '../../github-access/src/useRepoAccess'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useLocation, useParams } from 'react-router'
+import { useHref, useLocation, useParams } from 'react-router'
 import { formatLabourComment, summarizeIssueComments, validIssueTarget } from './domain.mjs'
 import { COMMENT_LIMIT, buildCommentReply, createQuoteReply, commentPermalink } from './quote-reply.mjs'
 import { loadIssueContent } from './load-issue.mjs'
@@ -68,7 +72,10 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
   const valid = validIssueTarget(owner, repo, number)
   const numberValue = Number(number)
   const target = (owner || '') + '/' + (repo || '')
+  const homeHref=useHref('/')
+  const repositoryHref=useHref(resourcePath(owner||'',repo||'')||'/')
   const routeKey = target + '/issues/' + (number || '')
+  const {reason:accessReason,report}=useRepoAccess(routeKey+'/'+reload)
   const quote = selection?.key === routeKey ? selection.quote : null
   const commentBody = buildCommentReply(draft, quote)
 
@@ -99,11 +106,15 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
           lastRead: new Date().toISOString(), error: null, pageError: '' })
       } catch (error) {
         if (current !== revision.current || abort.signal.aborted) return
-        setState({ ...empty, key: routeKey, loading: false, error: asIssueError(error) })
+        report(error)
+        const failure=asIssueError(error)
+        setState(previous=>previous.key===routeKey&&previous.issue
+          ? {...previous,refreshing:false,fetchingMore:false,error:failure,pageError:failure.message}
+          : {...empty,key:routeKey,loading:false,error:failure})
       }
     })()
     return () => { abort.abort(); revision.current++ }
-  }, [service, owner, repo, number, valid, numberValue, routeKey, reload])
+  }, [service, owner, repo, number, valid, numberValue, routeKey, reload, report])
 
   useEffect(() => {
     const abort = new AbortController()
@@ -131,19 +142,21 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
   }, [service, owner, repo, valid, routeKey, authRevision])
 
   const issue = state.key === routeKey && !state.loading ? state.issue : null
-  const completePages = Boolean(issue && !state.hasMore && !state.pageError &&
+  const completePages = Boolean(issue && !state.hasMore && !state.pageError && !state.error && !accessReason &&
     state.comments.length >= issue.comments)
   const summary = useMemo(() => summarizeIssueComments(
     state.key === routeKey ? state.comments : [], completePages),
   [state.key, state.comments, routeKey, completePages])
   const authStatus = auth.key === routeKey ? auth.status : 'checking'
-  const canWrite = authStatus === 'authorized' && Boolean(issue) && !state.refreshing
-  const loginUrl = '/api/github-login?return_to=' + encodeURIComponent(location.pathname)
+  const canWrite = authStatus === 'authorized' && Boolean(issue) && !state.refreshing && !accessReason && !state.error
+  const loginUrl = loginHref(location.pathname)
 
   const permission: PermissionView = {
     state: authStatus,
     allowed: canWrite,
-    reason: authStatus === 'checking' ? '正在确认 GitHub OAuth 身份与仓库访问权限。'
+    reason: accessReason ? '仓库访问授权需要恢复；已读内容及草稿暂保留，禁止提交。'
+      : state.error && issue ? '重新读取失败；已读内容可能过时，暂不能提交。'
+      : authStatus === 'checking' ? '正在确认 GitHub OAuth 身份与仓库访问权限。'
       : authStatus === 'anonymous' ? '匿名用户只能阅读，发表评论或登记劳动需登录 GitHub。'
       : authStatus === 'denied' ? '当前 OAuth 用户未获此仓库的 App 授权，不能提交。'
       : authStatus === 'error' ? '无法确认写入权限：' + auth.message + '。'
@@ -156,7 +169,7 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
 
   async function loadMore() {
     if (!valid || !owner || !repo || !issue || !state.hasMore || state.refreshing ||
-        state.fetchingMore || pageInFlight.current !== null) return
+        state.fetchingMore || accessReason || state.error || pageInFlight.current !== null) return
     const page = state.page + 1
     pageInFlight.current = page
     const current = revision.current
@@ -172,6 +185,7 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
     } catch (error) {
       if (current === revision.current) {
         if (pageInFlight.current === page) pageInFlight.current = null
+        report(error)
         setState(previous => ({
           ...previous, fetchingMore: false, pageError: asIssueError(error).message,
         }))
@@ -232,6 +246,7 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
   }
 
   const warnings: string[] = []
+  if(issue&&(accessReason||state.error))warnings.push('当前保留上次已读取的内容；恢复授权后重新读取 Issue 与第一页评论，不会自动提交草稿。')
   if (issue && state.hasMore) warnings.push('还有未加载的评论。当前统计不能视为完整。')
   if (issue && state.comments.length < issue.comments) {
     warnings.push('GitHub 评论数量尚未核对完毕。')
@@ -244,10 +259,10 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
       (Date.parse(a.comment.created_at) || 0))[0]
   const model: IssueDetailViewModel = {
     routeKey,
-    navigation: { homeHref: '/', repositoryHref: '/' + target, repository: target },
+    navigation: { homeHref, repositoryHref, repository: target },
     load: {
       phase: state.key !== routeKey || state.loading ? 'loading'
-        : state.error ? 'error' : 'ready',
+        : state.error && !issue ? 'error' : 'ready',
       error: state.key === routeKey ? state.error?.message || null : null,
       statusCode: state.key === routeKey ? state.error?.status || null : null,
     },
@@ -307,9 +322,15 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
       notice, permission },
   }
 
+  function retryRead(){
+    if(writeInFlight.current||state.refreshing)return
+    setState(previous=>({...previous,refreshing:true}))
+    if(accessReason||state.error){setAuth({key:routeKey,status:'checking',message:''});setAuthRevision(n=>n+1)}
+    setReload(n=>n+1)
+  }
   const actions: IssueDetailViewActions = {
-    onRetry: () => { if (!writeInFlight.current && !state.refreshing) setReload(value => value + 1) },
-    onRefresh: () => { if (!pendingKind && !writeInFlight.current && !state.refreshing) setReload(value => value + 1) },
+    onRetry: retryRead,
+    onRefresh: retryRead,
     onLoadMore: () => { void loadMore() },
     onCommentChange: value => { commentEdit.current++; setDraft(value) },
     onQuoteComment: id => {
@@ -326,5 +347,8 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
     onSubmitComment: () => { if (draft.trim()) void submit(commentBody, 'comment') },
     onSubmitLabour: submitLabour,
   }
-  return <IssueDetailView key={routeKey} model={model} actions={actions}/>
+  const accessNotice=accessReason&&owner&&repo?<RepoAccessNotice owner={owner} repo={repo}
+    reason={accessReason} onRetry={retryRead} retryDisabled={Boolean(pendingKind)||state.refreshing}/>:null
+  return <IssueDetailView key={routeKey} model={model} actions={actions} accessNotice={accessNotice}
+    paginationBlocked={Boolean(accessReason||state.error)}/>
 }
