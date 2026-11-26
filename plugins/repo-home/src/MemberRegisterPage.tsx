@@ -1,7 +1,9 @@
+import { loginHref } from '../../github-access/src/access'
+import { RepositoryLink as Link } from '../../repo-issues/src/RepositoryLink'
 import RepoAccessNotice from '../../github-access/src/RepoAccessNotice'
 import { useRepoAccess } from '../../github-access/src/useRepoAccess'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { Link, useParams } from 'react-router'
+import { useParams } from 'react-router'
 import { safeHttps, validLogin, validateMemberInput } from './domain.mjs'
 import { memberWriteBranch, repoHomeStatus, type MemberCapability, type MemberSubmitResult,
   type RepoHomeApi } from './service'
@@ -64,7 +66,7 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
   const { owner = '', repo = '' } = useParams<'owner' | 'repo'>()
   const base = '/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo)
   const branch = memberWriteBranch
-  const login = '/api/github-login?return_to=' + encodeURIComponent(base + '/members/register')
+  const login = loginHref(base + '/members/register')
   const [fields, setFields] = useState<Fields>(initial)
   const [capability, setCapability] = useState<MemberCapability | null>(null)
   const [authStatus, setAuthStatus] = useState<number | null>(null)

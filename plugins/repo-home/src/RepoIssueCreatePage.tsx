@@ -1,7 +1,8 @@
+import { loginHref } from '../../github-access/src/access'
+import { RepositoryLink as Link } from '../../repo-issues/src/RepositoryLink'
 import RepoAccessNotice from '../../github-access/src/RepoAccessNotice'
 import { useRepoAccess } from '../../github-access/src/useRepoAccess'
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { Link } from 'react-router'
 import { repoIssuesApi, type Repo, type RepoIssuesApi } from '../../repo-issues/src/api'
 import { parseGitHubRepositoryUrl } from '../../repo-issues/src/target.mjs'
 import { uncertainWriteResult } from '../../shared/src/browser-http'
@@ -33,9 +34,7 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
   const target = useMemo(() => parseGitHubRepositoryUrl(
     'https://github.com/' + owner + '/' + repo), [owner, repo])
   const base = '/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo)
-  const login = '/api/github-login?' + new URLSearchParams({
-    return_to: base + '/issues/new',
-  }).toString()
+  const login = loginHref(base + '/issues/new')
   const [revision, setRevision] = useState(0)
   const {reason:accessReason,report}=useRepoAccess(owner+'/'+repo+'/'+revision)
   const [status, setStatus] = useState<Status>('checking')

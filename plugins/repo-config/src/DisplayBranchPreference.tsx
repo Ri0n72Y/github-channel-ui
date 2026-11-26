@@ -1,5 +1,5 @@
+import { RepositoryLink as Link } from '../../repo-issues/src/RepositoryLink'
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router'
 import { displayBranchKey, readDisplayBranch } from '../../repo-home/src/service'
 import styles from './ConfigPage.module.css'
 

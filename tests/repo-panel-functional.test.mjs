@@ -8,7 +8,7 @@ import { ProbeError } from '../api/_installation-probe.mjs'
 import { auth as oldAuth, repos as oldRepos, issues as oldIssues } from '../api/_github.mjs'
 import { createReposHandler } from '../api/repos.mjs'
 import { createIssuesHandler } from '../api/issues.mjs'
-import { parseGitHubResourceUrl, parseGitHubRepositoryUrl } from '../plugins/repo-issues/src/target.mjs'
+import { parseGitHubResourceUrl, parseGitHubRepositoryUrl, repositoryLinkPath, resourcePath } from '../plugins/repo-issues/src/target.mjs'
 
 let vite, createRepoIssuesApi, createRepoIssuesStore
 before(async () => {
@@ -357,4 +357,24 @@ test('#96 legacy global auth/repo enumeration exports reject instead of selectin
     await assert.rejects(call(),error=>
       error.status===400&&error.state==='target_required')
   }
+})
+
+test('#115 canonical ordinary links and reserved namespace precedence',()=>{
+ for(const kind of ['config','channels','members','issues']){
+  assert.equal(resourcePath('topic','repo',kind),null)
+  assert.equal(repositoryLinkPath('/topic/repo/'+kind),null)
+ }
+ for(const owner of ['api','assets','playground','API','ASSETS','Playground']){
+  assert.equal(resourcePath(owner,'repo'),null)
+  assert.equal(repositoryLinkPath('/'+owner+'/repo/issues/1'),null)
+  assert.equal(parseGitHubResourceUrl('https://github.com/'+owner+'/repo'),null)
+ }
+ assert.equal(resourcePath('topic','repo'),'/topic/repo')
+ assert.equal(repositoryLinkPath('/topic/repo/issues/1'),'/topic/repo/issues/1')
+ assert.equal(repositoryLinkPath('/topic/repo/members/register'),'/topic/repo/members/register')
+ assert.equal(resourcePath('repo','config','topic'),'/topic/repo/config')
+ assert.equal(parseGitHubResourceUrl('https://github.com/repo/config/blob/main/topics.config.yaml')?.path,'/topic/repo/config')
+ assert.equal(repositoryLinkPath('/sample/repo/issues/0'),null)
+ assert.equal(repositoryLinkPath('/sample/repo/issues/9007199254740992'),null)
+ assert.equal(repositoryLinkPath('/sample/repo/issues/1?x=1'),null)
 })

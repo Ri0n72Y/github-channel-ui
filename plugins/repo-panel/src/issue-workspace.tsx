@@ -1,5 +1,7 @@
+import { loginHref } from '../../github-access/src/access'
+import { resourcePath } from '../../repo-issues/src/target.mjs'
+import { RepositoryLink as Link } from '../../repo-issues/src/RepositoryLink'
 import { useState, type FormEvent } from 'react'
-import { Link } from 'react-router'
 import type { Issue, Repo, RepoIssuesApi } from '../../repo-issues/src/api'
 import styles from './IssueWorkspace.module.css'
 
@@ -47,7 +49,7 @@ export function IssueWorkspace({ repo, issues, loggedIn, api }: {
     {!loggedIn && <p>可匿名阅读已授权公开仓库；创建 Issue 需要 GitHub OAuth 登录。</p>}
     {notice && <p role={notice.error ? 'alert' : 'status'}>{notice.text}
       {notice.url && <> · <a href={notice.url} target="_blank" rel="noreferrer">在 GitHub 查看</a></>}
-      {notice.relogin && <> · <a href="/api/github-login">重新登录</a></>}
+      {notice.relogin && <> · <a href={loginHref(resourcePath(repo.owner,repo.name,'issues')||'/')}>重新登录</a></>}
     </p>}
     {creating && <form className={styles.form} onSubmit={event => void submitIssue(event)}>
       <h3>创建 Issue · {repo.full_name}</h3>

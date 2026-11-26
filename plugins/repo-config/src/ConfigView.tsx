@@ -1,5 +1,5 @@
+import { RepositoryLink as Link } from '../../repo-issues/src/RepositoryLink'
 import type { FormEvent } from 'react'
-import { Link } from 'react-router'
 import type { ConfigActionResult, ConfigSnapshot } from './service'
 import styles from './ConfigPage.module.css'
 import DisplayBranchPreference from './DisplayBranchPreference'

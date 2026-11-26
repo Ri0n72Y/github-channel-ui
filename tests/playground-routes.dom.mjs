@@ -240,3 +240,51 @@ test('generic UI owns no Header; host may explicitly place theme and session con
   finally{await withHost.close()}
  }finally{await runtime.dispose()}
 })
+
+test('#115 real Public runtime deep link NotFound -> root -> resource -> back, same mounted host',async()=>{
+ const {startRuntime}=await vite.ssrLoadModule('/apps/playground/src/runtime.tsx')
+ const original=globalThis.fetch
+ const requests=[]
+ globalThis.fetch=async(url,init)=>{
+  const path=String(url)
+  requests.push(path)
+  assert.notEqual(init?.method,'POST')
+  if(path==='/api/github-session')return Response.json({authenticated:false})
+  if(path==='/api/issues?owner=sample&repo=repo')return Response.json({issues:[
+    {number:1,title:'Real runtime controlled read',comments:0,html_url:'https://github.com/sample/repo/issues/1'}]})
+  throw Error('Unexpected request '+path)
+ }
+ let runtime,view
+ try{
+  runtime=await startRuntime()
+  function Back(){const nav=useNavigate();return h('button',{id:'history-back',onClick:()=>nav(-1)},'测试返回')}
+  view=await mounted(h(MemoryRouter,{initialEntries:['/unknown/path/missing/extra']},h(Back),h(App,{ui:runtime.ui})))
+  assert.match(view.host.textContent,/页面不存在或暂未提供/)
+  await act(async()=>view.host.querySelector('a[href="/"]').click())
+  await expectLoaded(view.host,/公开插件 Playground/,'real root after NotFound')
+  const field=view.host.querySelector('input[type="url"]')
+  await act(async()=>{
+   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(field,'https://github.com/sample/repo/issues')
+   field.dispatchEvent(new Event('input',{bubbles:true}))
+  })
+  await act(async()=>view.host.querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})))
+  await expectLoaded(view.host,/Real runtime controlled read/,'resource from real root')
+  assert.ok(requests.includes('/api/issues?owner=sample&repo=repo'))
+  assert.ok(!requests.some(url=>url.includes('installation-probe')))
+  await act(async()=>view.host.querySelector('#history-back').click())
+  await expectLoaded(view.host,/公开插件 Playground/,'back to real root')
+ }finally{await view?.close();await runtime?.dispose();globalThis.fetch=original}
+})
+test('#115 ordinary links never reinterpret a Topic namespace collision',async()=>{
+ const {RepositoryLink}=await vite.ssrLoadModule('/plugins/repo-issues/src/RepositoryLink.tsx')
+ const view=await mounted(h(MemoryRouter,null,h('div',null,
+  h(RepositoryLink,{to:'/topic/repo/config'},'配置'),
+  h(RepositoryLink,{to:'/topic/repo/issues'},'列表'),
+  h(RepositoryLink,{to:'/topic/repo/issues/1'},'Issue'),
+  h(RepositoryLink,{to:'/topic/repo'},'项目'),
+  h(RepositoryLink,{to:'/assets/repo'},'静态路径'))))
+ try{
+  assert.deepEqual([...view.host.querySelectorAll('a')].map(a=>a.getAttribute('href')),['/topic/repo/issues/1','/topic/repo'])
+  assert.equal((view.host.textContent.match(/站内路径不可用/g)||[]).length,3)
+ }finally{await view.close()}
+})

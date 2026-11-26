@@ -18,8 +18,7 @@ function FixtureRoute({ui,plugin}: {ui: Parameters<typeof App>[0]['ui'];plugin:P
 function showStatic(Page: typeof PlaygroundLanding) {
   root.render(<StrictMode><BrowserRouter><ThemeProvider><Page/></ThemeProvider></BrowserRouter></StrictMode>)
 }
-if(route.kind==='home')showStatic(PlaygroundLanding)
-else if(route.kind==='catalog')showStatic(PlaygroundCatalog)
+if(route.kind==='catalog')showStatic(PlaygroundCatalog)
 else if(route.kind==='not-found')showStatic(PlaygroundNotFound)
 else {
   const runtime=route.kind==='plugin'

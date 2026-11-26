@@ -1,6 +1,7 @@
-import { parseGitHubRepositoryUrl } from '../../repo-issues/src/target.mjs'
+import { UnsupportedRepositoryRoute } from '../../repo-issues/src/RepositoryLink'
+import { parseGitHubRepositoryUrl, resourcePath } from '../../repo-issues/src/target.mjs'
 import RepoAccessNotice from '../../github-access/src/RepoAccessNotice'
-import { repoAccessReason } from '../../github-access/src/access'
+import { repoAccessReason, loginHref } from '../../github-access/src/access'
 import { useParams, useLocation, useNavigate } from 'react-router'
 import type { Context } from '@deepseek-ai/cordis'
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react'
@@ -17,6 +18,7 @@ export function RepoPanel({ store }: { store: RepoIssueStore }) {
   const {owner,repo} = useParams<'owner'|'repo'>()
   const location = useLocation()
   const navigate=useNavigate()
+  const routePath=owner&&repo?resourcePath(owner,repo,'issues'):null
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot)
   const s=owner&&repo&&snapshot.targetUrl.toLowerCase()!==('https://github.com/'+owner+'/'+repo).toLowerCase()
     ? {...snapshot,repos:[],selected:'',issues:[],error:'',availability:'checking',actionUrl:null,targetUrl:'',loading:true}:snapshot
@@ -27,18 +29,25 @@ export function RepoPanel({ store }: { store: RepoIssueStore }) {
   const verifyAbort = useRef<AbortController|null>(null)
   const [sessionRevision,setSessionRevision]=useState(0)
   const [repositoryUrl,setRepositoryUrl]=useState('')
+  const [inputError,setInputError]=useState('')
   useEffect(()=>subscribeSessionChanged(()=>{
     setSessionRevision(n=>n+1);setVerification({status:'idle'})
   }),[])
 
   function submitRepository(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    const target=parseGitHubRepositoryUrl(repositoryUrl)
+    const path=target&&resourcePath(target.owner,target.name,'issues')
+    if(!target||!path){
+      setInputError('请输入完整、有效且不与保留路径冲突的 GitHub 仓库 URL。')
+      return
+    }
+    setInputError('')
     verifyRevision.current++
     verifyAbort.current?.abort()
     setVerification({ status: 'idle' })
-    const target=parseGitHubRepositoryUrl(repositoryUrl)
-    if(target&&owner&&repo&&target.full_name.toLowerCase()!==(owner+'/'+repo).toLowerCase())navigate('/'+target.owner+'/'+target.name+'/issues')
-    else void store.connect(repositoryUrl)
+    if(owner&&repo&&target.full_name.toLowerCase()!==(owner+'/'+repo).toLowerCase())navigate(path)
+    else void store.connect(owner&&repo?'https://github.com/'+owner+'/'+repo:target.url)
   }
 
   async function verifyUserAndRepo() {
@@ -61,7 +70,7 @@ export function RepoPanel({ store }: { store: RepoIssueStore }) {
     }
   }
 
-  useEffect(()=>{verifyRevision.current++;verifyAbort.current?.abort();setVerification({status:'idle'});if(owner&&repo) {const url='https://github.com/'+owner+'/'+repo;setRepositoryUrl(url);void store.connect(url)} return ()=>{store.cancel();verifyRevision.current++;verifyAbort.current?.abort()}},[store,owner,repo])
+  useEffect(()=>{verifyRevision.current++;verifyAbort.current?.abort();setVerification({status:'idle'});setInputError('');if(owner&&repo&&routePath) {const url='https://github.com/'+owner+'/'+repo;setRepositoryUrl(url);void store.connect(url)} return ()=>{store.cancel();verifyRevision.current++;verifyAbort.current?.abort()}},[store,owner,repo,routePath])
   useEffect(()=>{
     const controller=new AbortController()
     setSession('checking')
@@ -74,6 +83,7 @@ export function RepoPanel({ store }: { store: RepoIssueStore }) {
       controller.abort();verifyRevision.current++;verifyAbort.current?.abort()
     }
   },[store,sessionRevision])
+  if(owner&&repo&&!routePath)return <UnsupportedRepositoryRoute/>
   return <div className={styles.shell}>
     <header><h1>LabourChain · Issues</h1><div className={styles.actions}>
       {session === 'connected'
@@ -82,7 +92,7 @@ export function RepoPanel({ store }: { store: RepoIssueStore }) {
           ? <span className={styles.sessionStatus}>检查登录状态…</span>
           : session === 'error'
             ? <button type="button" onClick={()=>setSessionRevision(n=>n+1)}>登录状态检查失败，重试</button>
-            : <a href={'/api/github-login?'+new URLSearchParams({return_to:location.pathname})}>使用 GitHub 登录</a>}
+            : <a href={loginHref(location.pathname)}>使用 GitHub 登录</a>}
       <button type="button" disabled={!s.targetUrl || s.loading} onClick={() => {
         verifyRevision.current++
         verifyAbort.current?.abort()
@@ -96,9 +106,11 @@ export function RepoPanel({ store }: { store: RepoIssueStore }) {
       <input id="lc-repo-url" className={styles.repoInput} type="url"
         autoComplete="url" required value={repositoryUrl}
         placeholder="https://github.com/owner/repo"
-        onChange={event => setRepositoryUrl(event.target.value)} />
+        aria-invalid={Boolean(inputError)} aria-describedby={inputError?'lc-repo-url-error':undefined}
+        onChange={event => {setRepositoryUrl(event.target.value);setInputError('')}} />
       <button type="submit">打开仓库 Issues</button>
     </form>
+    {inputError&&<p id="lc-repo-url-error" role="alert">{inputError}</p>}
     {s.availability === 'checking' && <p role="status">正在核验公开仓库与 GitHub App 授权…</p>}
     {s.availability === 'connected' && <p role="status">已验证公开仓库：{s.selected}</p>}
     {s.actionUrl && !accessReason && <p><a href={s.actionUrl} target="_blank" rel="noopener noreferrer">
@@ -108,7 +120,7 @@ export function RepoPanel({ store }: { store: RepoIssueStore }) {
         onClick={() => void verifyUserAndRepo()}>验证 GitHub 身份与仓库权限</button>
       {verification.status === 'loading' && <p role="status">正在向 GitHub 验证…</p>}
       {verification.status === 'error' && <p role="alert">验证失败：{verification.message}
-        {verification.relogin && <> · <a href="/api/github-login">重新登录</a></>}</p>}
+        {verification.relogin && <> · <a href={loginHref(location.pathname)}>重新登录</a></>}</p>}
       {verification.status === 'success' && verification.data && <div role="status">
         <p>GitHub 用户：{verification.data.user.login}（ID {verification.data.user.id}）</p>
         <p>仓库 {verification.data.repository.full_name}：

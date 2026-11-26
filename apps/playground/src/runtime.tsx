@@ -1,3 +1,4 @@
+import { PlaygroundLanding } from './playground-catalog'
 import { Context } from '@deepseek-ai/cordis'
 import { ReactUIService } from '../../../plugins/react-ui/src/index'
 import { RepoIssuesService } from '../../../plugins/repo-issues/src/index'
@@ -15,7 +16,9 @@ export async function startRuntime() {
   const dispose=async()=>{while(fibers.length)await fibers.pop()!.dispose()}
   try {
     async function mount(plugin: Parameters<typeof ctx.plugin>[0]){const fiber=ctx.plugin(plugin);fibers.push(fiber);await fiber}
-    await mount(ReactUIService);await mount(RepoIssuesService);await mount(repoPanel);await mount(repoHome)
+    await mount(ReactUIService);await mount({name:'playground-home',inject:['reactUI'],apply(ctx:Context){
+      ctx.effect(()=>ctx.reactUI.registerPage({id:'playground-home',path:'/',Component:PlaygroundLanding}))
+    }});await mount(RepoIssuesService);await mount(repoPanel);await mount(repoHome)
     await mount(repoConfig);await mount(createIssueDetailPlugin());await mount(channel);await mount(topicPage)
     return {ui:ctx.reactUI,dispose}
   }catch(error){await dispose();throw error}

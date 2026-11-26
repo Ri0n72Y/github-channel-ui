@@ -1,5 +1,5 @@
+import { RepositoryLink as Link } from '../../repo-issues/src/RepositoryLink'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Link } from 'react-router'
 import { safeHttps, type Member } from './domain.mjs'
 import type { Team } from './service'
 import type { MemberWriteState } from './useMemberWriteAccess'

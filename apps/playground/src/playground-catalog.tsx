@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router'
 import type { RequestFn } from '../../../plugins/shared/src/browser-http'
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { PLAYGROUND_PLUGINS, type PlaygroundPlugin } from './playground-paths.mjs'
@@ -8,13 +9,14 @@ import styles from './playground-catalog.module.css'
 
 /** @summary Public landing, directory and error pages, independent of the hosted composition. */
 export function PlaygroundLanding({sessionRequest}: {sessionRequest?:RequestFn} = {}) {
+  const navigate=useNavigate()
   const [input,setInput]=useState('')
   const [error,setError]=useState('')
   function submit(event:FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const target=parseGitHubResourceUrl(input)
-    if (!target) {setError('请输入完整的 GitHub 仓库或 Issue HTTPS URL');return}
-    window.location.assign(target.path)
+    if (!target) {setError('请输入完整且受支持的 GitHub 资源 HTTPS URL（保留路径不可用于仓库入口）');return}
+    navigate(target.path)
   }
   return <section className={styles.page}>
     <h1>公开插件 Playground</h1>

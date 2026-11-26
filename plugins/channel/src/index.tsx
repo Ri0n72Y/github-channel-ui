@@ -1,3 +1,5 @@
+import { resourcePath } from '../../repo-issues/src/target.mjs'
+import { UnsupportedRepositoryRoute } from '../../repo-issues/src/RepositoryLink'
 import type { Context } from '@deepseek-ai/cordis'
 import { lazy, Suspense } from 'react'
 import { useParams } from 'react-router'
@@ -14,6 +16,7 @@ export function createChannelPlugin(api: ChannelApi = channelApi) {
     apply(ctx: Context) {
       function ChannelEntry() {
         const { owner = '', repo = '' } = useParams<'owner' | 'repo'>()
+        if(!resourcePath(owner,repo,'channels'))return <UnsupportedRepositoryRoute/>
         return <Suspense fallback={<p role="status">正在加载频道页面…</p>}>
           <ChannelPage key={channelTargetKey(owner, repo)} owner={owner}
             repo={repo} api={api} />

@@ -1,3 +1,5 @@
+import { resourcePath } from '../../repo-issues/src/target.mjs'
+import { UnsupportedRepositoryRoute } from '../../repo-issues/src/RepositoryLink'
 import type { Context } from '@deepseek-ai/cordis'
 import { lazy, Suspense } from 'react'
 import { useParams } from 'react-router'
@@ -15,6 +17,7 @@ export function createRepoConfigPlugin(api: RepoConfigApi = repoConfigApi) {
       function Entry() {
         const { owner = '', repo = '' } = useParams<'owner' | 'repo'>()
         // The route host key is stable; remount the stateful Control on parameter changes.
+        if(!resourcePath(owner,repo,'config'))return <UnsupportedRepositoryRoute/>
         return <Suspense fallback={<p role="status">正在加载仓库配置…</p>}>
           <ConfigPage key={configTargetKey(owner, repo)}
             api={api} owner={owner} repo={repo} />

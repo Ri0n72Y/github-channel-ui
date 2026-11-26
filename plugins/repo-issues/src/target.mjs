@@ -16,7 +16,7 @@ export function parseGitHubRepositoryUrl(input) {
 export function resourcePath(owner, repo, kind = 'repository', number) {
   const target = parseGitHubRepositoryUrl('https://github.com/' + owner + '/' + repo)
   if (!target || target.owner !== owner || target.name !== repo) return null
-  if (kind !== 'topic' && /^(api|playground)$/i.test(owner)) return null
+  if (kind !== 'topic' && /^(api|assets|playground)$/i.test(owner)) return null
   if (owner.toLowerCase() === 'topic' && ['config','channels','members','issues'].includes(kind)) return null
   const base = '/' + owner + '/' + repo
   if (kind === 'repository') return base
@@ -49,7 +49,7 @@ export function parseGitHubResourceUrl(input) {
 }
 export function validLoginReturnPath(path) {
   if (path === '/installation-probe.html') return path
-  if (typeof path !== 'string' || /[\s%\\?#]/u.test(path) || /^\/(?:api|playground)(?:\/|$)/i.test(path)) return '/'
+  if (typeof path !== 'string' || /[\s%\\?#]/u.test(path) || /^\/(?:api|assets|playground)(?:\/|$)/i.test(path)) return '/'
   const parts = path.replace(/\/$/,'').split('/')
   if (parts[0] !== '') return '/'
   const [,a,b,c,d] = parts
@@ -61,4 +61,19 @@ export function validLoginReturnPath(path) {
   else if (parts.length === 5 && c === 'issues') canonical = d === 'new' ? resourcePath(a,b,'issues/new') :
     /^[1-9]\d*$/.test(d) ? resourcePath(a,b,'issue',Number(d)) : null
   return canonical && (path === canonical || path === canonical + '/') ? path : '/'
+}
+
+/** Validate an ordinary repository link by intent; never reinterpret a collision as Topic. */
+export function repositoryLinkPath(path) {
+  if (typeof path !== 'string' || /[\s%\\?#]/u.test(path)) return null
+  const parts=path.split('/')
+  if(parts[0]!=='')return null
+  const [,owner,repo,kind,last]=parts
+  if(parts.length===3)return resourcePath(owner,repo)
+  if(parts.length===4 && ['config','channels','members','issues'].includes(kind))
+    return resourcePath(owner,repo,kind)
+  if(parts.length===5 && kind==='members' && last==='register')return resourcePath(owner,repo,'members/register')
+  if(parts.length===5 && kind==='issues')return last==='new'?resourcePath(owner,repo,'issues/new'):
+    /^[1-9]\d*$/.test(last)?resourcePath(owner,repo,'issue',Number(last)):null
+  return null
 }

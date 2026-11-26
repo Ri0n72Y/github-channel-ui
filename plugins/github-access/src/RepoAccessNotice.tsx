@@ -21,8 +21,8 @@ const labels: Record<AccessResult['state'],string> = {
   probe_error:'暂时无法确认仓库授权，请重试',
 }
 /** One notice per page. Probe only after a structured read denial; no success-path request. */
-export default function RepoAccessNotice({owner,repo,reason,onRetry,request}:{
-  owner:string;repo:string;reason:RepoAccessReason;onRetry():void;request?:RequestFn
+export default function RepoAccessNotice({owner,repo,reason,onRetry,request,retryDisabled=false}:{
+  owner:string;repo:string;reason:RepoAccessReason;onRetry():void;request?:RequestFn;retryDisabled?:boolean
 }) {
   const {pathname}=useLocation()
   const inheritedRequest=useContext(AccessRequestContext)
@@ -46,6 +46,6 @@ export default function RepoAccessNotice({owner,repo,reason,onRetry,request}:{
     <p role="status">{labels[value.state]}</p>
     {value.state==='login_required'&&<a href={loginHref(pathname)}>登录 GitHub</a>}
     {value.actionUrl&&<a href={value.actionUrl} target="_blank" rel="noopener noreferrer">前往 GitHub 安装或管理授权</a>}
-    <button type="button" onClick={onRetry}>重新核验并读取</button>
+    <button type="button" disabled={retryDisabled} onClick={onRetry}>重新核验并读取</button>
   </section>
 }
