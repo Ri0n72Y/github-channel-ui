@@ -50,17 +50,16 @@ export function parseGitHubResourceUrl(input) {
 export function validLoginReturnPath(path) {
   if (path === '/installation-probe.html') return path
   if (typeof path !== 'string' || /[\s%\\?#]/u.test(path) || /^\/(?:api|assets|playground)(?:\/|$)/i.test(path)) return '/'
-  const parts = path.replace(/\/$/,'').split('/')
+  const bare = path.replace(/\/$/, '')
+  const parts = bare.split('/')
   if (parts[0] !== '') return '/'
-  const [,a,b,c,d] = parts
-  let canonical = null
-  if (parts.length === 4 && a === 'topic') canonical = resourcePath(b,c,'topic')
-  else if (parts.length === 3) canonical = resourcePath(a,b)
-  else if (parts.length === 4) canonical = resourcePath(a,b,c)
-  else if (parts.length === 5 && c === 'members' && d === 'register') canonical = resourcePath(a,b,'members/register')
-  else if (parts.length === 5 && c === 'issues') canonical = d === 'new' ? resourcePath(a,b,'issues/new') :
-    /^[1-9]\d*$/.test(d) ? resourcePath(a,b,'issue',Number(d)) : null
-  return canonical && (path === canonical || path === canonical + '/') ? path : '/'
+  const [,a,b,c] = parts
+  // React Router matches static segments case-insensitively. Topic takes
+  // precedence over ordinary three-segment repository routes.
+  const canonical = parts.length === 4 && a.toLowerCase() === 'topic'
+    ? resourcePath(b,c,'topic')
+    : repositoryLinkPath(bare)
+  return canonical ? canonical + (path.endsWith('/') ? '/' : '') : '/'
 }
 
 /** Validate an ordinary repository link by intent; never reinterpret a collision as Topic. */
@@ -68,12 +67,13 @@ export function repositoryLinkPath(path) {
   if (typeof path !== 'string' || /[\s%\\?#]/u.test(path)) return null
   const parts=path.split('/')
   if(parts[0]!=='')return null
-  const [,owner,repo,kind,last]=parts
+  const [,owner,repo,segment,last]=parts
+  const kind=segment?.toLowerCase()
   if(parts.length===3)return resourcePath(owner,repo)
   if(parts.length===4 && ['config','channels','members','issues'].includes(kind))
     return resourcePath(owner,repo,kind)
-  if(parts.length===5 && kind==='members' && last==='register')return resourcePath(owner,repo,'members/register')
-  if(parts.length===5 && kind==='issues')return last==='new'?resourcePath(owner,repo,'issues/new'):
+  if(parts.length===5 && kind==='members' && last.toLowerCase()==='register')return resourcePath(owner,repo,'members/register')
+  if(parts.length===5 && kind==='issues')return last.toLowerCase()==='new'?resourcePath(owner,repo,'issues/new'):
     /^[1-9]\d*$/.test(last)?resourcePath(owner,repo,'issue',Number(last)):null
   return null
 }

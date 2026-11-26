@@ -1427,3 +1427,23 @@ test('#115 Issue pagination denial preserves reading nodes, drafts and uncertain
   assert.equal(writes,1)
  }finally{await app.close()}
 })
+
+test('#115 case-insensitive resource route emits canonical OAuth return target',async()=>{
+ const reads=[]
+ const store=makeRepoStore(Object.freeze({
+  getRepositories:async()=>{throw Error('unexpected probe')},
+  getIssues:async(owner,name)=>{reads.push(owner+'/'+name);return []},
+  getSession:async()=>false,verify:async()=>{throw Error('unexpected verify')},
+  createIssue:async()=>{throw Error('unexpected write')},
+ }))
+ const app=await mount('/OwNeR/RePo/ISSUES','/:owner/:repo/issues',RepoPanel,{store})
+ try{
+  assert.ok(reads.length>0)
+  assert.ok(reads.every(value=>value==='OwNeR/RePo'))
+  const link=app.host.querySelector('a[href^="/api/github-login?"]')
+  assert.ok(link)
+  assert.equal(new URL(link.getAttribute('href'),'https://local.test').searchParams.get('return_to'),
+   '/OwNeR/RePo/issues')
+  assert.equal(store.getSnapshot().selected,'OwNeR/RePo')
+ }finally{await app.close();store.dispose()}
+})
