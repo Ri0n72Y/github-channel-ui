@@ -38,3 +38,6 @@
   .actions {align-items:stretch;flex-direction:column}
   .actions button,.actions a {width:100%}
 }
+
+.actions .primaryResult {background:var(--lc-primary);color:var(--lc-on-primary);font-weight:700;text-decoration:none}
+.actions .primaryResult:hover {background:var(--lc-primary-hover)}

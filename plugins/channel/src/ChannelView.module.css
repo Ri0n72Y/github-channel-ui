@@ -73,3 +73,7 @@
 .header .actions button:hover:not(:disabled) {background:var(--lc-surface-raised);color:var(--lc-text)}
 .footnote > summary {cursor:pointer;min-height:44px;padding:10px 0;box-sizing:border-box}
 .footnote > summary:focus-visible {outline:3px solid var(--lc-focus);outline-offset:3px}
+
+.error button,.notice summary {min-height:44px;padding:8px 12px;font:inherit;cursor:pointer;color:var(--lc-text);background:var(--lc-surface);border:1px solid var(--lc-stroke);border-radius:8px}
+.notice summary {display:list-item;background:transparent;border:0;color:var(--lc-text-secondary)}
+.notice summary:focus-visible {outline:3px solid var(--lc-focus);outline-offset:3px}

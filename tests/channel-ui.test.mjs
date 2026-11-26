@@ -19,11 +19,11 @@ before(async () => {
 })
 after(async () => { await server?.close() })
 
-function render(snapshot, error = '') {
+function render(snapshot, error = '', accessBlocked=false) {
   return renderToStaticMarkup(createElement(MemoryRouter, {
     initialEntries: ['/sample/repo/channels'],
   }, createElement(ChannelView, {
-    owner: 'sample', repo: 'repo', loading: false, snapshot, error, onRetry: () => {},
+    owner: 'sample', repo: 'repo', loading: false, snapshot, error, accessBlocked, onRetry: () => {},
   })))
 }
 
@@ -54,7 +54,12 @@ test('#28 missing/invalid/incomplete Channel states render explicit safe errors'
     assert.match(html, /频道暂不可用/)
     assert.doesNotMatch(html, /href="\/sample\/repo\/issues\//)
   }
-  assert.match(render(null, 'Fixture 429 限流'), /role="alert"/)
+  const failed=render(null, 'Fixture 429 限流')
+  assert.match(failed, /role="alert"/)
+  assert.match(failed, /重试读取/)
+  assert.doesNotMatch(failed, /aria-label="刷新频道"/)
+  assert.doesNotMatch(render(null,'',true), /<button/)
+  assert.match(render({state:'config_missing',channels:[]}), /<details><summary>项目管理者操作/)
 })
 
 test('#28 fixture covers success, missing Config, empty Channel, paging and permissions', async () => {

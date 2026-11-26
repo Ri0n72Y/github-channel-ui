@@ -3,6 +3,7 @@ import type { CommentItemView, IssueDetailViewActions, IssueDetailViewModel, Iss
   LabourField, LabourItemView, PermissionView, FormNotice } from './view-model'
 import { SafeMarkdown } from '../../shared/src/SafeMarkdown'
 import styles from './IssueDetailView.module.css'
+import { ExternalIcon, ReplyIcon, LocalTime } from '../../shared/src/Presentation'
 
 type Props = { model: IssueDetailViewModel; actions: IssueDetailViewActions }
 
@@ -47,10 +48,12 @@ function DiscussionView({ model, actions, onReplyFocus }: Props & { onReplyFocus
           <div className={styles.commentCopy}>
             <header className={styles.commentHeader}>
               <strong>{item.author}</strong>
-              <span className={styles.meta}>{item.time}</span>
-              {item.sourceUrl && <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer">GitHub 来源</a>}
-              <button type="button" className={styles.quoteAction} aria-label={'引用回复 ' + item.author}
-                onClick={() => { actions.onQuoteComment(item.id); onReplyFocus() }}>↩ 引用回复</button>
+              <span className={styles.meta}><LocalTime value={item.time}/></span>
+              <span className={styles.commentActions}>
+                {item.sourceUrl && <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer" aria-label="GitHub 来源" title="GitHub 来源"><ExternalIcon/></a>}
+                <button type="button" className={styles.quoteAction} aria-label={'引用回复 ' + item.author} title={'引用回复 ' + item.author}
+                  onClick={() => { actions.onQuoteComment(item.id); onReplyFocus() }}><ReplyIcon/></button>
+              </span>
             </header>
             <DiscussionMarkdown body={item.body} empty="此评论暂无正文。"/>
           </div>
@@ -105,7 +108,7 @@ function LabourHistoryView({ model, actions }: Props) {
     <ul className={styles.list}>{issue.labour.records.map((item: LabourItemView) =>
       <li key={item.id} className={styles.listItem}>
         <article className={styles.record}>
-          <p className={styles.meta}>{item.author} · GitHub 评论时间 {item.time}
+          <p className={styles.meta}>{item.author} · 登记于 <LocalTime value={item.time}/>
             {item.sourceUrl && <> · <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer">原始劳动评论</a></>}
           </p>
           <div className={styles.body}>{item.work}</div>
@@ -140,7 +143,7 @@ function LabourHistoryView({ model, actions }: Props) {
         <textarea rows={3} value={form.labour.outcome}
           onChange={event => update('outcome', event.target.value)}/>
       </label>
-      <details className={styles.secondaryDetails}><summary>关联提交与时间（可选）</summary>
+      <details className={styles.secondaryDetails} open={form.notice?.kind==='labour' && form.notice.tone==='error' ? true : undefined}><summary>关联提交与时间（可选）</summary>
       <label>关联 Commit SHA（可选；逗号或换行分隔）
         <textarea rows={3} value={form.labour.commits}
           onChange={event => update('commits', event.target.value)}/>
@@ -158,7 +161,7 @@ function LabourHistoryView({ model, actions }: Props) {
       </details>
       <div className={styles.formActions}>
         <button type="submit" disabled={!form.permission.allowed || form.pending || !form.labour.work.trim()}>
-          {form.pending && form.pendingKind === 'labour' ? '提交中…' : '确认登记到 GitHub 评论'}
+          {form.pending && form.pendingKind === 'labour' ? '提交中…' : '确认登记劳动'}
         </button>
         {form.pending && form.pendingKind === 'labour' && <span role="status">正在提交劳动记录，请勿重复操作。</span>}
       </div>
@@ -241,8 +244,10 @@ export default function IssueDetailView({ model, actions, accessNotice, paginati
   }, [])
   const ready = model.load.phase === 'ready' && Boolean(model.issue)
   const navigation = <nav className={styles.top} aria-label="Issue 导航">
-    <a href={model.navigation.homeHref}>返回首页</a>
-    <a href={model.navigation.repositoryHref}>返回仓库页</a>
+    {model.navigation.repositoryHref!==model.navigation.homeHref &&
+      <a href={model.navigation.repositoryHref}>返回项目</a>}
+    {(!ready || model.navigation.repositoryHref===model.navigation.homeHref) &&
+      <a href={model.navigation.homeHref}>返回首页</a>}
   </nav>
   return <div ref={pageRef} className={styles.page} data-ready={ready}>
     {!ready && navigation}
@@ -260,18 +265,17 @@ export default function IssueDetailView({ model, actions, accessNotice, paginati
         <div className={styles.identity}>
           <span className={styles.repository}>{model.navigation.repository}</span>
           <span className={styles.issueNumber}>#{model.issue.number}</span>
-          <span className={styles.issueState} data-state={model.issue.state.toLowerCase()}>{model.issue.state}</span>
+          <span className={styles.issueState} data-state={model.issue.state.toLowerCase()}>{model.issue.state.toLowerCase()==='open'?'开放中':model.issue.state.toLowerCase()==='closed'?'已关闭':model.issue.state}</span>
         </div>
         <h1>{model.issue.title}</h1>
-        <p className={styles.meta}>创建者：{model.issue.author} · 创建于 {model.issue.created}
+        <p className={styles.meta}>创建者：{model.issue.author} · 创建于 <LocalTime value={model.issue.created}/>
           {model.issue.sourceUrl && <> · <a href={model.issue.sourceUrl}
-            target="_blank" rel="noopener noreferrer">GitHub 原文</a></>}
+            className={styles.sourceAction} target="_blank" rel="noopener noreferrer" aria-label="GitHub 原文" title="GitHub 原文"><ExternalIcon/></a></>}
         </p>
 
 
       </header>
       {accessNotice}
-      {!model.issue.pagination.complete && <p role="status" className={styles.warning}>评论可能未全部取得，可在列表末尾继续读取。</p>}
       <div className={styles.tabs} role="tablist" aria-label="Issue 内容">
         <button ref={discussionTab} id={tabId('discussion')} role="tab" type="button"
           aria-controls={panelId('discussion')} aria-selected={tab === 'discussion'}
@@ -298,7 +302,7 @@ export default function IssueDetailView({ model, actions, accessNotice, paginati
             {model.issue.labourSummary.outcome ? <>
               <p className={styles.body}>{model.issue.labourSummary.outcome.text}</p>
               <p className={styles.meta}>登记者：{model.issue.labourSummary.outcome.author}
-                {' · '}{model.issue.labourSummary.outcome.time}
+                {' · '}<LocalTime value={model.issue.labourSummary.outcome.time}/>
                 {model.issue.labourSummary.outcome.sourceUrl && <> · <a
                   href={model.issue.labourSummary.outcome.sourceUrl} target="_blank" rel="noopener noreferrer">来源</a></>}
               </p>
@@ -315,25 +319,26 @@ export default function IssueDetailView({ model, actions, accessNotice, paginati
       </section>
       <section className={styles.readStatus} aria-label="读取状态">
         <div className={styles.readActions}>
-          <p>已读取 {model.issue.pagination.loaded} / {model.issue.pagination.expected} 条评论。
-            {' '}{model.issue.pagination.complete ? '已取得全部评论。' : '评论可能未全部取得。'}
-          </p>
-          <button type="button" onClick={actions.onRefresh} disabled={Boolean(accessNotice) || model.form.pending || model.form.refreshing}
-            aria-label="从 GitHub 重新加载此 Issue" title="刷新 Issue 与评论" className={styles.refreshAction}>{model.form.refreshing ? '正在刷新…' : <span aria-hidden="true">↻</span>}</button>
+          {!model.issue.pagination.complete && !accessNotice && !model.load.error && <p role="status" className={styles.warning}>{model.issue.pagination.hasMore ? '还有未加载的评论，当前读取不完整。' : '评论数量尚未核对完整，可重新读取。'}</p>}
+          {!accessNotice && <button type="button" onClick={actions.onRefresh} disabled={model.form.pending || model.form.refreshing}
+            aria-label="从 GitHub 重新加载此 Issue" title="刷新 Issue 与评论" className={styles.refreshAction}>{model.form.refreshing ? '正在刷新…' : model.load.error ? '重新读取讨论' : <span aria-hidden="true">↻</span>}</button>}
         </div>
         <details className={styles.secondaryDetails}><summary>读取时间与来源</summary>
-          <p className={styles.meta}>本次从服务器读取：{model.issue.pagination.lastRead}。GitHub Issue 更新时间：{model.issue.updated}。页面不会自动实时更新。</p>
+          <p>已读取 {model.issue.pagination.loaded} / {model.issue.pagination.expected} 条评论。</p>
+          <p className={styles.meta}>本次从服务器读取：<LocalTime value={model.issue.pagination.lastRead}/>。GitHub Issue 更新时间：<LocalTime value={model.issue.updated}/>。页面不会自动实时更新。</p>
+          {paginationBlocked && model.issue.pagination.error && <p>上次读取错误：{model.issue.pagination.error}</p>}
         </details>
         {model.issue.pagination.warnings.length > 0 &&
           <ul className={styles.warnings}>{model.issue.pagination.warnings.map(message =>
             <li key={message}>{message}</li>)}</ul>}
-        {model.issue.pagination.hasMore && <button type="button"
+        {model.issue.pagination.hasMore && (!model.issue.pagination.error || paginationBlocked) && <button type="button"
           disabled={paginationBlocked || model.issue.pagination.fetchingMore || model.form.refreshing} onClick={actions.onLoadMore}>
           {model.issue.pagination.fetchingMore ? '加载中…' : '加载下一页评论'}
         </button>}
-        {model.issue.pagination.error && <p className={styles.error} role="alert">
+        {model.load.error && !accessNotice && <p className={styles.error} role="alert">重新读取失败：{model.load.error}。</p>}
+        {model.issue.pagination.error && !paginationBlocked && <p className={styles.error} role="alert">
           分页失败：{model.issue.pagination.error}。
-          <button type="button" disabled={paginationBlocked || model.form.refreshing} onClick={actions.onLoadMore}>重试本页</button>
+          {model.issue.pagination.hasMore && <button type="button" disabled={model.form.refreshing || model.issue.pagination.fetchingMore} onClick={actions.onLoadMore}>重试本页</button>}
         </p>}
       </section>
       </div>

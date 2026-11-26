@@ -83,6 +83,12 @@ export function RepoPanel({ store }: { store: RepoIssueStore }) {
       controller.abort();verifyRevision.current++;verifyAbort.current?.abort()
     }
   },[store,sessionRevision])
+  function refreshRepository() {
+    verifyRevision.current++
+    verifyAbort.current?.abort()
+    setVerification({ status: 'idle' })
+    void store.refresh()
+  }
   if(owner&&repo&&!routePath)return <UnsupportedRepositoryRoute/>
   return <div className={styles.shell}>
     <header><h1>LabourChain · 讨论列表</h1><div className={styles.actions}>
@@ -93,12 +99,7 @@ export function RepoPanel({ store }: { store: RepoIssueStore }) {
           : session === 'error'
             ? <button type="button" onClick={()=>setSessionRevision(n=>n+1)}>登录状态检查失败，重试</button>
             : <a href={loginHref(location.pathname)}>使用 GitHub 登录</a>}
-      <button type="button" disabled={!s.targetUrl || s.loading} onClick={() => {
-        verifyRevision.current++
-        verifyAbort.current?.abort()
-        setVerification({ status: 'idle' })
-        void store.refresh()
-      }}>重新核验</button>
+      {!accessReason && <button type="button" disabled={!s.targetUrl || s.loading} onClick={refreshRepository}>重新核验</button>}
     </div></header>
     <p>{s.selected ? '当前项目：'+s.selected : '输入公开 GitHub 仓库地址，查看讨论。'}</p>
     <form className={styles.repoForm} onSubmit={submitRepository}>
@@ -133,7 +134,7 @@ export function RepoPanel({ store }: { store: RepoIssueStore }) {
       </div>}
     </details>}
     {s.loading && s.availability === 'connected' && <p role="status">正在读取讨论…</p>}
-    {accessReason&&s.targetUrl&&<RepoAccessNotice owner={s.targetUrl.split('/')[3]} repo={s.targetUrl.split('/')[4]} reason={accessReason} onRetry={()=>void store.refresh()}/>}
+    {accessReason&&s.targetUrl&&<RepoAccessNotice owner={s.targetUrl.split('/')[3]} repo={s.targetUrl.split('/')[4]} reason={accessReason} onRetry={refreshRepository} retryDisabled={s.loading}/>}
     {s.error && !accessReason && <p role="alert">{s.error}</p>}
     {s.repos.find(repo => repo.full_name === s.selected) && <IssueWorkspace
         key={s.selected}

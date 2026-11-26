@@ -41,7 +41,7 @@ export default function TopicPageView(props: TopicPageViewProps) {
         <div className={styles.feedTitle}><h2 id="topic-projects-heading">参与项目</h2></div>
         <div className={styles.projectActions}>
           <span className={styles.count}>{props.projects.length} 个已加载项目</span>
-          <button type="button" onClick={props.onRetry} disabled={props.loading} aria-label="刷新项目" title="刷新项目"><span aria-hidden="true">↻</span></button>
+          {!props.error && <button type="button" onClick={props.onRetry} disabled={props.loading} aria-label="刷新项目" title="刷新项目"><span aria-hidden="true">↻</span></button>}
         </div>
       </div>
       <TopicStatus loading={props.loading} error={props.error}

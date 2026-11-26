@@ -27,7 +27,10 @@ export default function SessionMenu({request=browserRequest}:{request?:RequestFn
   const { pathname } = useLocation()
   const [session,setSession]=useState<SessionState>(INITIAL)
   const [revision,setRevision]=useState(0)
-  const [open,setOpen]=useState(false)
+  const [openMode,setOpenMode]=useState<'hover'|'focus'|'explicit'|null>(null)
+  const open=Boolean(openMode)
+  const suppressFocus=useRef(false)
+  const pointerFocus=useRef(false)
   const [pending,setPending]=useState(false)
   const [avatarFailed,setAvatarFailed]=useState(false)
   const [actionError,setActionError]=useState('')
@@ -57,10 +60,18 @@ export default function SessionMenu({request=browserRequest}:{request?:RequestFn
   useEffect(()=>{
     if(!open)return
     function outside(event:PointerEvent){
-      if(event.target instanceof Node&&!wrapper.current?.contains(event.target))setOpen(false)
+      if(event.target instanceof Node&&!wrapper.current?.contains(event.target)){
+        pointerFocus.current=false
+        setOpenMode(null)
+      }
     }
     function keydown(event:KeyboardEvent){
-      if(event.key==='Escape'){setOpen(false);trigger.current?.focus()}
+      if(event.key==='Escape'){
+        setOpenMode(null)
+        suppressFocus.current=true
+        trigger.current?.focus()
+        suppressFocus.current=false
+      }
     }
     document.addEventListener('pointerdown',outside)
     document.addEventListener('keydown',keydown)
@@ -82,21 +93,24 @@ export default function SessionMenu({request=browserRequest}:{request?:RequestFn
       if(!response.ok||record(payload)?.authenticated!==false){
         throw new Error('退出登录失败，请重试')
       }
-      setSession({state:'anonymous',user:null});setOpen(false);setAvatarFailed(false)
+      setSession({state:'anonymous',user:null});setOpenMode(null);setAvatarFailed(false)
       emitSessionChanged()
     }catch{
       setActionError('退出登录失败，请重试')
     }finally{setPending(false)}
   }
   return <div className={styles.account} ref={wrapper}
-    onMouseEnter={()=>{if(session.state==='authenticated')setOpen(true)}}
-    onMouseLeave={event=>{
-      if(!(event.relatedTarget instanceof Node &&
-          event.currentTarget.contains(event.relatedTarget)))setOpen(false)
+    onPointerEnter={event=>{
+      if(event.pointerType==='mouse' && session.state==='authenticated')
+        setOpenMode(previous=>previous ?? 'hover')
+    }}
+    onPointerLeave={event=>{
+      if(event.pointerType==='mouse')
+        setOpenMode(previous=>previous==='hover' && !wrapper.current?.contains(document.activeElement) ? null : previous)
     }}
     onBlur={event=>{
       if(!(event.relatedTarget instanceof Node &&
-          event.currentTarget.contains(event.relatedTarget)))setOpen(false)
+          event.currentTarget.contains(event.relatedTarget)))setOpenMode(null)
     }}>
     {session.state==='loading'&&<span className={styles.status} role="status">
       正在检查 GitHub 登录…
@@ -112,7 +126,12 @@ export default function SessionMenu({request=browserRequest}:{request?:RequestFn
     {session.state==='authenticated'&&session.user&&<>
       <button type="button" ref={trigger} className={styles.trigger}
         aria-expanded={open} aria-controls="lc-account-menu"
-        onFocus={()=>setOpen(true)} onClick={()=>setOpen(true)}>
+        onPointerDown={()=>{pointerFocus.current=true}}
+        onPointerCancel={()=>{pointerFocus.current=false}}
+        onKeyDown={()=>{pointerFocus.current=false}}
+        onBlur={()=>{pointerFocus.current=false}}
+        onFocus={()=>{if(!suppressFocus.current && !pointerFocus.current)setOpenMode(previous=>previous ?? 'focus')}}
+        onClick={()=>{pointerFocus.current=false;setOpenMode(previous=>previous ? null : 'explicit')}}>
         {session.user.avatarUrl&&!avatarFailed?
           <img className={styles.avatar} alt=""
             src={session.user.avatarUrl} onError={()=>setAvatarFailed(true)}/>:

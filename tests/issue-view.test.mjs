@@ -35,7 +35,7 @@ const model = {
     },
     pagination: {
       loaded: 1, expected: 101, hasMore: true, fetchingMore: false,
-      error: '', lastRead: '2026-11-05T12:00:00Z', warnings: ['还有未加载的评论。'],
+      error: '', lastRead: '2026-11-05T12:00:00Z', warnings: [],
       complete: false,
     },
     discussion: {
@@ -104,6 +104,11 @@ test('pure View renders identity, outcome, scoped hours and tab relationships wi
   assert.match(html, /tabindex="-1"/)
   assert.match(html, /hidden=""/)
   assert.match(html, /刷新 Issue 与评论/)
+  assert.match(html, /aria-label="GitHub 来源"/)
+  assert.match(html, /dateTime="2026-11-02T00:00:00Z"/i)
+  assert.match(html, /开放中/)
+  assert.match(html, /返回项目/)
+  assert.doesNotMatch(html, /返回首页/)
   assert.match(html, /加载下一页评论/)
 })
 
@@ -258,4 +263,20 @@ test('#69 B2 complete composer budget and compact single-scroll fallback retain 
  assert.match(css,/\.page\[data-height-mode='compact'\] \.conversationScroll \{[^}]*overflow:\s*visible/s)
  assert.match(css,/\.page\[data-height-mode='compact'\] \.commentComposer \{[^}]*max-height:\s*none;[^}]*overflow:\s*visible/s)
  assert.match(viewSource,/available < 480 \? 'compact' : 'split'/)
+})
+
+
+test('#20 complete reading keeps counts and exact times in diagnostics; invalid times safely fall back',()=>{
+ const payload=structuredClone(model)
+ payload.issue.state='Closed'
+ payload.issue.created='unavailable'
+ payload.issue.pagination.complete=true
+ payload.issue.pagination.hasMore=false
+ payload.issue.pagination.loaded=101
+ const html=renderToStaticMarkup(createElement(View,{model:payload,actions}))
+ assert.match(html,/已关闭/)
+ assert.match(html,/title="unavailable">unavailable/)
+ assert.doesNotMatch(html,/还有未加载的评论|加载下一页评论/)
+ assert.match(html,/<details[^>]*><summary>读取时间与来源<\/summary><p>已读取 101 \/ 101 条评论/)
+ assert.equal((html.match(/aria-label="从 GitHub 重新加载此 Issue"/g)||[]).length,1)
 })
