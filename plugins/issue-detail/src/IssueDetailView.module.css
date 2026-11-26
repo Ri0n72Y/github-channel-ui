@@ -203,3 +203,9 @@
 .page .secondaryDetails > summary {cursor:pointer;min-height:44px;box-sizing:border-box;padding:10px 0}
 .page .secondaryDetails > summary:focus-visible {outline:3px solid var(--lc-focus);outline-offset:3px}
 .commentHeader a,.page .quoteAction {color:var(--lc-text-secondary)}
+
+.commentHeader {align-items:center;gap:2px 6px}
+.commentActions {display:inline-flex;align-items:center;margin-inline-start:auto;flex-wrap:wrap}
+.page .commentActions :is(a,button),.page .sourceAction {display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;margin:0;padding:4px;color:var(--lc-text-secondary)}
+.page .commentActions :is(a,button):hover,.page .sourceAction:hover {color:var(--lc-link)}
+.page .readActions {justify-content:flex-end;align-items:center}

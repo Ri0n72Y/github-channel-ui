@@ -172,12 +172,11 @@ export default function RepoHomePage({ api, theme, coverUrl }: { api: RepoHomeAp
         <div className={styles.titleReadme}>
           <h2>项目说明</h2>
           {summary && <p>{summary}</p>}
-          {data.readme.state === 'ready' && !summary && <p className={styles.muted}>查看完整项目说明。</p>}
           {data.readme.state === 'missing' && <p className={styles.muted}>暂无 README。</p>}
           {data.readme.state === 'error' && <p role="status">
             README 读取失败：{data.readme.error} <button type="button" onClick={() => setGeneration(n => n + 1)}>重试</button>
           </p>}
-          {readmeUrl && <a className={styles.readmeLink} href={readmeUrl} target="_blank" rel="noopener noreferrer">完整 README</a>}
+          {readmeUrl && <a className={styles.readmeLink} href={readmeUrl} target="_blank" rel="noopener noreferrer">完整项目说明（GitHub）</a>}
         </div>
         <div className={[styles.actions, styles.titleActions].join(' ')}>
           <Link to={base + '/channels'}>项目频道</Link>

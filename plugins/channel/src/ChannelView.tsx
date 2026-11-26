@@ -1,6 +1,7 @@
 import { RepositoryLink as Link } from '../../repo-issues/src/RepositoryLink'
 import type { ChannelSnapshot } from './service'
 import styles from './ChannelView.module.css'
+import { LocalTime } from '../../shared/src/Presentation'
 
 type Props = {
   owner: string
@@ -8,10 +9,11 @@ type Props = {
   loading: boolean
   snapshot: ChannelSnapshot | null
   error: string
+  accessBlocked?: boolean
   onRetry(): void
 }
 const stateText: Record<string, string> = {
-  config_missing: '频道尚未配置，请联系项目管理者或查看配置。',
+  config_missing: '频道尚未配置，请联系项目管理者。',
   invalid_config: '频道配置无效，请联系项目管理者修正。',
   sync_branch_missing: '频道来源分支不存在，请联系项目管理者。',
   no_channels: '项目还没有配置频道，请联系项目管理者。',
@@ -23,7 +25,7 @@ function issueUrl(owner: string, repo: string, number: number) {
 }
 
 /** @summary Display one repository's Channel selection with existing Issue detail navigation. */
-export default function ChannelView({ owner, repo, loading, snapshot, error, onRetry }: Props) {
+export default function ChannelView({ owner, repo, loading, snapshot, error, accessBlocked=false, onRetry }: Props) {
   const base = '/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo)
   return <section className={styles.page}>
     <nav className={styles.breadcrumb} aria-label="频道导航">
@@ -35,18 +37,18 @@ export default function ChannelView({ owner, repo, loading, snapshot, error, onR
         <h1>项目频道</h1>
         <p>选择一个频道，加入当前讨论。</p>
       </div>
-      <div className={styles.actions}>
+      {!accessBlocked && !error && <div className={styles.actions}>
         <button type="button" disabled={loading} onClick={onRetry} aria-label="刷新频道" title="刷新频道"><span aria-hidden="true">↻</span></button>
-      </div>
+      </div>}
     </header>
     {loading && <p role="status">正在加载频道…</p>}
-    {error && <p className={styles.error} role="alert">读取失败：{error}</p>}
+    {error && !accessBlocked && <div className={styles.error} role="alert">读取失败：{error} <button type="button" onClick={onRetry}>重试读取</button></div>}
     {!loading && snapshot && snapshot.state !== 'ready' &&
       <section className={styles.notice} role="status">
         <h2>频道暂不可用</h2>
         <p>{stateText[snapshot.state] || snapshot.state}</p>
         {snapshot.error && <p>{snapshot.error}</p>}
-        {snapshot.state === 'config_missing' && <Link to={base + '/config'}>查看配置初始化</Link>}
+        {snapshot.state === 'config_missing' && <details><summary>项目管理者操作</summary><Link to={base + '/config'}>查看配置初始化</Link></details>}
       </section>}
     {!loading && snapshot?.state === 'ready' && <>
       <ul className={styles.grid}>
@@ -60,7 +62,7 @@ export default function ChannelView({ owner, repo, loading, snapshot, error, onR
               <p className={styles.status}>当前讨论</p>
               <h3>{channel.issue.title}</h3>
               <p className={styles.meta}>作者：{channel.issue.author || '未知'} ·
-                创建时间：{channel.issue.createdAt} · 评论：{channel.issue.comments}</p>
+                创建时间：<LocalTime value={channel.issue.createdAt}/> · 评论：{channel.issue.comments}</p>
             </div>
             <Link className={styles.enter} to={issueUrl(owner, repo, channel.issue.number)}>
               进入讨论

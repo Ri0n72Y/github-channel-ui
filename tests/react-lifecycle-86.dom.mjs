@@ -141,7 +141,10 @@ test('#86 Issue page: two same-tick load-more events are single-flight and IDs d
   assert.equal(svc.calls.filter(x=>x.page===2).length,1)
   next.resolve({items:[comment(101),comment(102)],hasMore:false})
   await flush()
-  assert.match(app.host.textContent,/2 \/ 3|2\/3|已加载\s*2/)
+  const diagnostic=app.host.querySelector('[aria-label="读取状态"] details')
+  assert.equal(diagnostic.open,false)
+  assert.match(diagnostic.textContent,/2 \/ 3/)
+  assert.equal(app.host.querySelector('[aria-label="读取状态"]').querySelectorAll('[role="status"]').length,1)
  }finally{await app.close()}
 })
 test('#86 Member: session invalidation releases pending without replaying a possibly committed POST',async()=>{
@@ -859,7 +862,7 @@ test('#15 scoped Issue submit is single-flight and confirms the same repository'
   assert.deepEqual(actual,{repo:target,title:'Scoped task',body:''})
   pending.resolve({number:47,html_url:'https://github.com/sample/repo/issues/47'})
   await flush()
-  assert.match(page.host.textContent,/Issue #47 已创建/)
+  assert.match(page.host.textContent,/动态已发布 · #47/)
   assert.equal(page.host.querySelector('form'),null)
   assert.ok(page.host.querySelector('a[href="/sample/repo/issues/47"]'))
   assert.ok(page.host.querySelector('a[href="https://github.com/sample/repo/issues/47"]'))
@@ -881,7 +884,7 @@ test('#15 invalid Issue creation response blocks retry after possible GitHub wri
   await act(async()=>page.host.querySelector('form').dispatchEvent(
    new Event('submit',{bubbles:true,cancelable:true})))
   assert.equal(posts,1)
-  assert.match(page.host.textContent,/Issue 创建结果尚未确认/)
+  assert.match(page.host.textContent,/发布结果尚未确认/)
   assert.equal(page.host.querySelector('form'),null)
   assert.doesNotMatch(page.host.innerHTML,/href="https:\/\/github.com\/other\/repo\/issues\/2"/)
  }finally{await page.close()}
@@ -952,7 +955,12 @@ test('#99 D2: concise RepoHome retains one members entry, genuine identities and
   assert.match(card.textContent,/#71/)
   assert.match(card.textContent,/operator/)
   assert.match(card.textContent,/A useful Issue summary/)
-  assert.equal(card.querySelector('a[href="https://github.com/sample/repo/issues/71"]')?.getAttribute('target'),'_blank')
+  const source=card.querySelector('a[href="https://github.com/sample/repo/issues/71"]')
+  assert.equal(source?.getAttribute('target'),'_blank')
+  assert.equal(source.getAttribute('aria-label'),'GitHub 原文')
+  assert.ok(source.querySelector('svg'))
+  assert.ok(source.parentElement.querySelector('time[datetime="2026-11-22T12:00:00Z"]'))
+  assert.match(source.parentElement.textContent,/更新于/)
  }finally{await app.close()}
 })
 
@@ -1217,7 +1225,7 @@ test('#99 Title layout uses measured card width, one identity/README/actions/tea
    }
    assert.ok(app.host.querySelector('#feed-heading'))
    assert.equal(app.host.querySelector('a[href="/sample/repo/issues/new"]').textContent,'发布动态')
-   assert.equal(title.querySelector('a[href="https://github.com/sample/repo/blob/main/README.md"]').textContent,'完整 README')
+   assert.equal(title.querySelector('a[href="https://github.com/sample/repo/blob/main/README.md"]').textContent,'完整项目说明（GitHub）')
   }finally{await app.close()}
  }
 })
@@ -1416,6 +1424,8 @@ test('#115 Issue pagination denial preserves reading nodes, drafts and uncertain
   assert.equal(app.host.querySelectorAll('[aria-label="仓库访问授权"]').length,1)
   assert.ok(send().disabled)
   assert.ok(next.disabled)
+  assert.equal(app.host.querySelector('[aria-label="从 GitHub 重新加载此 Issue"]'),null)
+  assert.equal([...app.host.querySelectorAll('button')].filter(b=>b.textContent==='重试本页').length,0)
   const retry=()=>[...app.host.querySelectorAll('button')].find(b=>b.textContent==='重新核验并读取')
   failRefresh=true
   await act(async()=>retry().click());await flush()
@@ -1454,4 +1464,55 @@ test('#115 case-insensitive resource route emits canonical OAuth return target',
    '/OwNeR/RePo/issues')
   assert.equal(store.getSnapshot().selected,'OwNeR/RePo')
  }finally{await app.close();store.dispose()}
+})
+
+
+test('#20 account disclosure preserves hover/focus and explicit toggle, Escape and outside close without new requests',async()=>{
+ const SessionMenu=(await server.ssrLoadModule('/plugins/react-ui/src/SessionMenu.tsx')).default
+ const calls=[]
+ const request=async(path,init)=>{
+   calls.push({path,method:init?.method||'GET'})
+   assert.equal(path,'/api/github-session')
+   return Response.json({authenticated:true,user:{login:'fixture-user',avatarUrl:null}})
+ }
+ const app=await mount('/sample/repo','/:owner/:repo',SessionMenu,{request})
+ const pointer=(type,pointerType)=>{const e=new MouseEvent(type,{bubbles:true});Object.defineProperty(e,'pointerType',{value:pointerType});return e}
+ try{
+  const trigger=app.host.querySelector('button[aria-controls="lc-account-menu"]')
+  assert.ok(trigger)
+  const count=calls.length
+  const expanded=()=>trigger.getAttribute('aria-expanded')
+  const menu=()=>app.host.querySelector('[aria-label="GitHub 账户操作"]')
+  assert.equal(expanded(),'false')
+  await act(async()=>trigger.dispatchEvent(pointer('pointerover','mouse')))
+  assert.equal(expanded(),'true')
+  await act(async()=>trigger.click())
+  assert.equal(expanded(),'false')
+  await act(async()=>trigger.click())
+  assert.equal(expanded(),'true')
+  await act(async()=>menu().querySelector('button').focus())
+  await act(async()=>document.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true})))
+  assert.equal(expanded(),'false')
+  assert.equal(document.activeElement,trigger)
+  await act(async()=>trigger.click())
+  assert.equal(expanded(),'true')
+  await act(async()=>document.body.dispatchEvent(pointer('pointerdown','mouse')))
+  assert.equal(expanded(),'false')
+  await act(async()=>trigger.blur())
+  await act(async()=>trigger.focus())
+  assert.equal(expanded(),'true')
+  await act(async()=>trigger.click())
+  assert.equal(expanded(),'false')
+  await act(async()=>trigger.blur())
+  await act(async()=>{
+   trigger.dispatchEvent(pointer('pointerdown','touch'))
+   trigger.dispatchEvent(pointer('pointerup','touch'))
+   trigger.focus()
+   trigger.click()
+  })
+  assert.equal(expanded(),'true')
+  await act(async()=>trigger.click())
+  assert.equal(expanded(),'false')
+  assert.equal(calls.length,count)
+ }finally{await app.close()}
 })

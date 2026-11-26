@@ -4,6 +4,7 @@ import type { RepoFeedIssue } from './service'
 import { SafeMarkdown } from './SafeMarkdown'
 import { previewMarkdown } from './domain.mjs'
 import styles from './RepoHome.module.css'
+import { ExternalIcon, LocalTime } from '../../shared/src/Presentation'
 
 /** @summary Render a normal GitHub Issue as one accessible, expandable first-post article. */
 export function RepoIssueActivityCard({ issue, base }: { issue: RepoFeedIssue; base: string }) {
@@ -19,17 +20,15 @@ export function RepoIssueActivityCard({ issue, base }: { issue: RepoFeedIssue; b
     query.addEventListener('change', onChange)
     return () => query.removeEventListener('change', onChange)
   }, [])
-  const updated = Date.parse(issue.updated_at)
   return <article className={styles.card}>
     <div className={styles.cardMeta}>
       <span className={styles.issueNumber}>#{issue.number}</span>
       <span className={styles.issueState} data-state={issue.state === 'closed' ? 'closed' : 'open'}>
         {issue.state === 'closed' ? '已关闭' : '开放中'}
       </span>
-      <span className={styles.issueAuthor}>由 {issue.user?.login || '未知作者'} 发布</span>
-      <time dateTime={issue.updated_at} title="最近更新">
-        {Number.isNaN(updated) ? issue.updated_at : new Date(updated).toLocaleString('zh-CN')}
-      </time>
+      <span className={styles.issueAuthor}>{issue.user?.login || '未知作者'}</span>
+      <span>更新于 <LocalTime value={issue.updated_at} label="最近更新"/></span>
+      {issue.html_url && <a className={styles.feedSource} href={issue.html_url} target="_blank" rel="noopener noreferrer" aria-label="GitHub 原文" title="GitHub 原文"><ExternalIcon/></a>}
     </div>
     <h3><Link to={base + '/issues/' + issue.number} aria-label={issue.title + ' · 参与讨论'}>{issue.title}</Link></h3>
     {!body.trim() ? <p className={styles.muted}>暂无正文</p> :
@@ -38,8 +37,5 @@ export function RepoIssueActivityCard({ issue, base }: { issue: RepoFeedIssue; b
         preview={long && !expanded} article /></div>}
     {long && <button type="button" onClick={() => setExpanded(v => !v)}
       aria-expanded={expanded}>{expanded ? '收起正文' : '展开完整正文'}</button>}
-    <div className={styles.cardActions}>
-      <a href={issue.html_url} target="_blank" rel="noopener noreferrer">GitHub 原文</a>
-    </div>
   </article>
 }

@@ -145,6 +145,7 @@ test('#31 B1-1 incomplete GitHub Search renders retryable failure, never an empt
   assert.match(html, /项目读取失败/)
   assert.match(html, /GitHub Topic Search 结果不完整/)
   assert.match(html, /重新加载/)
+  assert.doesNotMatch(html, /aria-label="刷新项目"/)
   assert.doesNotMatch(html, /当前可访问搜索范围没有符合配置的项目/)
   assert.doesNotMatch(html, /1000 条可访问上限/)
 })

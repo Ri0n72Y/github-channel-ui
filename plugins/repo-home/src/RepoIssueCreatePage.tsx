@@ -84,7 +84,7 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
     const name = title.trim()
     if (!verified || status !== 'ready' || pending || inflight.current ||
         created || unknown || !name || name.length > 256 || description.length > 20000 ||
-        !window.confirm('确认以你的 GitHub 身份在 ' + verified.full_name + ' 创建此 Issue？')) return
+        !window.confirm('确认以你的 GitHub 身份在 ' + verified.full_name + ' 公开发布此动态？')) return
     const controller = new AbortController()
     inflight.current = controller
     setPending(true); setMessage('')
@@ -94,14 +94,14 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
       const url = trustedCreatedIssueUrl(result.html_url, result.number, verified)
       if (!url) {
         setUnknown(true)
-        setMessage('GitHub 返回的创建链接无法确认；请先在目标仓库核实 Issue，禁止直接重试。')
+        setMessage('GitHub 返回的发布链接无法确认；请先在目标仓库核实动态（Issue），禁止直接重试。')
         return
       }
       setCreated({ number: result.number, url })
     } catch (error) {
       if (!controller.signal.aborted) {
         setUnknown(uncertainWriteResult(error))
-        setMessage(error instanceof Error ? error.message : '创建 Issue 失败')
+        setMessage(error instanceof Error ? error.message : '发布动态失败')
       }
     } finally {
       if (inflight.current === controller) {
@@ -122,17 +122,17 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
     {status === 'anonymous' && <p>登录 GitHub 后才能发布动态。
       <a href={login}>登录 GitHub 后返回此仓库</a></p>}
     {unknown && <section className={styles.warning} role="alert">
-      <h2 ref={resultHeading} tabIndex={-1}>Issue 创建结果尚未确认</h2>
+      <h2 ref={resultHeading} tabIndex={-1}>发布结果尚未确认</h2>
       <p>{message}</p>
       {target && <a href={target.url + '/issues'} target="_blank" rel="noopener noreferrer">
         在 GitHub 核查目标仓库 Issues（新标签）</a>}
     </section>}
     {created && <section className={styles.success} role="status" aria-live="polite">
-      <h2 ref={resultHeading} tabIndex={-1}>Issue #{created.number} 已创建</h2>
+      <h2 ref={resultHeading} tabIndex={-1}>动态已发布 · #{created.number}</h2>
       <p>提交已由 GitHub 确认。</p>
       <div className={styles.actions}>
-        <Link to={base + '/issues/' + created.number}>查看已发布动态</Link>
-        <a href={created.url} target="_blank" rel="noopener noreferrer">前往 GitHub Issue（新标签）</a>
+        <Link className={styles.primaryResult} to={base + '/issues/' + created.number}>查看已发布动态</Link>
+        <a href={created.url} target="_blank" rel="noopener noreferrer">在 GitHub 查看（新标签）</a>
       </div>
     </section>}
     {status === 'ready' && verified && !created && !unknown &&

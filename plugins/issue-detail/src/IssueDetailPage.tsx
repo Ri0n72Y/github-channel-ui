@@ -156,12 +156,12 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
     allowed: canWrite,
     reason: accessReason ? '仓库访问授权需要恢复；已读内容及草稿暂保留，禁止提交。'
       : state.error && issue ? '重新读取失败；已读内容可能过时，暂不能提交。'
-      : authStatus === 'checking' ? '正在确认 GitHub OAuth 身份与仓库访问权限。'
-      : authStatus === 'anonymous' ? '匿名用户只能阅读，发表评论或登记劳动需登录 GitHub。'
-      : authStatus === 'denied' ? '当前 OAuth 用户未获此仓库的 App 授权，不能提交。'
+      : authStatus === 'checking' ? '正在检查登录和提交权限。'
+      : authStatus === 'anonymous' ? '匿名用户只能阅读，登录 GitHub 后可检查提交权限。'
+      : authStatus === 'denied' ? '当前账号没有此项目的访问授权，不能提交。'
       : authStatus === 'error' ? '无法确认写入权限：' + auth.message + '。'
-      : state.refreshing ? '正在刷新 Issue 与评论，暂不能提交。'
-      : canWrite ? '' : '当前 Issue 尚未成功加载，暂不能提交。',
+      : state.refreshing ? '正在刷新讨论，暂不能提交。'
+      : canWrite ? '' : '讨论尚未成功加载，暂不能提交。',
     loginHref: authStatus === 'anonymous' || authStatus === 'denied' ||
       authStatus === 'error' ? loginUrl : null,
     loginText: authStatus === 'anonymous' ? 'GitHub 登录' : '重新授权',
@@ -203,7 +203,7 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
       setNotice({ kind, tone: 'error', message: '提交内容（含引用）超过 20000 字符，请缩短后重试。' })
       return
     }
-    if (!window.confirm('确认以当前 GitHub OAuth 用户身份发表这条' +
+    if (!window.confirm('确认以当前 GitHub 身份在 ' + target + ' #' + numberValue + ' 公开发表这条' +
       (kind === 'labour' ? '劳动记录' : '评论') + '？')) return
     const current = revision.current
     const submittedEdit = commentEdit.current
@@ -220,7 +220,7 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
       } else setLabour(previous => previous === submittedLabour
         ? { ...initialLabour, hours: previous.hours } : previous)
       setNotice({ kind, tone: 'success',
-        message: 'GitHub 已确认发表：评论 #' + response.id + '。正在重新读取 Issue 与评论。' })
+        message: 'GitHub 已确认发表：评论 #' + response.id + '。正在刷新讨论。' })
       setReload(value => value + 1)
     } catch (error) {
       if (current === revision.current) setNotice({ kind, tone: 'error',
@@ -241,18 +241,12 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
       void submit(body, 'labour')
     } catch {
       setNotice({ kind: 'labour', tone: 'error',
-        message: '劳动记录不符合 §9.4：请检查工作内容、0.5 小时步长、完整 Commit SHA 和起止时间。' })
+        message: '请检查工作内容、至少 0.5 小时且按 0.5 递增的估时、完整 Commit SHA，以及成对且顺序正确的起止时间。' })
     }
   }
 
   const warnings: string[] = []
   if(issue&&(accessReason||state.error))warnings.push('当前保留上次已读取的内容；恢复授权后重新读取 Issue 与第一页评论，不会自动提交草稿。')
-  if (issue && state.hasMore) warnings.push('还有未加载的评论。当前统计不能视为完整。')
-  if (issue && state.comments.length < issue.comments) {
-    warnings.push('GitHub 评论数量尚未核对完毕。')
-  }
-  if (summary.invalidCandidates.length) warnings.push('存在格式无效的候选劳动记录。')
-  if (summary.conflicts.length) warnings.push('存在重复关联 Commit 的劳动记录，冲突记录暂不计入总数。')
 
   const latestOutcome = [...summary.records].filter(record => !record.conflicted && record.outcome)
     .sort((a, b) => (Date.parse(b.comment.created_at) || 0) -

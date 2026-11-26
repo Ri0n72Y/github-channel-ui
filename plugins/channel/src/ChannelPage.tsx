@@ -39,5 +39,5 @@ export default function ChannelPage({ owner, repo, api }: {
   }, [api, owner, repo, revision, report])
 
   return <>{accessReason&&<RepoAccessNotice owner={owner} repo={repo} reason={accessReason} onRetry={retry}/>}
-    <ChannelView owner={owner} repo={repo} {...state} onRetry={retry} /></>
+    <ChannelView owner={owner} repo={repo} {...state} accessBlocked={Boolean(accessReason)} onRetry={retry} /></>
 }
