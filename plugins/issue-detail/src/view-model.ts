@@ -42,7 +42,7 @@ export type IssueDetailViewModel = {
     labour: LabourDraft; pending: boolean;
     pendingKind: 'comment' | 'labour' | null; notice: FormNotice | null;
     permission: PermissionView
-    draftsReady?: boolean; commentLocked?: boolean; labourLocked?: boolean; storageWarning?: string
+    unknownKind: 'comment' | 'labour' | null
   }
 }
 export type IssueDetailViewActions = {
@@ -50,5 +50,5 @@ export type IssueDetailViewActions = {
   onCommentChange(value: string): void
   onQuoteComment(id: number): void; onCancelQuote(): void
   onLabourChange(field: LabourField, value: string): void
-  onSubmitComment(): void; onSubmitLabour(): void; onUnlockDraft?(kind:'comment'|'labour'):void
+  onSubmitComment(): void; onSubmitLabour(): void
 }

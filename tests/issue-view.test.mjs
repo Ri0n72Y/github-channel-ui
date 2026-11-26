@@ -55,7 +55,7 @@ const model = {
     },
   },
   form: {
-    draft: '草稿不会自动提交', quote: null, commentLength: 9, refreshing: false,
+    draft: '当前评论内容', quote: null, commentLength: 9, refreshing: false,
     labour: { work: '', hours: '0.5', outcome: '', commits: '', start: '', end: '' },
     pending: false, pendingKind: null, notice: null,
     permission: { state: 'authorized', allowed: true,
@@ -84,6 +84,7 @@ test('View/Controller import boundary: View does not reference Router, Cordis, S
   assert.match(controllerSource, /useParams/)
   assert.match(controllerSource, /summarizeIssueComments/)
   assert.match(controllerSource, /service\.postComment/)
+  assert.doesNotMatch(controllerSource, /localStorage|IssueDraftStore|draft-store|unlockDraft|onUnlockDraft|draftsReady|commentLocked|labourLocked|storageWarning/)
 })
 
 test('pure View renders identity, outcome, scoped hours and tab relationships without Router or API', () => {
@@ -115,7 +116,7 @@ test('anonymous View provides login-only participation, never an editable draft'
   anonymous.form.permission={state:'anonymous',allowed:false,reason:'登录后参与',
     loginHref:'/api/github-login?return_to=%2Fsample%2Frepo%2Fissues%2F1',loginText:'GitHub 登录'}
   const html = renderToStaticMarkup(createElement(View, { model:anonymous, actions }))
-  assert.doesNotMatch(html, /草稿不会自动提交|草稿仅保存在当前浏览器|<textarea|引用回复 speaker/)
+  assert.doesNotMatch(html, /<textarea|引用回复 speaker/)
   assert.match(html, /登录后即可发表评论/)
   assert.match(html, /登录后即可登记劳动/)
   assert.match(html, /未加载的评论/)
@@ -127,12 +128,12 @@ test('pure View renders authorized write controls and contextual failure status'
     ...model,
     form: { ...model.form, draft: '已经填写',
       labour: { ...model.form.labour, work: '修复表单' },
-      notice: { kind: 'comment', tone: 'error', message: 'GitHub 提交失败，草稿已保留。' },
+      notice: { kind: 'comment', tone: 'error', message: 'GitHub 提交失败，请修正内容后重试。' },
       permission: { state: 'authorized', allowed: true, reason: '',
         loginHref: null, loginText: '' } },
   }
   const html = renderToStaticMarkup(createElement(View, { model: ready, actions }))
-  assert.match(html, /GitHub 提交失败，草稿已保留/)
+  assert.match(html, /GitHub 提交失败，请修正内容后重试/)
   assert.match(html, /role="alert"/)
   assert.doesNotMatch(html, /匿名用户只能阅读/)
   assert.doesNotMatch(html, /disabled=""/)

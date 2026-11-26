@@ -96,7 +96,7 @@ function CommentComposer({ model, actions, inputRef, hidden }: Props & { inputRe
           onChange={event => actions.onCommentChange(event.target.value)} />
       </label>
       <div className={styles.sendActions}>
-        <button type="submit" disabled={!form.permission.allowed || form.pending || !form.draft.trim() || tooLong}>
+        <button type="submit" disabled={!form.permission.allowed || form.pending || form.unknownKind==='comment' || !form.draft.trim() || tooLong}>
           {form.pending && form.pendingKind === 'comment' ? '提交中…' : '发表评论'}
         </button>
         {form.quote && <span className={styles.meta}>{form.commentLength} / 20000 字符（含引用）</span>}
@@ -170,7 +170,7 @@ function LabourHistoryView({ model, actions }: Props) {
       </details>
       </fieldset>
       <div className={styles.formActions}>
-        <button type="submit" disabled={!form.permission.allowed || form.pending || !form.labour.work.trim()}>
+        <button type="submit" disabled={!form.permission.allowed || form.pending || form.unknownKind==='labour' || !form.labour.work.trim()}>
           {form.pending && form.pendingKind === 'labour' ? '提交中…' : '确认登记劳动'}
         </button>
         {form.pending && form.pendingKind === 'labour' && <span role="status">正在提交劳动记录，请勿重复操作。</span>}
