@@ -11,8 +11,10 @@ import { issueRequestError, issueRequestStatus, type GithubComment, type GithubI
   type IssueDetailApi } from './service'
 import IssueDetailView from './IssueDetailView'
 import { subscribeSessionChanged } from '../../shared/src/session-change'
+import { uncertainWriteResult } from '../../shared/src/browser-http'
+import { IssueDraftStore, draftKey, blankSnapshot, type DraftKind, type DraftSnapshot } from './draft-store'
 import type { FormNotice, IssueDetailViewActions, IssueDetailViewModel,
-  LabourDraft, LabourField, PermissionView, QuoteReply } from './view-model'
+  LabourField, PermissionView } from './view-model'
 
 type Load = {
   key: string; loading: boolean; refreshing: boolean; issue: GithubIssue | null; comments: GithubComment[];
@@ -23,9 +25,8 @@ const empty: Load = { key: '', loading: true, refreshing: false, issue: null, co
   fetchingMore: false, lastRead: '', error: null, pageError: '' }
 type Auth = {
   key: string; status: 'checking' | 'anonymous' | 'authorized' | 'denied' | 'error'; message: string
+  userId?: number; epoch?: number
 }
-const initialLabour: LabourDraft = { work: '', hours: '0.5', outcome: '',
-  commits: '', start: '', end: '' }
 
 function safeGitHubUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -53,13 +54,21 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
   const [auth, setAuth] = useState<Auth>({ key: '', status: 'checking', message: '' })
   const [reload, setReload] = useState(0)
   const [authRevision, setAuthRevision] = useState(0)
-  useEffect(() => subscribeSessionChanged(() => setAuthRevision(n => n + 1)), [])
-  const [draft, setDraft] = useState('')
-  const [selection, setSelection] = useState<{ key: string; quote: QuoteReply } | null>(null)
-  const commentEdit = useRef(0)
-  const writeInFlight = useRef(false)
-  const [labour, setLabour] = useState<LabourDraft>(initialLabour)
-  const [pendingKind, setPendingKind] = useState<'comment' | 'labour' | null>(null)
+  const draftStore=useRef(new IssueDraftStore()).current
+  const [draftState,setDraftState]=useState<{scope:string;comment:DraftSnapshot;labour:DraftSnapshot}|null>(null)
+  const activeScope=useRef('')
+  const writeInFlight=useRef<{id:string;abort:AbortController}|null>(null)
+  const [pendingKind,setPendingKind]=useState<DraftKind|null>(null)
+  useEffect(()=>subscribeSessionChanged(()=>{
+    activeScope.current=''
+    writeInFlight.current?.abort.abort()
+    writeInFlight.current=null
+    setPendingKind(null)
+    setAuth({key:'',status:'checking',message:''})
+    setNotice(null)
+    setAuthRevision(n=>n+1)
+  }),[])
+  useEffect(()=>()=>{activeScope.current='';writeInFlight.current?.abort.abort();writeInFlight.current=null},[])
   const [notice, setNotice] = useState<FormNotice | null>(null)
   const revision = useRef(0)
   const controller = useRef<AbortController | null>(null)
@@ -76,11 +85,10 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
   const repositoryHref=useHref(resourcePath(owner||'',repo||'')||'/')
   const routeKey = target + '/issues/' + (number || '')
   const {reason:accessReason,report}=useRepoAccess(routeKey+'/'+reload)
-  const quote = selection?.key === routeKey ? selection.quote : null
-  const commentBody = buildCommentReply(draft, quote)
 
   useEffect(() => {
     const current = ++revision.current
+    if(writeInFlight.current?.abort.signal.aborted){writeInFlight.current=null;setPendingKind(null)}
     pageInFlight.current = null
     const abort = new AbortController()
     controller.current = abort
@@ -88,11 +96,10 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
     setState(previous => previous.key === routeKey && previous.issue
       ? { ...previous, refreshing: true, fetchingMore: false }
       : { ...empty, key: routeKey })
-    setPendingKind(null)
     if (!valid || !owner || !repo) {
       setState({ ...empty, key: routeKey, loading: false,
         error: { message: '无效的 Issue URL', status: 404 } })
-      return () => { abort.abort(); revision.current++ }
+      return () => { abort.abort(); writeInFlight.current?.abort.abort(); revision.current++ }
     }
     void (async () => {
       try {
@@ -113,28 +120,30 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
           : {...empty,key:routeKey,loading:false,error:failure})
       }
     })()
-    return () => { abort.abort(); revision.current++ }
+    return () => { abort.abort(); writeInFlight.current?.abort.abort(); revision.current++ }
   }, [service, owner, repo, number, valid, numberValue, routeKey, reload, report])
 
   useEffect(() => {
     const abort = new AbortController()
-    setAuth({ key: routeKey, status: 'checking', message: '' })
+    setAuth({ key: routeKey, status: 'checking', message: '',epoch:authRevision })
     if (!valid || !owner || !repo) return () => abort.abort()
     void (async () => {
       try {
         if (!await service.getSession(abort.signal)) {
-          if (!abort.signal.aborted) setAuth({ key: routeKey, status: 'anonymous', message: '' })
+          if (!abort.signal.aborted) setAuth({ key: routeKey, status: 'anonymous', message: '',epoch:authRevision })
           return
         }
         const verified = await service.verify(owner, repo, abort.signal)
-        if (!abort.signal.aborted) setAuth(verified.repository.accessible
-          ? { key: routeKey, status: 'authorized',
-            message: 'GitHub OAuth 身份与 App 仓库范围已验证。' }
-          : { key: routeKey, status: 'denied',
-            message: '当前 OAuth 用户不能通过 App 访问此仓库。' })
+        if (!abort.signal.aborted) setAuth(verified.repository.accessible &&
+          Number.isSafeInteger(verified.user?.id) && verified.user.id>0 &&
+          verified.repository.full_name?.toLowerCase()===target.toLowerCase()
+          ? { key: routeKey, status: 'authorized',userId:verified.user.id,epoch:authRevision,
+            message: '当前账号身份与项目访问权限已确认。' }
+          : { key: routeKey, status: 'denied',epoch:authRevision,
+            message: '当前账号身份或项目访问权限无法确认。' })
       } catch (error) {
         if (!abort.signal.aborted) setAuth({
-          key: routeKey, status: 'error', message: asIssueError(error).message,
+          key: routeKey, status: 'error', message: asIssueError(error).message,epoch:authRevision,
         })
       }
     })()
@@ -147,9 +156,42 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
   const summary = useMemo(() => summarizeIssueComments(
     state.key === routeKey ? state.comments : [], completePages),
   [state.key, state.comments, routeKey, completePages])
-  const authStatus = auth.key === routeKey ? auth.status : 'checking'
-  const canWrite = authStatus === 'authorized' && Boolean(issue) && !state.refreshing && !accessReason && !state.error
+  const authStatus = auth.key === routeKey && auth.epoch===authRevision ? auth.status : 'checking'
+  const identity = authStatus==='authorized' && auth.userId && valid && owner && repo && resourcePath(owner,repo,'issue',numberValue)
+    ? {owner,repo,number:numberValue,userId:auth.userId} : null
+  const keys = identity ? {comment:draftKey(identity.owner,identity.repo,identity.number,identity.userId,'comment',homeHref),
+    labour:draftKey(identity.owner,identity.repo,identity.number,identity.userId,'labour',homeHref)} : null
+  const scope=keys?.comment||''
+  const hydrated=Boolean(scope&&draftState?.scope===scope)
+  const commentRecord=hydrated?draftState!.comment:blankSnapshot()
+  const labourRecord=hydrated?draftState!.labour:blankSnapshot()
+  const {draft,quote}=commentRecord.record.data
+  const labour=labourRecord.record.data.labour
+  const commentBody=buildCommentReply(draft,quote)
   const loginUrl = loginHref(location.pathname)
+  const canWrite = authStatus === 'authorized' && hydrated && Boolean(issue) && !state.refreshing && !accessReason && !state.error
+  useEffect(()=>{
+    activeScope.current=scope
+    if(!keys){setDraftState(null);return}
+    const sync=()=>setDraftState({scope,comment:draftStore.read(keys.comment),labour:draftStore.read(keys.labour)})
+    sync()
+    const changed=(event:StorageEvent)=>{if(event.key===null||event.key===keys.comment||event.key===keys.labour)sync()}
+    window.addEventListener('storage',changed)
+    return ()=>{activeScope.current='';window.removeEventListener('storage',changed)}
+  },[scope,draftStore])
+  function syncDraft(kind:DraftKind,value:DraftSnapshot) {
+    if(activeScope.current===scope)setDraftState(previous=>previous?.scope===scope?{...previous,[kind]:value}:previous)
+  }
+  function editDraft(kind:DraftKind,change:(data:DraftSnapshot['record']['data'])=>DraftSnapshot['record']['data']) {
+    if(!keys||!hydrated||activeScope.current!==scope)return
+    syncDraft(kind,draftStore.edit(keys[kind],change))
+  }
+  function unlockDraft(kind:DraftKind) {
+    if(!keys||!hydrated||activeScope.current!==scope||writeInFlight.current)return
+    const expected=(kind==='comment'?commentRecord:labourRecord).record.pending
+    if(expected&&window.confirm('请确认已在 GitHub 核查此讨论的提交结果，可以安全重新提交。解除锁定？'))
+      syncDraft(kind,draftStore.unlock(keys[kind],expected))
+  }
 
   const permission: PermissionView = {
     state: authStatus,
@@ -157,9 +199,10 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
     reason: accessReason ? '仓库访问授权需要恢复；已读内容及草稿暂保留，禁止提交。'
       : state.error && issue ? '重新读取失败；已读内容可能过时，暂不能提交。'
       : authStatus === 'checking' ? '正在检查登录和提交权限。'
-      : authStatus === 'anonymous' ? '匿名用户只能阅读，登录 GitHub 后可检查提交权限。'
+      : authStatus === 'anonymous' ? '登录后即可发表评论或登记劳动。'
       : authStatus === 'denied' ? '当前账号没有此项目的访问授权，不能提交。'
       : authStatus === 'error' ? '无法确认写入权限：' + auth.message + '。'
+      : !hydrated ? '正在恢复当前账号的浏览器草稿。'
       : state.refreshing ? '正在刷新讨论，暂不能提交。'
       : canWrite ? '' : '讨论尚未成功加载，暂不能提交。',
     loginHref: authStatus === 'anonymous' || authStatus === 'denied' ||
@@ -197,37 +240,44 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
     }
   }
 
-  async function submit(body: string, kind: 'comment' | 'labour') {
-    if (!canWrite || pendingKind || writeInFlight.current || !owner || !repo || !valid || !body.trim()) return
+  async function submit(body: string, kind: DraftKind) {
+    if (!canWrite || pendingKind || writeInFlight.current || !owner || !repo || !valid || !body.trim() ||
+        !keys || activeScope.current!==scope) return
     if (body.length > COMMENT_LIMIT) {
       setNotice({ kind, tone: 'error', message: '提交内容（含引用）超过 20000 字符，请缩短后重试。' })
       return
     }
+    const key=keys[kind], displayed=kind==='comment'?commentRecord:labourRecord
+    if(displayed.record.pending)return
     if (!window.confirm('确认以当前 GitHub 身份在 ' + target + ' #' + numberValue + ' 公开发表这条' +
       (kind === 'labour' ? '劳动记录' : '评论') + '？')) return
-    const current = revision.current
-    const submittedEdit = commentEdit.current
-    const submittedLabour = labour
-    writeInFlight.current = true
+    const started=draftStore.begin(key,displayed.record.version)
+    if(!started){syncDraft(kind,draftStore.read(key));return}
+    const current=revision.current
+    const abort=new AbortController()
+    const flight={id:started.token,abort}
+    writeInFlight.current=flight
+    syncDraft(kind,started.snapshot)
     setPendingKind(kind)
     setNotice(null)
+    const active=()=>writeInFlight.current===flight&&!abort.signal.aborted&&current===revision.current&&activeScope.current===scope
     try {
-      const response = await service.postComment(owner, repo, numberValue, body,
-        controller.current?.signal || new AbortController().signal)
-      if (current !== revision.current) return
-      if (kind === 'comment') {
-        if (commentEdit.current === submittedEdit) { setDraft(''); setSelection(null) }
-      } else setLabour(previous => previous === submittedLabour
-        ? { ...initialLabour, hours: previous.hours } : previous)
-      setNotice({ kind, tone: 'success',
-        message: 'GitHub 已确认发表：评论 #' + response.id + '。正在刷新讨论。' })
-      setReload(value => value + 1)
-    } catch (error) {
-      if (current === revision.current) setNotice({ kind, tone: 'error',
-        message: asIssueError(error).message +
-          '。如提交状态未知，请先在 GitHub 检查，避免重复发表。' })
+      const response=await service.postComment(owner,repo,numberValue,body,abort.signal)
+      if(!active())return
+      if(!Number.isSafeInteger(response.id)||response.id<=0||!commentPermalink(response.html_url,owner,repo,numberValue,response.id))
+        throw issueRequestError('GitHub 返回的评论结果无法确认',502)
+      syncDraft(kind,draftStore.settle(key,started.token,started.version,'success'))
+      setNotice({kind,tone:'success',message:'GitHub 已确认发表：评论 #'+response.id+'。正在刷新讨论。'})
+      setReload(value=>value+1)
+    } catch(error) {
+      if(!active())return
+      const unknown=uncertainWriteResult(error)
+      syncDraft(kind,draftStore.settle(key,started.token,started.version,unknown?'unknown':'rejected'))
+      setNotice({kind,tone:'error',message:asIssueError(error).message+(unknown
+        ? '。提交状态未知，请先在 GitHub 检查，避免重复发表。'
+        : '。提交未成功，草稿已保留，可修正后重试。')})
     } finally {
-      if (current === revision.current) { writeInFlight.current = false; setPendingKind(null) }
+      if(writeInFlight.current===flight){writeInFlight.current=null;setPendingKind(null)}
     }
   }
 
@@ -313,31 +363,34 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
     } : null,
     form: { draft, quote, commentLength: commentBody.length, refreshing: state.refreshing,
       labour, pending: Boolean(pendingKind), pendingKind,
-      notice, permission },
+      notice, permission, draftsReady:hydrated,
+      commentLocked:Boolean(commentRecord.record.pending),labourLocked:Boolean(labourRecord.record.pending),
+      storageWarning:commentRecord.warning||labourRecord.warning },
   }
 
   function retryRead(){
     if(writeInFlight.current||state.refreshing)return
     setState(previous=>({...previous,refreshing:true}))
-    if(accessReason||state.error){setAuth({key:routeKey,status:'checking',message:''});setAuthRevision(n=>n+1)}
+    if(accessReason||state.error){activeScope.current='';setAuth({key:routeKey,status:'checking',message:''});setAuthRevision(n=>n+1)}
     setReload(n=>n+1)
   }
   const actions: IssueDetailViewActions = {
     onRetry: retryRead,
     onRefresh: retryRead,
     onLoadMore: () => { void loadMore() },
-    onCommentChange: value => { commentEdit.current++; setDraft(value) },
+    onCommentChange: value => editDraft('comment',data=>({...data,draft:value})),
     onQuoteComment: id => {
-      if (!issue || !owner || !repo) return
+      if (!canWrite || !issue || !owner || !repo) return
       const item = summary.discussion.find(comment => comment.id === id)
       if (!item) return
       const selected = createQuoteReply(item, owner, repo, numberValue)
-      if (selected) { commentEdit.current++; setSelection({ key: routeKey, quote: selected }) }
+      if (selected) editDraft('comment',data=>({...data,quote:selected}))
     },
-    onCancelQuote: () => { commentEdit.current++; setSelection(null) },
+    onCancelQuote: () => editDraft('comment',data=>({...data,quote:null})),
     onLabourChange: (field: LabourField, value: string) => {
-      setLabour(previous => ({ ...previous, [field]: value }))
+      editDraft('labour',data=>({...data,labour:{...data.labour,[field]:value}}))
     },
+    onUnlockDraft: unlockDraft,
     onSubmitComment: () => { if (draft.trim()) void submit(commentBody, 'comment') },
     onSubmitLabour: submitLabour,
   }

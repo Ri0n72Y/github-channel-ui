@@ -209,3 +209,13 @@
 .page .commentActions :is(a,button),.page .sourceAction {display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;margin:0;padding:4px;color:var(--lc-text-secondary)}
 .page .commentActions :is(a,button):hover,.page .sourceAction:hover {color:var(--lc-link)}
 .page .readActions {justify-content:flex-end;align-items:center}
+
+.composerDock {position:relative;min-width:0;min-height:0}
+.composerDock[hidden],.loginComposer[hidden]{display:none}
+.page .scrollBottom {display:block;margin:0 auto;min-height:44px;width:44px;padding:0;border-radius:50%;background:var(--lc-surface);color:var(--lc-text-secondary);border:1px solid var(--lc-stroke-strong)}
+.composerDock:has(.scrollBottom) .commentComposer{max-height:calc(var(--issue-available-height,100dvh) * .5 - 44px)}
+.page[data-ready="true"][data-height-mode='compact']{display:grid;grid-template-rows:minmax(0,1fr) auto}
+.loginComposer {padding:8px 12px;background:var(--lc-surface);border-top:1px solid var(--lc-stroke)}
+.loginComposer a {display:flex;align-items:center;min-height:44px;padding:8px 12px;border:1px solid var(--lc-stroke-strong);border-radius:10px;background:var(--lc-surface-input);color:var(--lc-text);text-decoration:none}
+.loginComposer a:focus-visible{outline:3px solid var(--lc-focus)}
+.labourFields {min-width:0;display:grid;gap:10px;margin:0;padding:0;border:0}

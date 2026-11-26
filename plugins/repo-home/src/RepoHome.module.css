@@ -523,3 +523,7 @@
 .homePage .cardMeta .feedSource:hover {color:var(--lc-link)}
 
 .homePage .cardMeta {align-items:center}
+
+.homePage .clickableCard{cursor:pointer}
+.homePage .clickableCard:hover,.homePage .clickableCard:focus-within{border-color:var(--lc-stroke-strong);background:var(--lc-surface-raised)}
+.homePage .clickableCard h3 a:focus-visible{outline:3px solid var(--lc-focus);outline-offset:3px}

@@ -44,7 +44,8 @@ test('#28 Channel View navigates only to the selected issue and describes issue-
   assert.equal((html.match(/href="\/sample\/repo\/issues\/1"/g)||[]).length,1)
   assert.match(html, /<details[^>]*><summary>频道规则与读取详情/)
   assert.doesNotMatch(html, /issues\/null|issues\/undefined/)
-  assert.match(html, /<button type="button"/)
+  assert.doesNotMatch(html, /<button type="button"/)
+  assert.match(html, /<a[^>]*href="\/sample\/repo\/issues\/1"[^>]*>.*<h2>discussion<\/h2>.*<h3>讨论<\/h3>.*<\/a>/)
 })
 
 test('#28 missing/invalid/incomplete Channel states render explicit safe errors', () => {
@@ -54,6 +55,7 @@ test('#28 missing/invalid/incomplete Channel states render explicit safe errors'
     assert.match(html, /频道暂不可用/)
     assert.doesNotMatch(html, /href="\/sample\/repo\/issues\//)
   }
+  assert.equal((render({state:'snapshot_incomplete',channels:[]}).match(/重试读取/g)||[]).length,1)
   const failed=render(null, 'Fixture 429 限流')
   assert.match(failed, /role="alert"/)
   assert.match(failed, /重试读取/)

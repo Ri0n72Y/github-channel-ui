@@ -1,4 +1,4 @@
-import type { FormEvent, RefObject } from 'react'
+import { useRef, type FormEvent, type RefObject } from 'react'
 import TopicPageHead from './TopicPageHead'
 import TopicMasonry from './TopicMasonry'
 import TopicStatus from './TopicStatus'
@@ -29,6 +29,7 @@ export type TopicPageViewProps = {
 
 /** @summary Render Topic projects, explicit search bounds and an editable report without business fetches. */
 export default function TopicPageView(props: TopicPageViewProps) {
+  const reportButtonRef=useRef<HTMLButtonElement>(null)
   const githubIssuesUrl = 'https://github.com/' + encodeURIComponent(props.owner) + '/' +
     encodeURIComponent(props.repo) + '/issues'
   const base = githubIssuesUrl + '/new'
@@ -47,6 +48,7 @@ export default function TopicPageView(props: TopicPageViewProps) {
       <TopicStatus loading={props.loading} error={props.error}
         windowExhausted={props.windowExhausted} count={props.projects.length}
         onRetry={props.onRetry}
+        reportButtonRef={reportButtonRef}
         onReport={props.canReport ? props.onOpenReport : undefined}
         reportUrl={props.report.url}
         loginUrl={login}/>
@@ -81,6 +83,7 @@ export default function TopicPageView(props: TopicPageViewProps) {
         onConfirmUnknown={props.onConfirmConfigUnknown ?? (() => {})}/>}
     </details>}
     {props.report.open && <TopicReportDialog
+      returnFocusRef={reportButtonRef}
       title={props.report.title} body={props.report.body}
       pending={props.report.pending} checking={props.report.checking}
       uncertain={props.report.uncertain} message={props.report.message}

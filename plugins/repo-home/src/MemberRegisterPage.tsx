@@ -185,11 +185,12 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
         ? '管理员在 GitHub 审核并合并后，新成员才会出现在团队列表中。'
         : 'GitHub Commit 已提交，返回团队成员页面后可重新加载查看。'}</p>
       <div className={styles.resultActions}>
-        {resultUrl ? <a className={styles.resultPrimary} href={resultUrl}
+        {result.status!=='pending_pr'&&<Link className={styles.resultPrimary} to={base + '/members'}>查看成员列表</Link>}
+        {resultUrl ? <a className={result.status==='pending_pr'?styles.resultPrimary:undefined} href={resultUrl}
           target="_blank" rel="noopener noreferrer">
           {result.status === 'pending_pr' ? '查看 GitHub 审核记录（新标签）' : '查看 GitHub Commit（新标签）'}
         </a> : <p role="alert">提交已返回结果，但 GitHub 来源链接未通过校验。请自行核查仓库中的记录，勿重复提交。</p>}
-        <Link to={base + '/members'}>查看成员列表</Link>
+        {result.status==='pending_pr'&&<Link to={base + '/members'}>查看成员列表</Link>}
       </div>
     </section>}
     {authStatus === null && !capability && <p role="status">正在验证操作者和仓库写权限…</p>}

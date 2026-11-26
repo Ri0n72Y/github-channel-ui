@@ -77,3 +77,8 @@
 .error button,.notice summary {min-height:44px;padding:8px 12px;font:inherit;cursor:pointer;color:var(--lc-text);background:var(--lc-surface);border:1px solid var(--lc-stroke);border-radius:8px}
 .notice summary {display:list-item;background:transparent;border:0;color:var(--lc-text-secondary)}
 .notice summary:focus-visible {outline:3px solid var(--lc-focus);outline-offset:3px}
+
+.card:has(.cardLink){padding:0}
+.cardLink {display:block;height:100%;padding:18px;color:inherit;text-decoration:none;border-radius:inherit}
+.cardLink:hover{background:var(--lc-surface-raised)}
+.cardLink:focus-visible{outline:3px solid var(--lc-focus);outline-offset:2px}
