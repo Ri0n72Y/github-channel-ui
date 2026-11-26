@@ -88,6 +88,7 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
 
   useEffect(() => {
     const current = ++revision.current
+    if(writeInFlight.current?.abort.signal.aborted){writeInFlight.current=null;setPendingKind(null)}
     pageInFlight.current = null
     const abort = new AbortController()
     controller.current = abort
@@ -98,7 +99,7 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
     if (!valid || !owner || !repo) {
       setState({ ...empty, key: routeKey, loading: false,
         error: { message: '无效的 Issue URL', status: 404 } })
-      return () => { abort.abort(); revision.current++ }
+      return () => { abort.abort(); writeInFlight.current?.abort.abort(); revision.current++ }
     }
     void (async () => {
       try {
@@ -119,7 +120,7 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
           : {...empty,key:routeKey,loading:false,error:failure})
       }
     })()
-    return () => { abort.abort(); revision.current++ }
+    return () => { abort.abort(); writeInFlight.current?.abort.abort(); revision.current++ }
   }, [service, owner, repo, number, valid, numberValue, routeKey, reload, report])
 
   useEffect(() => {
@@ -370,7 +371,7 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
   function retryRead(){
     if(writeInFlight.current||state.refreshing)return
     setState(previous=>({...previous,refreshing:true}))
-    if(accessReason||state.error){setAuth({key:routeKey,status:'checking',message:''});setAuthRevision(n=>n+1)}
+    if(accessReason||state.error){activeScope.current='';setAuth({key:routeKey,status:'checking',message:''});setAuthRevision(n=>n+1)}
     setReload(n=>n+1)
   }
   const actions: IssueDetailViewActions = {

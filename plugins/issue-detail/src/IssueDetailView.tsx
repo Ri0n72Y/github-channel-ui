@@ -41,6 +41,7 @@ function DraftProtection({model,actions,kind}:Props & {kind:'comment'|'labour'})
 }
 function LoginComposer({permission,kind,hidden=false}:{permission:PermissionView;kind:'comment'|'labour';hidden?:boolean}){
   return <div hidden={hidden} className={styles.loginComposer}>
+    {!permission.reason.startsWith('登录后')&&<p role="status" className={styles.permission}>{permission.reason}</p>}
     {permission.loginHref&&<a href={permission.loginHref}>{kind==='comment'?'登录后即可发表评论':'登录后即可登记劳动'}</a>}
   </div>
 }

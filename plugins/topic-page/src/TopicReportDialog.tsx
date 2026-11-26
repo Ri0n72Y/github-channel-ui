@@ -1,8 +1,9 @@
-import { useEffect, useRef, type FormEvent } from 'react'
+import { useEffect, useRef, type FormEvent, type RefObject } from 'react'
 import styles from './topic-page.module.css'
 
 export type TopicReportDialogProps = {
   title: string; body: string; pending: boolean; checking: boolean;
+  returnFocusRef?: RefObject<HTMLElement|null>;
   uncertain: boolean; message: string;
   writeEnabled: boolean; githubNewIssueUrl: string; githubIssuesUrl: string; loginUrl: string;
   onTitleChange(value: string): void; onBodyChange(value: string): void;
@@ -21,7 +22,7 @@ export default function TopicReportDialog(props: TopicReportDialogProps) {
   useEffect(()=>{
     const dialog=dialogRef.current
     if(!dialog)return
-    previousFocus.current=document.activeElement instanceof HTMLElement?document.activeElement:null
+    previousFocus.current=props.returnFocusRef?.current||(document.activeElement instanceof HTMLElement?document.activeElement:null)
     const focusable=()=>Array.from(dialog.querySelectorAll<HTMLElement>('a[href],button,input,textarea,select,[tabindex]'))
       .filter(el=>!el.hasAttribute('disabled')&&el.tabIndex>=0&&!el.closest('[hidden]'))
     const focusFirst=()=> (focusable()[0]||dialog).focus()

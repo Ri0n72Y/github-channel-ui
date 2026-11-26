@@ -1702,3 +1702,107 @@ test('#20 report modal keeps keyboard focus and restores opener, pending Escape 
   assert.ok(app.host.querySelector('[role="dialog"]'))
  }finally{await app.close()}
 })
+
+
+test('#20 labour submission marker survives interrupted navigation, success clears only unchanged labour draft',async()=>{
+ const flight=deferred()
+ let writes=0,signal,mode='pending'
+ const svc=issueService({authorized:true,postComment:async(o,r,n,body,abort)=>{
+  writes++;signal=abort
+  if(mode==='pending')return flight.promise
+  if(mode==='reject')throw Object.assign(Error('明确拒绝'),{status:422})
+  return {id:998}
+ }})
+ let app=await issueMount(svc)
+ const work=()=>[...app.host.querySelectorAll('textarea')].find(el=>el.closest('label')?.textContent.includes('工作内容'))
+ const selectLabour=()=>app.host.querySelectorAll('[role="tab"]')[1].click()
+ const send=()=>work().closest('form').querySelector('button[type="submit"]')
+ const unlock=()=>[...work().closest('form').querySelectorAll('button')].find(b=>b.textContent==='我已核查，解除提交锁定')
+ try{
+  await act(async()=>input(replyArea(app),'keep independent comment'))
+  await act(async()=>selectLabour())
+  await act(async()=>input(work(),'work to submit'))
+  await act(async()=>send().click())
+  assert.equal(writes,1)
+  await app.close()
+  assert.ok(signal.aborted)
+  app=await issueMount(svc)
+  await act(async()=>selectLabour())
+  assert.equal(work().value,'work to submit')
+  assert.ok(send().disabled)
+  await act(async()=>flight.resolve({id:997}));await flush()
+  assert.ok(send().disabled)
+  assert.equal(work().value,'work to submit')
+  await act(async()=>unlock().click())
+  assert.equal(writes,1)
+  mode='reject'
+  await act(async()=>send().click());await flush()
+  assert.equal(writes,2)
+  assert.equal(work().value,'work to submit')
+  assert.equal(send().disabled,false)
+  mode='success'
+  await act(async()=>send().click());await flush()
+  assert.equal(writes,3)
+  assert.equal(work().value,'')
+  assert.equal(replyArea(app).value,'keep independent comment')
+  await app.close();app=await issueMount(svc)
+  await act(async()=>selectLabour())
+  assert.equal(work().value,'')
+  assert.equal(replyArea(app).value,'keep independent comment')
+ }finally{await app.close()}
+})
+
+test('#20 scroll to loaded discussion end is distance-gated and does not request or load more',async()=>{
+ const svc=issueService({authorized:false})
+ const app=await issueMount(svc)
+ try{
+  const reading=app.host.querySelector('[aria-label="Issue 阅读区"]')
+  Object.defineProperties(reading,{clientHeight:{configurable:true,value:300},scrollHeight:{configurable:true,value:1000}})
+  reading.scrollTo=({top})=>{reading.scrollTop=top}
+  const scroll=()=>app.host.querySelector('[aria-label="滚动到底部"]')
+  const count=svc.calls.length
+  reading.scrollTop=100
+  await act(async()=>reading.dispatchEvent(new Event('scroll')))
+  assert.ok(scroll())
+  await act(async()=>scroll().click())
+  assert.equal(reading.scrollTop,700)
+  assert.equal(scroll(),null)
+  assert.equal(svc.calls.length,count)
+  reading.scrollTop=670
+  await act(async()=>reading.dispatchEvent(new Event('scroll')))
+  assert.equal(scroll(),null)
+ }finally{await app.close()}
+})
+
+test('#20 feed card preserves title, independent markdown link, expansion, selection and modifiers',async()=>{
+ const Card=(await server.ssrLoadModule('/plugins/repo-home/src/RepoIssueActivityCard.tsx')).RepoIssueActivityCard
+ const issue={number:11,title:'Controlled card',state:'open',updated_at:'2026-11-26T00:00:00Z',html_url:'https://github.com/sample/repo/issues/11',
+  body:'[reference](https://example.org/) '+ 'long body '.repeat(100)}
+ const app=await mount('/sample/repo','/:owner/:repo',Card,{issue,base:'/sample/repo'})
+ const cancel=e=>e.preventDefault()
+ document.addEventListener('click',cancel)
+ try{
+  const card=app.host.querySelector('article')
+  const title=card.querySelector('h3 a')
+  assert.equal(title.getAttribute('href'),'/sample/repo/issues/11')
+  const expand=card.querySelector('button')
+  await act(async()=>expand.click())
+  assert.equal(expand.getAttribute('aria-expanded'),'true')
+  const nested=card.querySelector('a[href="https://example.org/"]')
+  assert.ok(nested)
+  await act(async()=>nested.click())
+  assert.ok(app.host.contains(card))
+  const source=card.querySelector('[aria-label="GitHub 原文"]')
+  await act(async()=>source.click())
+  assert.ok(app.host.contains(card))
+  await act(async()=>card.dispatchEvent(new MouseEvent('click',{bubbles:true,metaKey:true})))
+  assert.ok(app.host.contains(card))
+  const range=document.createRange();range.selectNodeContents(title)
+  window.getSelection().addRange(range)
+  await act(async()=>card.click())
+  assert.ok(app.host.contains(card))
+  window.getSelection().removeAllRanges()
+  await act(async()=>card.click())
+  assert.equal(app.host.contains(card),false)
+ }finally{window.getSelection().removeAllRanges();document.removeEventListener('click',cancel);await app.close()}
+})

@@ -123,7 +123,7 @@ for (const plugin of PLAYGROUND_PLUGINS) {
       try {
         await expectLoaded(deep.host, visible[plugin.slug], 'refresh ' + plugin.slug)
         if (plugin.slug === 'channel') {
-          await expectLoaded(deep.host, /当前讨论/, 'selected Channel Issue')
+          await expectLoaded(deep.host, /暂无进行中的讨论/, 'selected Channel Issue')
           const cards=[...deep.host.querySelectorAll('li')].filter(li=>li.querySelector('h2'))
           assert.deepEqual(cards.map(li=>li.querySelector('h2').textContent),['discussion','wishlist'])
           const main=[...cards[0].querySelectorAll('a')].filter(a=>a.querySelector('h2')&&a.querySelector('h3'))
@@ -234,7 +234,7 @@ test('generic UI owns no Header; host may explicitly place theme and session con
    const link=plain.host.querySelector('a[href="/playground/repo-home/sample/repo/channels"]')
    assert.ok(link)
    await act(async()=>link.click())
-   await expectLoaded(plain.host,/当前讨论/,'cross plugin fixture link')
+   await expectLoaded(plain.host,/暂无进行中的讨论/,'cross plugin fixture link')
   }finally{await plain.close()}
   const withHost=await mounted(wrap(h(App,{ui:runtime.ui},h('header',null,h(ThemeToggle)))))
   try{assert.ok(withHost.host.querySelector('button[aria-label*="切换为"]'))}

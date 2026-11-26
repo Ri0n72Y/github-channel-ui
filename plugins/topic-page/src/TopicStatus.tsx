@@ -1,12 +1,13 @@
+import type { RefObject } from 'react'
 import type { TopicPageError } from './service'
 import styles from './topic-page.module.css'
 
 /** @summary Present retryable Topic failures and honest 1000-result window exhaustion. */
 export default function TopicStatus({ loading, error, windowExhausted, count,
-  onRetry, onReport, reportUrl, loginUrl }: {
+  onRetry, onReport, reportUrl, loginUrl, reportButtonRef }: {
   loading: boolean; error: TopicPageError | null;
   windowExhausted: boolean; count: number; onRetry(): void;
-  onReport?: () => void; reportUrl: string; loginUrl?: string;
+  onReport?: () => void; reportUrl: string; loginUrl?: string; reportButtonRef?: RefObject<HTMLButtonElement|null>;
 }) {
   return <>
     {loading && <div className={styles.grid} role="status" aria-label="正在加载项目">
@@ -21,7 +22,7 @@ export default function TopicStatus({ loading, error, windowExhausted, count,
       </details>
       <div className={styles.errorActions}>
         <button type="button" onClick={onRetry}>重新加载</button>
-        {onReport && <button type="button" onClick={onReport}>编辑问题报告</button>}
+        {onReport && <button type="button" ref={reportButtonRef} onClick={onReport}>编辑问题报告</button>}
         {!onReport && loginUrl && <a href={loginUrl}>登录 GitHub 后报告问题</a>}
       </div>
       {reportUrl && <a href={reportUrl} target="_blank" rel="noopener noreferrer">
