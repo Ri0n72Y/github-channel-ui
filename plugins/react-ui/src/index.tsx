@@ -81,7 +81,12 @@ export function ThemeToggle() {
   const current = value.theme === 'dark' ? '深色' : '浅色'
   const next = value.theme === 'dark' ? '浅色' : '深色'
   return <button className={styles.themeButton} type="button" onClick={value.toggle}
-    aria-label={'当前为' + current + '模式，切换为' + next + '模式'}>切换为{next}模式</button>
+    aria-label={'当前为' + current + '模式，切换为' + next + '模式'} title={'切换为' + next + '模式'}>
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      {value.theme === 'dark' ? <><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></> :
+        <path d="M20.5 14.1A9 9 0 0 1 9.9 3.5 9 9 0 1 0 20.5 14.1Z"/>}
+    </svg>
+  </button>
 }
 export function ThemeProvider({children}: {children: ReactNode}) {
   const [theme, setTheme] = useState<ThemeMode>(readStoredTheme)

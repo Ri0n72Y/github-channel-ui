@@ -4,3 +4,6 @@
 .notice a {color:var(--lc-link)}
 .notice button {font:inherit;color:var(--lc-text);background:var(--lc-surface-raised);border:1px solid var(--lc-stroke-strong);border-radius:8px;padding:8px 12px}
 .notice :is(a,button):focus-visible {outline:3px solid var(--lc-focus);outline-offset:3px}
+
+.notice .secondaryAction {background:transparent;border-color:transparent;color:var(--lc-text-secondary);font-weight:400}
+.notice .secondaryAction:hover:not(:disabled) {background:var(--lc-surface-raised);color:var(--lc-text)}

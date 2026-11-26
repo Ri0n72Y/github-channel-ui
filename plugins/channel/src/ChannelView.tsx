@@ -11,11 +11,11 @@ type Props = {
   onRetry(): void
 }
 const stateText: Record<string, string> = {
-  config_missing: '仓库 main 尚无 labourchain.config.yaml。请先初始化配置。',
-  invalid_config: 'main 的配置无法安全解析，暂不显示任何频道。',
-  sync_branch_missing: '仓库 main 分支不存在，频道无法读取。',
-  no_channels: 'main 配置没有启用 channel Namespace 或有效频道标签。',
-  snapshot_incomplete: 'GitHub Open Issue 分页不完整，无法确定最新有效频道。',
+  config_missing: '频道尚未配置，请联系项目管理者或查看配置。',
+  invalid_config: '频道配置无效，请联系项目管理者修正。',
+  sync_branch_missing: '频道来源分支不存在，请联系项目管理者。',
+  no_channels: '项目还没有配置频道，请联系项目管理者。',
+  snapshot_incomplete: '讨论读取不完整，暂时无法确定当前频道，请重试。',
 }
 function issueUrl(owner: string, repo: string, number: number) {
   return '/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo) +
@@ -33,14 +33,13 @@ export default function ChannelView({ owner, repo, loading, snapshot, error, onR
       <div className={styles.identity}>
         <p className={styles.eyebrow}>{owner}/{repo}</p>
         <h1>项目频道</h1>
-        <p>频道来自 <code>main</code> 的有效 <code>channel:*</code> 配置，每个频道只选择最新创建的有效 Open Issue。</p>
+        <p>选择一个频道，加入当前讨论。</p>
       </div>
       <div className={styles.actions}>
-        <button type="button" disabled={loading} onClick={onRetry}>从 GitHub 重新读取</button>
-        {snapshot?.headSha && <span>Config 分支 HEAD：<code title={snapshot.headSha}>{snapshot.headSha.slice(0, 12)}</code></span>}
+        <button type="button" disabled={loading} onClick={onRetry} aria-label="刷新频道" title="刷新频道"><span aria-hidden="true">↻</span></button>
       </div>
     </header>
-    {loading && <p role="status">正在读取频道配置与 GitHub Open Issues…</p>}
+    {loading && <p role="status">正在加载频道…</p>}
     {error && <p className={styles.error} role="alert">读取失败：{error}</p>}
     {!loading && snapshot && snapshot.state !== 'ready' &&
       <section className={styles.notice} role="status">
@@ -50,38 +49,32 @@ export default function ChannelView({ owner, repo, loading, snapshot, error, onR
         {snapshot.state === 'config_missing' && <Link to={base + '/config'}>查看配置初始化</Link>}
       </section>}
     {!loading && snapshot?.state === 'ready' && <>
-      <div className={styles.summary}>
-        <dl className={styles.counts}>
-          <div><dt>配置频道</dt><dd>{snapshot.channels.length} 个</dd></div>
-          <div><dt>已完整检查的 GitHub Open Issue 对象</dt><dd>{snapshot.scannedIssues ?? '未返回'}{snapshot.scannedIssues !== undefined && ' 个'}</dd></div>
-        </dl>
-        <p className={styles.meta}>频道 Issue 以 GitHub 创建时间为准。</p>
-      </div>
       <ul className={styles.grid}>
         {snapshot.channels.map(channel => <li className={styles.card} key={channel.label}>
           <div className={styles.cardIdentity}>
             <span className={styles.channelMark} aria-hidden="true">#</span>
-            <div><h2>{channel.name}</h2>
-              <p className={styles.label}><code>{channel.label}</code></p></div>
+            <div><h2>{channel.name}</h2></div>
           </div>
           {channel.issue ? <>
             <div className={styles.issueSummary}>
-              <p className={styles.status}>Open · 当前频道 · Issue #{channel.issue.number}</p>
-              <h3><Link to={issueUrl(owner, repo, channel.issue.number)}>
-                {channel.issue.title}</Link></h3>
+              <p className={styles.status}>当前讨论</p>
+              <h3>{channel.issue.title}</h3>
               <p className={styles.meta}>作者：{channel.issue.author || '未知'} ·
                 创建时间：{channel.issue.createdAt} · 评论：{channel.issue.comments}</p>
             </div>
-            <p className={styles.explanation}>本频道的讨论和劳动历史由该 Issue 详情提供，工时仅汇总该 Issue 中的有效结构化评论。</p>
             <Link className={styles.enter} to={issueUrl(owner, repo, channel.issue.number)}>
-              进入频道 Issue
+              进入讨论
             </Link>
-          </> : <p className={styles.empty}>当前标签没有有效的 Open Channel Issue；
-            不会使用 Closed Issue 或 PR 替代。</p>}
+          </> : <p className={styles.empty}>暂无进行中的讨论。</p>}
         </li>)}
       </ul>
     </>}
-    <p className={styles.footnote}>普通 Open/Closed Issue 均可通过既有 Issue 详情直接访问；
-      频道标签只影响频道入口，不决定普通 Issue 的读取权限。</p>
+    {snapshot && <details className={styles.footnote}>
+      <summary>频道规则与读取详情</summary>
+      <p>频道根据 main 的 channel:* 配置选择最新创建的有效 Open Issue，不用已关闭 Issue 或 PR 替代。劳动历史仅汇总该 Issue 中的有效结构化评论；普通 Issue 可独立访问。</p>
+      {snapshot.headSha && <p>配置版本：<code title={snapshot.headSha}>{snapshot.headSha.slice(0,12)}</code></p>}
+      {snapshot.scannedIssues !== undefined && <p>已完整检查的 Open Issue 对象：{snapshot.scannedIssues}</p>}
+      {snapshot.channels.map(channel=><p key={channel.label}>{channel.name}：<code>{channel.label}</code></p>)}
+    </details>}
   </section>
 }

@@ -112,14 +112,14 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
   }
 
   return <section className={styles.page}>
-    <nav aria-label="面包屑"><Link to={base}>项目主页</Link> / 新建 Issue</nav>
-    <h1>新建 Issue</h1>
-    <p>目标仓库：<strong>{owner}/{repo}</strong>。此页面只向该仓库提交，不枚举其他仓库。</p>
-    {status === 'checking' && <p role="status">正在核验仓库 Installation 与 GitHub 登录状态…</p>}
+    <nav aria-label="面包屑"><Link to={base}>项目主页</Link> / 发布动态</nav>
+    <h1>发布动态</h1>
+    <p>发布到 <strong>{owner}/{repo}</strong>，动态公开可见。</p>
+    {status === 'checking' && <p role="status">正在检查发布权限…</p>}
     {accessReason&&<RepoAccessNotice owner={owner} repo={repo} reason={accessReason} onRetry={()=>setRevision(n=>n+1)}/>}
     {status === 'error' && !accessReason && <p role="alert">{message}
       <button type="button" onClick={() => setRevision(n => n + 1)}>重新核验</button></p>}
-    {status === 'anonymous' && <p>创建 Issue 需要 GitHub OAuth 登录。
+    {status === 'anonymous' && <p>登录 GitHub 后才能发布动态。
       <a href={login}>登录 GitHub 后返回此仓库</a></p>}
     {unknown && <section className={styles.warning} role="alert">
       <h2 ref={resultHeading} tabIndex={-1}>Issue 创建结果尚未确认</h2>
@@ -131,7 +131,7 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
       <h2 ref={resultHeading} tabIndex={-1}>Issue #{created.number} 已创建</h2>
       <p>提交已由 GitHub 确认。</p>
       <div className={styles.actions}>
-        <Link to={base + '/issues/' + created.number}>查看站内详情</Link>
+        <Link to={base + '/issues/' + created.number}>查看已发布动态</Link>
         <a href={created.url} target="_blank" rel="noopener noreferrer">前往 GitHub Issue（新标签）</a>
       </div>
     </section>}
@@ -147,11 +147,11 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
         </label>
         <div className={styles.actions}>
           <button type="submit" disabled={pending || !title.trim()}>
-            {pending ? '正在创建…' : '确认创建 Issue'}
+            {pending ? '正在发布…' : '确认发布'}
           </button>
           <Link to={base}>取消，返回项目</Link>
         </div>
-        <p>提交时再次经过服务端 GitHub OAuth、App Installation 与仓库写入权限校验。</p>
+        <p>将以你的 GitHub 身份公开发布。提交时会再次检查权限。</p>
       </form>}
   </section>
 }

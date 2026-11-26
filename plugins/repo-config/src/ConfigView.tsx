@@ -92,17 +92,18 @@ export default function ConfigView(props: Props) {
           <p className={styles.state}>{stateText[state] || state}</p></div>
         <button type="button" onClick={onRefresh} disabled={loading || busy}>重新读取</button>
       </div>
+      <details className={styles.secondaryDetails}><summary>版本与读取详情</summary>
       <dl className={styles.metadata}>
         <div><dt>同步分支</dt><dd>main</dd></div>
         <div><dt>HEAD</dt><dd><code title={snapshot.headSha || undefined}>{shaText(snapshot.headSha)}</code></dd></div>
         <div><dt>Config Blob</dt><dd><code title={snapshot.fileSha || undefined}>{shaText(snapshot.fileSha)}</code></dd></div>
         {snapshot.counts && <div><dt>快照</dt><dd>{snapshot.counts.labels} Labels · {snapshot.counts.issueObjects} Issue API 对象</dd></div>}
-      </dl>
+      </dl></details>
       {capability?.state === 'unauthenticated' &&
         <p>公开只读预览可用。登录 GitHub 后，服务端会验证当前用户和 App 权限。</p>}
       {capability?.state === 'unauthenticated' && <a href={login}>登录 GitHub</a>}
       {capability?.error && <p className={styles.error}>{capability.error}</p>}
-      {capability?.user && <p>当前 OAuth 操作者：<strong>@{capability.user.login}</strong>
+      {capability?.user && <p>当前操作账号：<strong>@{capability.user.login}</strong>
         {capability.protectedBranch ? ' · main 受保护，Config 将通过维护 PR 提交。' : ' · main 未检测到保护规则。'}</p>}
       {capability?.missingAppPermissions && capability.missingAppPermissions.length > 0 &&
         <p>App Installation 缺少权限：{capability.missingAppPermissions.join('、')}</p>}
@@ -158,7 +159,7 @@ export default function ConfigView(props: Props) {
       {plan.createLabels.length > 0 && <div className={styles.planGroup}>
         <h3>创建缺失的 Label 定义</h3>
         <ul>{plan.createLabels.map(item => <li key={item.name}><code>{item.name}</code></li>)}</ul>
-        <p>每个新建 Label 使用独立随机 HEX 颜色；已有 Label 元数据不会修改。</p>
+        <p>新标签自动分配颜色；已有标签设置不会修改。</p>
       </div>}
       {plan.removeIssueLabels.length > 0 && <div className={styles.planGroup}>
         <h3>清理普通 Issue 上的无效关联</h3>

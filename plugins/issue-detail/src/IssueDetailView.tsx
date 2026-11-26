@@ -17,7 +17,7 @@ export function issueTabForKey(current: IssueTab, key: string): IssueTab | null 
 }
 
 function PermissionHint({ permission }: { permission: PermissionView }) {
-  if (permission.allowed) return <p className={styles.permission}>已通过 OAuth 与仓库范围检查；最终写入以 GitHub 返回结果为准。</p>
+  if (permission.allowed) return <p className={styles.permission}>将以你的 GitHub 身份公开提交，结果以 GitHub 确认为准。</p>
   return <p className={styles.permission} role={permission.state === 'error' ? 'alert' : 'status'}>
     {permission.reason}
     {permission.loginHref && <> · <a href={permission.loginHref}>{permission.loginText}</a></>}
@@ -80,13 +80,13 @@ function CommentComposer({ model, actions, inputRef, hidden }: Props & { inputRe
       <FormFeedback notice={form.notice} kind="comment"/>
     </div>
     <div className={styles.commentComposerRow}>
-      <label>评论内容（Markdown）
+      <label>写下你的评论
         <textarea ref={inputRef} rows={3} maxLength={20000} value={form.draft}
           onChange={event => actions.onCommentChange(event.target.value)} />
       </label>
       <div className={styles.sendActions}>
         <button type="submit" disabled={!form.permission.allowed || form.pending || !form.draft.trim() || tooLong}>
-          {form.pending && form.pendingKind === 'comment' ? '提交中…' : '确认以 GitHub 身份评论'}
+          {form.pending && form.pendingKind === 'comment' ? '提交中…' : '发表评论'}
         </button>
         {form.quote && <span className={styles.meta}>{form.commentLength} / 20000 字符（含引用）</span>}
       </div>
@@ -140,6 +140,7 @@ function LabourHistoryView({ model, actions }: Props) {
         <textarea rows={3} value={form.labour.outcome}
           onChange={event => update('outcome', event.target.value)}/>
       </label>
+      <details className={styles.secondaryDetails}><summary>关联提交与时间（可选）</summary>
       <label>关联 Commit SHA（可选；逗号或换行分隔）
         <textarea rows={3} value={form.labour.commits}
           onChange={event => update('commits', event.target.value)}/>
@@ -154,6 +155,7 @@ function LabourHistoryView({ model, actions }: Props) {
             onChange={event => update('end', event.target.value)}/>
         </label>
       </div>
+      </details>
       <div className={styles.formActions}>
         <button type="submit" disabled={!form.permission.allowed || form.pending || !form.labour.work.trim()}>
           {form.pending && form.pendingKind === 'labour' ? '提交中…' : '确认登记到 GitHub 评论'}
@@ -265,50 +267,11 @@ export default function IssueDetailView({ model, actions, accessNotice, paginati
           {model.issue.sourceUrl && <> · <a href={model.issue.sourceUrl}
             target="_blank" rel="noopener noreferrer">GitHub 原文</a></>}
         </p>
-        <section className={styles.summary} aria-label="最近劳动成果与工时摘要">
-          <div className={styles.summaryPart}>
-            <h2>最近已登记成果</h2>
-            {model.issue.labourSummary.outcome ? <>
-              <p className={styles.body}>{model.issue.labourSummary.outcome.text}</p>
-              <p className={styles.meta}>登记者：{model.issue.labourSummary.outcome.author}
-                {' · '}{model.issue.labourSummary.outcome.time}
-                {model.issue.labourSummary.outcome.sourceUrl && <> · <a
-                  href={model.issue.labourSummary.outcome.sourceUrl} target="_blank" rel="noopener noreferrer">来源</a></>}
-              </p>
-            </> : <p className={styles.meta}>{model.issue.labourSummary.outcomeEmptyText}</p>}
-          </div>
-          <div className={styles.summaryPart}>
-            <h2>已登记主观工时</h2>
-            <p className={styles.hours}><strong>{model.issue.labourSummary.hours}</strong> 小时</p>
-            <p className={model.issue.labourSummary.complete ? styles.meta : styles.warning}
-              role="status">{model.issue.labourSummary.statusText}</p>
-          </div>
-        </section>
+
 
       </header>
-      <section className={styles.readStatus} aria-label="读取状态">
-        {accessNotice}
-        <div className={styles.readActions}>
-          <p>已读取 {model.issue.pagination.loaded} / {model.issue.pagination.expected} 条 GitHub 评论。
-            {' '}{model.issue.pagination.complete ? '已取得全部评论。' : '评论可能未全部取得。'}
-          </p>
-          <button type="button" onClick={actions.onRefresh} disabled={Boolean(accessNotice) || model.form.pending || model.form.refreshing}
-            aria-label="从 GitHub 重新加载此 Issue">{model.form.refreshing ? '正在刷新…' : '刷新 Issue 与评论'}</button>
-        </div>
-        <p className={styles.meta}>本次从服务器读取：{model.issue.pagination.lastRead}。
-          GitHub Issue 更新时间：{model.issue.updated}。页面不会自动实时更新。</p>
-        {model.issue.pagination.warnings.length > 0 &&
-          <ul className={styles.warnings}>{model.issue.pagination.warnings.map(message =>
-            <li key={message}>{message}</li>)}</ul>}
-        {model.issue.pagination.hasMore && <button type="button"
-          disabled={paginationBlocked || model.issue.pagination.fetchingMore || model.form.refreshing} onClick={actions.onLoadMore}>
-          {model.issue.pagination.fetchingMore ? '加载中…' : '加载下一页评论'}
-        </button>}
-        {model.issue.pagination.error && <p className={styles.error} role="alert">
-          分页失败：{model.issue.pagination.error}。
-          <button type="button" disabled={paginationBlocked || model.form.refreshing} onClick={actions.onLoadMore}>重试本页</button>
-        </p>}
-      </section>
+      {accessNotice}
+      {!model.issue.pagination.complete && <p role="status" className={styles.warning}>评论可能未全部取得，可在列表末尾继续读取。</p>}
       <div className={styles.tabs} role="tablist" aria-label="Issue 内容">
         <button ref={discussionTab} id={tabId('discussion')} role="tab" type="button"
           aria-controls={panelId('discussion')} aria-selected={tab === 'discussion'}
@@ -329,7 +292,49 @@ export default function IssueDetailView({ model, actions, accessNotice, paginati
       </section>
       <section role="tabpanel" id={panelId('labour')} aria-labelledby={tabId('labour')}
         tabIndex={0} hidden={tab !== 'labour'} className={styles.tabpanel}>
+        <section className={styles.summary} aria-label="最近劳动成果与工时摘要">
+          <div className={styles.summaryPart}>
+            <h2>最近已登记成果</h2>
+            {model.issue.labourSummary.outcome ? <>
+              <p className={styles.body}>{model.issue.labourSummary.outcome.text}</p>
+              <p className={styles.meta}>登记者：{model.issue.labourSummary.outcome.author}
+                {' · '}{model.issue.labourSummary.outcome.time}
+                {model.issue.labourSummary.outcome.sourceUrl && <> · <a
+                  href={model.issue.labourSummary.outcome.sourceUrl} target="_blank" rel="noopener noreferrer">来源</a></>}
+              </p>
+            </> : <p className={styles.meta}>{model.issue.labourSummary.outcomeEmptyText}</p>}
+          </div>
+          <div className={styles.summaryPart}>
+            <h2>已登记主观工时</h2>
+            <p className={styles.hours}><strong>{model.issue.labourSummary.hours}</strong> 小时</p>
+            <p className={model.issue.labourSummary.complete ? styles.meta : styles.warning}
+              role="status">{model.issue.labourSummary.statusText}</p>
+          </div>
+        </section>
         <LabourHistoryView model={model} actions={actions}/>
+      </section>
+      <section className={styles.readStatus} aria-label="读取状态">
+        <div className={styles.readActions}>
+          <p>已读取 {model.issue.pagination.loaded} / {model.issue.pagination.expected} 条评论。
+            {' '}{model.issue.pagination.complete ? '已取得全部评论。' : '评论可能未全部取得。'}
+          </p>
+          <button type="button" onClick={actions.onRefresh} disabled={Boolean(accessNotice) || model.form.pending || model.form.refreshing}
+            aria-label="从 GitHub 重新加载此 Issue" title="刷新 Issue 与评论" className={styles.refreshAction}>{model.form.refreshing ? '正在刷新…' : <span aria-hidden="true">↻</span>}</button>
+        </div>
+        <details className={styles.secondaryDetails}><summary>读取时间与来源</summary>
+          <p className={styles.meta}>本次从服务器读取：{model.issue.pagination.lastRead}。GitHub Issue 更新时间：{model.issue.updated}。页面不会自动实时更新。</p>
+        </details>
+        {model.issue.pagination.warnings.length > 0 &&
+          <ul className={styles.warnings}>{model.issue.pagination.warnings.map(message =>
+            <li key={message}>{message}</li>)}</ul>}
+        {model.issue.pagination.hasMore && <button type="button"
+          disabled={paginationBlocked || model.issue.pagination.fetchingMore || model.form.refreshing} onClick={actions.onLoadMore}>
+          {model.issue.pagination.fetchingMore ? '加载中…' : '加载下一页评论'}
+        </button>}
+        {model.issue.pagination.error && <p className={styles.error} role="alert">
+          分页失败：{model.issue.pagination.error}。
+          <button type="button" disabled={paginationBlocked || model.form.refreshing} onClick={actions.onLoadMore}>重试本页</button>
+        </p>}
       </section>
       </div>
       <CommentComposer model={model} actions={actions} inputRef={inputRef} hidden={tab !== 'discussion'}/>

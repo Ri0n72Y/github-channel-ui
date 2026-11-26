@@ -16,7 +16,7 @@ export default function TopicPageHead({ snapshot }: { snapshot: TopicSnapshot })
       alt="" referrerPolicy="no-referrer" decoding="async"
       onError={() => setFailedUrl(cover)}/>}
     <div className={styles.headCopy}>
-      <span className={styles.eyebrow}>TOPIC / {snapshot.config?.topic || '尚未初始化'}</span>
+      <span className={styles.eyebrow}>活动 / {snapshot.config?.topic || '尚未初始化'}</span>
       <h1>{title}</h1>
       {description && <p className={styles.description}
         data-collapsed={longDescription && !expanded}>{description}</p>}
@@ -25,7 +25,7 @@ export default function TopicPageHead({ snapshot }: { snapshot: TopicSnapshot })
           aria-expanded={expanded} onClick={() => setExpanded(open => !open)}>
           {expanded ? '收起活动简介' : '展开完整活动简介'}
         </button>}
-        <p className={styles.sourceHint}>{snapshot.config ? (snapshot.config.whitelist ? '仅展示符合 Topic 且已登记的公开仓库。' : '展示符合 Topic 的公开仓库。') : '尚未配置 Topic，不查询项目。'}</p>
+        <p className={styles.sourceHint}>{snapshot.config ? (snapshot.config.whitelist ? '仅展示符合活动条件且已登记的公开项目。' : '展示符合活动条件的公开项目。') : '尚未配置活动项目。'}</p>
         <a href={snapshot.repository.html_url} target="_blank" rel="noopener noreferrer">查看官方仓库</a>
       </div>
       {(email || datetime) && <footer className={styles.headMeta}>

@@ -116,7 +116,7 @@ test('#86 Issue A -> B: draft and late writes belong to their original controlle
   assert.ok(form)
   await act(async()=>input(form,'A-only draft'))
   assert.equal(app.host.querySelector('form[aria-label="参与讨论"] textarea').value,'A-only draft')
-  const submit=[...app.host.querySelectorAll('button')].find(b=>b.textContent.includes('确认以 GitHub 身份评论'))
+  const submit=[...app.host.querySelectorAll('button')].find(b=>b.textContent.includes('发表评论'))
   assert.ok(submit&&!submit.disabled)
   await act(async()=>submit.click())
   assert.equal(writes,1)
@@ -666,7 +666,7 @@ test('#96 root RepoPanel: URL target is required, anonymous read works, OAuth wr
   assert.deepEqual(calls.reads,['sample/repo'])
   assert.match(app.host.textContent,/受控公开 Issue/)
   assert.match(app.host.textContent,/可匿名阅读/)
-  const create=[...app.host.querySelectorAll('button')].find(x=>x.textContent.includes('新建 Issue'))
+  const create=[...app.host.querySelectorAll('button')].find(x=>x.textContent.includes('发布动态'))
   assert.ok(create?.disabled,'anonymous users must not be able to open the Issue writer')
   assert.equal(calls.writes,0)
  }finally{await app.close();store.dispose()}
@@ -685,6 +685,7 @@ test('#99 Member pending PR prioritizes the exact external GitHub link with acce
  try{
   const field=app.host.querySelector('input[required]')
   assert.ok(field)
+  assert.equal(app.host.querySelector('input[type="url"]').closest('details').open,false)
   const fields=[...app.host.querySelectorAll('form input, form textarea')]
   assert.deepEqual(fields.map(el=>el.getAttribute('maxlength')),['60','39','40','280',null,'24',null,'24',null,'24',null])
   assert.equal(fields[0],field)
@@ -694,9 +695,9 @@ test('#99 Member pending PR prioritizes the exact external GitHub link with acce
   assert.equal(writes,1)
   const heading=app.host.querySelector('h2[tabindex="-1"]')
   assert.ok(heading)
-  assert.match(heading.textContent,/维护 PR 已创建/)
+  assert.match(heading.textContent,/等待管理员审核/)
   assert.equal(document.activeElement,heading)
-  const cta=[...app.host.querySelectorAll('a')].find(x=>x.textContent.includes('前往 GitHub PR'))
+  const cta=[...app.host.querySelectorAll('a')].find(x=>x.textContent.includes('查看 GitHub 审核记录'))
   assert.ok(cta)
   assert.equal(cta.href,'https://github.com/sample/repo/pull/17')
   assert.equal(cta.target,'_blank')
@@ -824,7 +825,7 @@ test('#15 scoped Issue creation requires the exact selected repository and OAuth
  try{
   assert.ok(requested.length >= 1 && requested.every(value => value === 'sample/repo'))
   assert.equal(page.host.querySelector('form'),null)
-  assert.match(page.host.textContent,/创建 Issue 需要 GitHub OAuth 登录/)
+  assert.match(page.host.textContent,/登录 GitHub 后才能发布动态/)
   const link=page.host.querySelector('a[href^="/api/github-login?"]')
   assert.ok(link)
   assert.equal(new URLSearchParams(link.getAttribute('href').split('?')[1]).get('return_to'),
@@ -946,7 +947,8 @@ test('#99 D2: concise RepoHome retains one members entry, genuine identities and
   assert.ok(app.host.querySelector('a[href="/sample/repo/channels"]'))
   const card=app.host.querySelector('article')
   assert.ok(card)
-  assert.equal(card.querySelector('[data-state="closed"]').textContent.trim(),'Closed')
+  assert.equal(card.querySelector('[data-state="closed"]').textContent.trim(),'已关闭')
+  assert.equal(card.querySelectorAll('a[href="/sample/repo/issues/71"]').length,1)
   assert.match(card.textContent,/#71/)
   assert.match(card.textContent,/operator/)
   assert.match(card.textContent,/A useful Issue summary/)
@@ -1179,7 +1181,7 @@ test('#69 B2 visual viewport resize keeps quote, feedback, last comment and pagi
  }
 })
 
-test('#99 Title layout uses measured card width, one identity/README/actions/team order, safe optional cover and feed focus',async()=>{
+test('#99 Title layout uses measured card width, one identity/README/actions/team order, safe optional cover and secondary settings',async()=>{
  const source=(await server.ssrLoadModule('/plugins/repo-home/src/RepoHomePage.tsx'))
  for(const [width,layout] of [[320,'small'],[479,'small'],[480,'narrow'],[699,'narrow'],[700,'medium'],[1099,'medium'],[1100,'wide']])
   assert.equal(source.titleLayout(width),layout)
@@ -1197,7 +1199,13 @@ test('#99 Title layout uses measured card width, one identity/README/actions/tea
    assert.match(header.children[0].textContent,/sample\/repo.*Real description/)
    assert.match(header.children[1].textContent,/Unique README prose/)
    assert.doesNotMatch(header.children[1].textContent,/Real description/)
-   assert.match(header.children[2].textContent,/项目动态.*GitHub 仓库.*仓库配置与 Labels.*项目频道/)
+   const actions=header.children[2]
+   assert.equal(actions.querySelector('a[href="/sample/repo/channels"]').textContent,'项目频道')
+   const more=actions.querySelector('details')
+   assert.ok(more&&!more.open,'settings and source are secondary by default')
+   assert.ok(more.querySelector('a[href="/sample/repo/config"]'))
+   assert.ok(more.querySelector('a[href="https://github.com/sample/repo"]'))
+   assert.equal(title.querySelector('a[href="#feed-heading"]'),null,'no duplicate same-page feed link')
    assert.ok(title.contains(app.host.querySelector('#team-heading')))
    assert.equal(title.querySelector('img')?.getAttribute('src'),url===cover?cover:undefined)
    if(url===cover){
@@ -1207,8 +1215,8 @@ test('#99 Title layout uses measured card width, one identity/README/actions/tea
     await act(async()=>img.dispatchEvent(new Event('error')))
     assert.equal(title.querySelector('img'),null)
    }
-   await act(async()=>title.querySelector('a[href="#feed-heading"]').click())
-   assert.equal(document.activeElement,app.host.querySelector('#feed-heading'))
+   assert.ok(app.host.querySelector('#feed-heading'))
+   assert.equal(app.host.querySelector('a[href="/sample/repo/issues/new"]').textContent,'发布动态')
    assert.equal(title.querySelector('a[href="https://github.com/sample/repo/blob/main/README.md"]').textContent,'完整 README')
   }finally{await app.close()}
  }
@@ -1358,7 +1366,7 @@ test('#115 actual RepoPanel route keeps current list and refresh after invalid o
    assert.match(app.host.textContent,/List sample\/repo/)
    assert.equal(store.getSnapshot(),initial)
    assert.equal(reads.length,count)
-   assert.doesNotMatch(app.host.textContent,/正在核验公开仓库/)
+   assert.doesNotMatch(app.host.textContent,/正在读取项目/)
    assert.equal([...app.host.querySelectorAll('button')].find(x=>x.textContent==='重新核验').disabled,false)
   }
   await act(async()=>[...app.host.querySelectorAll('button')].find(x=>x.textContent==='重新核验').click());await flush()

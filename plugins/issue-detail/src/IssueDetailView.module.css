@@ -197,3 +197,9 @@
   .formActions button { width: 100%; }
   .tabs button { flex: 1 1 auto; padding-inline: 10px; }
 }
+
+.page .refreshAction {min-width:44px;min-height:44px;padding:4px 8px;background:transparent;border-color:transparent;color:var(--lc-text-secondary);font-size:20px}
+.page .secondaryDetails {color:var(--lc-text-secondary);font-size:13px}
+.page .secondaryDetails > summary {cursor:pointer;min-height:44px;box-sizing:border-box;padding:10px 0}
+.page .secondaryDetails > summary:focus-visible {outline:3px solid var(--lc-focus);outline-offset:3px}
+.commentHeader a,.page .quoteAction {color:var(--lc-text-secondary)}

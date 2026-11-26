@@ -122,7 +122,9 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
     const first = Object.keys(validateVisibleFields(fields))[0] as FieldKey | undefined
     if (first) {
       setError('')
-      fieldRefs.current[first]?.focus()
+      const field = fieldRefs.current[first]
+      field?.closest('details')?.setAttribute('open','')
+      field?.focus()
       return
     }
     setSubmitAttempted(false)
@@ -172,19 +174,20 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
     </nav>
     <header className={styles.registerHeader}>
       <h1>添加团队成员</h1>
-      <p className={styles.muted}>目标：{owner}/{repo} · 成员登记写入固定分支 <strong>{branch}</strong>（不受本机展示偏好影响）</p>
+      <p>将成员添加到 <strong>{owner}/{repo}</strong>。</p>
+      <details className={styles.secondaryDetails}><summary>写入详情</summary><p>成员登记写入固定分支 <strong>{branch}</strong>（不受本机展示偏好影响）。</p></details>
     </header>
     {result && <section className={styles.submitResult} role="status" aria-live="polite">
       <h2 ref={resultHeading} tabIndex={-1}>
-        {result.status === 'pending_pr' ? '维护 PR 已创建' : '成员资料已提交'}
+        {result.status === 'pending_pr' ? '等待管理员审核' : '成员资料已提交'}
       </h2>
       <p>{result.status === 'pending_pr'
-        ? '审核合并 GitHub 维护 PR 后，新成员才会出现在团队列表中。'
+        ? '管理员在 GitHub 审核并合并后，新成员才会出现在团队列表中。'
         : 'GitHub Commit 已提交，返回团队成员页面后可重新加载查看。'}</p>
       <div className={styles.resultActions}>
         {resultUrl ? <a className={styles.resultPrimary} href={resultUrl}
           target="_blank" rel="noopener noreferrer">
-          {result.status === 'pending_pr' ? '前往 GitHub PR（新标签）' : '查看 GitHub Commit（新标签）'}
+          {result.status === 'pending_pr' ? '查看 GitHub 审核记录（新标签）' : '查看 GitHub Commit（新标签）'}
         </a> : <p role="alert">提交已返回结果，但 GitHub 来源链接未通过校验。请自行核查仓库中的记录，勿重复提交。</p>}
         <Link to={base + '/members'}>查看成员列表</Link>
       </div>
@@ -239,14 +242,15 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
             onChange={e => change('bio', e.target.value)} rows={4} />
             {fieldErrors.bio && <small id="member-error-bio" className={styles.fieldError}>{fieldErrors.bio}</small>}
           </label>
-          <label>HTTPS 头像 URL（选填）<input type="url" value={fields.avatarUrl}
+        </section>
+        <details className={styles.secondaryDetails}><summary>头像与个人链接（选填）</summary>
+          <label>头像链接（HTTPS，选填）<input type="url" value={fields.avatarUrl}
             ref={node => { fieldRefs.current.avatarUrl = node }}
             aria-invalid={Boolean(fieldErrors.avatarUrl)}
             aria-describedby={fieldErrors.avatarUrl ? 'member-error-avatar' : undefined}
             onChange={e => change('avatarUrl', e.target.value)} />
             {fieldErrors.avatarUrl && <small id="member-error-avatar" className={styles.fieldError}>{fieldErrors.avatarUrl}</small>}
           </label>
-        </section>
         <fieldset className={styles.registerLinks}><legend><span aria-hidden="true">03</span> 个人链接（最多三条，选填）</legend>
           {fields.links.map((link, index) => {
             const labelKey = `links.${index}.label` as const
@@ -271,6 +275,7 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
             </div>
           })}
         </fieldset>
+        </details>
         <div className={[styles.actions, styles.registerActions].join(' ')}><button type="submit" disabled={pending || writeOutcomeUnknown || result?.status === 'pending_pr'}>
           {pending ? '正在提交…' : '提交成员资料'}</button><Link to={base + '/members'}>取消</Link></div>
       </form></>}

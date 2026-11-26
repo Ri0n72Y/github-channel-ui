@@ -35,13 +35,14 @@ export default function MembersPage({ api }: { api: RepoHomeApi }) {
       <div className={styles.membersHeading}>
         <h1>团队成员 {data?.team.state === 'ready' || data?.team.state === 'empty'
           ? '(' + data.team.members.length + ')' : ''}</h1>
-        <p className={styles.muted}>展示分支 <code>{branch}</code></p>
       </div>
       {!accessReason&&<MemberManagementLink base={base} state={memberWrite.state} />}
     </header>
     {accessReason&&<RepoAccessNotice owner={owner} repo={repo} reason={accessReason} onRetry={()=>setRevision(n=>n+1)}/>}
     {!accessReason&&(memberWrite.capability || memberWrite.state === 'denied' || memberWrite.state === 'error') &&
-      <div className={styles.memberPermission}>
+      <details className={[styles.memberPermission,styles.secondaryDetails].join(' ')} open={memberWrite.state === 'error' ? true : undefined}>
+        <summary>成员登记与读取详情</summary>
+        <p className={styles.muted}>展示分支 <code>{branch}</code></p>
         {memberWrite.capability &&
           <p className={styles.muted}>已验证操作者 @{memberWrite.capability.user.login}，写入分支 {memberWriteBranch}</p>}
         {memberWrite.state === 'denied' &&
@@ -50,7 +51,7 @@ export default function MembersPage({ api }: { api: RepoHomeApi }) {
           登记权限暂无法验证：{memberWrite.error}
           <button type="button" onClick={memberWrite.retry}>重试检查</button>
         </p>}
-      </div>}
+      </details>}
     {(loading || error || (data && data.team.state !== 'ready')) && <div className={styles.memberReadStatus}>
       {loading && <p role="status">正在读取成员文件…</p>}
       {error && <p role="alert">{error} <button type="button" onClick={() => setRevision(n => n + 1)}>重试</button></p>}
