@@ -63,11 +63,13 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
   const [quote,setQuote]=useState<QuoteReply|null>(null)
   const [labour,setLabour]=useState<LabourDraft>({...initialLabour})
   const activeScope=useRef('')
+  const lastUserId=useRef<number|null>(null)
   const writeInFlight=useRef<{kind:FormKind;abort:AbortController}|null>(null)
   const [pendingKind,setPendingKind]=useState<FormKind|null>(null)
   const [unknownKind,setUnknownKind]=useState<FormKind|null>(null)
   useEffect(()=>subscribeSessionChanged(()=>{
     activeScope.current=''
+    lastUserId.current=null
     writeInFlight.current?.abort.abort()
     writeInFlight.current=null
     setPendingKind(null)
@@ -120,14 +122,16 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
         if (!loaded) throw issueRequestError('该地址不是有效的 GitHub Issue', 404)
         const { issue, first } = loaded
         if (current !== revision.current || abort.signal.aborted) return
-        if(publishedRefresh.current){setNotice(previous=>previous?.url===publishedRefresh.current?{...previous,message:'已发表；讨论列表已重新读取。'}:previous);publishedRefresh.current=null}
+        const published=publishedRefresh.current
+        if(published){setNotice(previous=>previous?.url===published?{...previous,message:'已发表；讨论列表已重新读取。'}:previous);publishedRefresh.current=null}
         setState({ key: routeKey, loading: false, refreshing: false, issue, comments: uniqueComments(first.items),
           page: 1, hasMore: first.hasMore, fetchingMore: false,
           lastRead: new Date().toISOString(), error: null, pageError: '' })
       } catch (error) {
         if (current !== revision.current || abort.signal.aborted) return
         report(error)
-        if(publishedRefresh.current){setNotice(previous=>previous?.url===publishedRefresh.current?{...previous,message:'GitHub 已确认发表；讨论列表刷新失败，请通过评论来源核实。'}:previous);publishedRefresh.current=null}
+        const published=publishedRefresh.current
+        if(published){setNotice(previous=>previous?.url===published?{...previous,message:'GitHub 已确认发表；讨论列表刷新失败，请通过评论来源核实。'}:previous);publishedRefresh.current=null}
         const failure=asIssueError(error)
         setState(previous=>previous.key===routeKey&&previous.issue
           ? {...previous,refreshing:false,fetchingMore:false,error:failure,pageError:failure.message}
@@ -173,10 +177,11 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
   const authStatus = auth.key === routeKey && auth.epoch===authRevision ? auth.status : 'checking'
   const identity = authStatus==='authorized' && auth.userId && valid && owner && repo && resourcePath(owner,repo,'issue',numberValue)
     ? {owner,repo,number:numberValue,userId:auth.userId} : null
-  const scope=identity ? routeKey+':'+identity.userId : ''
+  if(identity)lastUserId.current=identity.userId
+  const scope=routeKey+':'+(identity?.userId??lastUserId.current??'pending')
   const commentBody=buildCommentReply(draft,quote)
   const loginUrl = loginHref(location.pathname)
-  const canWrite = authStatus === 'authorized' && Boolean(scope) && Boolean(issue) &&
+  const canWrite = authStatus === 'authorized' && Boolean(identity) && Boolean(issue) &&
     !state.refreshing && !accessReason && !state.error
   useEffect(()=>{
     activeScope.current=scope
@@ -370,7 +375,7 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
   function retryRead(){
     if(writeInFlight.current||state.refreshing)return
     setState(previous=>({...previous,refreshing:true}))
-    if(accessReason||state.error){activeScope.current='';setAuth({key:routeKey,status:'checking',message:''});setAuthRevision(n=>n+1)}
+    if(accessReason||state.error){setAuth({key:routeKey,status:'checking',message:''});setAuthRevision(n=>n+1)}
     setReload(n=>n+1)
   }
   const actions: IssueDetailViewActions = {

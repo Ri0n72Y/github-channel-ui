@@ -1195,7 +1195,8 @@ test('#20 comment and labour forms are memory-only with no localStorage writes o
   await act(async()=>app.host.querySelectorAll('[role="tab"]')[1].click())
   const work=()=>[...app.host.querySelectorAll('textarea')].find(el=>el.closest('label')?.textContent.includes('工作内容'))
   await act(async()=>input(work(),'labour only in this page'))
-  assert.doesNotMatch(app.host.textContent,/草稿|存储|冲突|解锁/)
+  assert.doesNotMatch(app.host.textContent,/草稿仅保存在当前浏览器|无法可靠保存|提交结果待核查/)
+  assert.equal([...app.host.querySelectorAll('button')].some(b=>/解除提交锁定|解锁/.test(b.textContent)),false)
   await app.close()
   app=await issueMount(issueService({authorized:true}))
   assert.equal(replyArea(app).value,'')
@@ -1483,7 +1484,7 @@ test('#115 actual RepoPanel route keeps current list and refresh after invalid o
   assert.deepEqual(probes,[])
  }finally{await app.close();store.dispose()}
 })
-test('#115 Issue pagination denial preserves reading nodes, drafts and uncertain-write feedback through failed and successful recovery',async()=>{
+test('#115 Issue pagination denial preserves reading nodes, current-page input and uncertain-write feedback through failed and successful recovery',async()=>{
  const {RepoAccessRequestProvider}=await server.ssrLoadModule('/plugins/github-access/src/RepoAccessNotice.tsx')
  let blocked=false,failRefresh=false,writes=0
  const reads=[]
