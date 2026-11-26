@@ -1,4 +1,4 @@
-import type { FormEvent } from 'react'
+import { useEffect, useRef, type FormEvent } from 'react'
 import styles from './topic-page.module.css'
 
 export type TopicReportDialogProps = {
@@ -12,13 +12,49 @@ export type TopicReportDialogProps = {
 
 /** @summary Keep draft and submission failures visible inside the accessible report editor. */
 export default function TopicReportDialog(props: TopicReportDialogProps) {
+  const dialogRef=useRef<HTMLElement>(null)
+  const previousFocus=useRef<HTMLElement|null>(null)
+  const closeRef=useRef(props.onCancel)
+  closeRef.current=props.onCancel
+  const pendingRef=useRef(props.pending)
+  pendingRef.current=props.pending
+  useEffect(()=>{
+    const dialog=dialogRef.current
+    if(!dialog)return
+    previousFocus.current=document.activeElement instanceof HTMLElement?document.activeElement:null
+    const focusable=()=>Array.from(dialog.querySelectorAll<HTMLElement>('a[href],button,input,textarea,select,[tabindex]'))
+      .filter(el=>!el.hasAttribute('disabled')&&el.tabIndex>=0&&!el.closest('[hidden]'))
+    const focusFirst=()=> (focusable()[0]||dialog).focus()
+    focusFirst()
+    function key(event:KeyboardEvent){
+      if(event.key==='Escape'){
+        event.preventDefault()
+        if(!pendingRef.current)closeRef.current()
+      }else if(event.key==='Tab'){
+        const items=focusable(),first=items[0],last=items.at(-1)
+        if(!first||!last){event.preventDefault();dialog?.focus();return}
+        if(event.shiftKey&&(document.activeElement===first||!dialog?.contains(document.activeElement))){
+          event.preventDefault();last.focus()
+        }else if(!event.shiftKey&&(document.activeElement===last||!dialog?.contains(document.activeElement))){
+          event.preventDefault();first.focus()
+        }
+      }
+    }
+    function focus(event:FocusEvent){if(event.target instanceof Node&&!dialog?.contains(event.target))focusFirst()}
+    document.addEventListener('keydown',key)
+    document.addEventListener('focusin',focus)
+    return ()=>{
+      document.removeEventListener('keydown',key);document.removeEventListener('focusin',focus)
+      if(previousFocus.current?.isConnected)previousFocus.current.focus()
+    }
+  },[])
   return <div className={styles.dialogBackdrop}>
-    <section className={styles.dialog} role="dialog" aria-modal="true"
+    <section ref={dialogRef} tabIndex={-1} className={styles.dialog} role="dialog" aria-modal="true"
       aria-labelledby="topic-report-heading">
       <h2 id="topic-report-heading">向当前仓库提交错误报告</h2>
       <form onSubmit={props.onSubmit}>
         <label>标题
-          <input autoFocus required maxLength={256} value={props.title}
+          <input required maxLength={256} value={props.title}
             onChange={e => props.onTitleChange(e.target.value)}/>
         </label>
         <label>正文

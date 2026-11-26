@@ -131,11 +131,6 @@ export default function RepoHomePage({ api, theme, coverUrl }: { api: RepoHomeAp
     return () => { observer.disconnect(); if (timeout) clearTimeout(timeout) }
   }, [hasMore, feedError, feedLoading, items.length, loadPage])
 
-  function refresh() {
-    controllers.current.forEach(c => c.abort()); controllers.current.clear()
-    pendingPage.current = null; stopped.current = false
-    setGeneration(value => value + 1)
-  }
   const base = '/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo)
   const readmeUrl = data?.readme.state === 'ready' && data.readme.path
     ? 'https://github.com/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo) +
@@ -205,7 +200,7 @@ export default function RepoHomePage({ api, theme, coverUrl }: { api: RepoHomeAp
     {(!accessReason||items.length>0)&&<section className={[styles.section, styles.feedSection].join(' ')} aria-labelledby="feed-heading">
       <div className={styles.sectionHead}><h2 id="feed-heading" tabIndex={-1}>项目动态</h2>
         <Link to={base + '/issues/new'}>发布动态</Link>
-        <button type="button" onClick={refresh} className={styles.iconAction} aria-label="刷新动态" title="刷新动态"><span aria-hidden="true">↻</span></button></div>
+        </div>
       <div className={styles.feed}>{items.map(issue => <RepoIssueActivityCard
         key={issue.id} issue={issue} base={base} />)}</div>
       {items.length === 0 && !feedLoading && !feedError && !hasMore && <p>暂无项目动态。</p>}

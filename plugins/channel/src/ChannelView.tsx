@@ -37,9 +37,6 @@ export default function ChannelView({ owner, repo, loading, snapshot, error, acc
         <h1>项目频道</h1>
         <p>选择一个频道，加入当前讨论。</p>
       </div>
-      {!accessBlocked && !error && <div className={styles.actions}>
-        <button type="button" disabled={loading} onClick={onRetry} aria-label="刷新频道" title="刷新频道"><span aria-hidden="true">↻</span></button>
-      </div>}
     </header>
     {loading && <p role="status">正在加载频道…</p>}
     {error && !accessBlocked && <div className={styles.error} role="alert">读取失败：{error} <button type="button" onClick={onRetry}>重试读取</button></div>}
@@ -48,27 +45,28 @@ export default function ChannelView({ owner, repo, loading, snapshot, error, acc
         <h2>频道暂不可用</h2>
         <p>{stateText[snapshot.state] || snapshot.state}</p>
         {snapshot.error && <p>{snapshot.error}</p>}
+        {!accessBlocked&&!error&&<button type="button" onClick={onRetry}>重试读取</button>}
         {snapshot.state === 'config_missing' && <details><summary>项目管理者操作</summary><Link to={base + '/config'}>查看配置初始化</Link></details>}
       </section>}
     {!loading && snapshot?.state === 'ready' && <>
       <ul className={styles.grid}>
-        {snapshot.channels.map(channel => <li className={styles.card} key={channel.label}>
-          <div className={styles.cardIdentity}>
+        {snapshot.channels.map(channel=>{
+          const identity=<div className={styles.cardIdentity}>
             <span className={styles.channelMark} aria-hidden="true">#</span>
             <div><h2>{channel.name}</h2></div>
           </div>
-          {channel.issue ? <>
-            <div className={styles.issueSummary}>
-              <p className={styles.status}>当前讨论</p>
-              <h3>{channel.issue.title}</h3>
-              <p className={styles.meta}>作者：{channel.issue.author || '未知'} ·
-                创建时间：<LocalTime value={channel.issue.createdAt}/> · 评论：{channel.issue.comments}</p>
-            </div>
-            <Link className={styles.enter} to={issueUrl(owner, repo, channel.issue.number)}>
-              进入讨论
-            </Link>
-          </> : <p className={styles.empty}>暂无进行中的讨论。</p>}
-        </li>)}
+          return <li className={styles.card} key={channel.label}>
+            {channel.issue?<Link className={styles.cardLink} to={issueUrl(owner,repo,channel.issue.number)}>
+              {identity}
+              <div className={styles.issueSummary}>
+                <p className={styles.status}>当前讨论</p>
+                <h3>{channel.issue.title}</h3>
+                <p className={styles.meta}>作者：{channel.issue.author || '未知'} ·
+                  创建时间：<LocalTime value={channel.issue.createdAt}/> · 评论：{channel.issue.comments}</p>
+              </div>
+            </Link>:<>{identity}<p className={styles.empty}>暂无进行中的讨论。</p></>}
+          </li>
+        })}
       </ul>
     </>}
     {snapshot && <details className={styles.footnote}>

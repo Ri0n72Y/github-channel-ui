@@ -70,7 +70,7 @@ export class ReactUIService extends Service {
 function NotFound() {
   return <section className={styles.notFound}>
     <h1>页面不存在或暂未提供</h1>
-    <p>此 URL 没有可用页面。对应插件可能尚未装配或已卸载。</p>
+    <p>此地址没有可用页面。请检查链接，或返回首页打开其他项目。</p>
     <Link to="/">返回首页</Link>
   </section>
 }

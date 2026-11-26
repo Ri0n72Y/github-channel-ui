@@ -1,5 +1,7 @@
 import { RepositoryLink as Link } from '../../repo-issues/src/RepositoryLink'
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router'
+import { repositoryLinkPath } from '../../repo-issues/src/target.mjs'
 import type { RepoFeedIssue } from './service'
 import { SafeMarkdown } from './SafeMarkdown'
 import { previewMarkdown } from './domain.mjs'
@@ -8,6 +10,8 @@ import { ExternalIcon, LocalTime } from '../../shared/src/Presentation'
 
 /** @summary Render a normal GitHub Issue as one accessible, expandable first-post article. */
 export function RepoIssueActivityCard({ issue, base }: { issue: RepoFeedIssue; base: string }) {
+  const navigate=useNavigate()
+  const path=repositoryLinkPath(base+'/issues/'+issue.number)
   const [expanded, setExpanded] = useState(false)
   const body = issue.body || ''
   const long = body.length > 460 || body.split('\n').length > 12
@@ -20,7 +24,13 @@ export function RepoIssueActivityCard({ issue, base }: { issue: RepoFeedIssue; b
     query.addEventListener('change', onChange)
     return () => query.removeEventListener('change', onChange)
   }, [])
-  return <article className={styles.card}>
+  return <article className={[styles.card,path?styles.clickableCard:''].join(' ')}
+    onClick={event=>{
+      if(!path||event.defaultPrevented||event.button!==0||event.altKey||event.ctrlKey||event.metaKey||event.shiftKey||
+        !(event.target instanceof window.Element)||event.target.closest('a,button,input,textarea,select,summary,[role="button"],[role="link"],[contenteditable]')||
+        window.getSelection()?.isCollapsed===false)return
+      navigate(path)
+    }}>
     <div className={styles.cardMeta}>
       <span className={styles.issueNumber}>#{issue.number}</span>
       <span className={styles.issueState} data-state={issue.state === 'closed' ? 'closed' : 'open'}>

@@ -47,6 +47,8 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
   const [created, setCreated] = useState<{ number: number; url: string } | null>(null)
   const inflight = useRef<AbortController | null>(null)
   const resultHeading = useRef<HTMLHeadingElement>(null)
+  const failureRef=useRef<HTMLParagraphElement>(null)
+  useEffect(()=>{if(status==='ready'&&message&&!unknown&&!created)failureRef.current?.focus()},[status,message,unknown,created])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -137,6 +139,7 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
     </section>}
     {status === 'ready' && verified && !created && !unknown &&
       <form className={styles.form} onSubmit={event => { void submit(event) }}>
+        {message&&<p ref={failureRef} tabIndex={-1} role="alert">发布失败：{message}。内容已保留，请检查后重试。</p>}
         <label htmlFor="create-issue-title">标题
           <input id="create-issue-title" required maxLength={256} value={title}
             onChange={event => setTitle(event.target.value)} />

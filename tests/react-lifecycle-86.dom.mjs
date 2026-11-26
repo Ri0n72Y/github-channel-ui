@@ -1,4 +1,4 @@
-import test, { before, after } from 'node:test'
+import test, { before, after, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { JSDOM } from 'jsdom'
 import React, { act } from 'react'
@@ -38,6 +38,8 @@ before(async () => {
  makeRepoStore=(await server.ssrLoadModule('/plugins/repo-issues/src/index.ts')).createRepoIssuesStore
 })
 after(async () => {await server?.close();dom.window.close()})
+function clearIssueDrafts(){for(const key of Object.keys(localStorage))if(key.startsWith('labourchain:issue-draft:v1:'))localStorage.removeItem(key)}
+beforeEach(clearIssueDrafts)
 async function mount(path, route, Component, prop, keyFor) {
  const host=document.createElement('div')
  document.body.append(host)
@@ -73,9 +75,12 @@ function issueService(opts={}){
    calls.push({n,page,signal})
    return opts.comments?.(n,page,signal) ?? Promise.resolve({items:[comment(n*100+page)],hasMore:page===1})
   },
-  getSession:async()=>Boolean(opts.authorized),
-  verify:async()=>({repository:{accessible:true}}),
-  postComment: opts.postComment ?? (async()=>({id:99})),
+  getSession:async()=>opts.session?opts.session():Boolean(opts.authorized),
+  verify:async(o,r)=>({user:{id:opts.userId?opts.userId():1,login:'fixture-user'},repository:{accessible:true,full_name:o+'/'+r}}),
+  postComment:async(o,r,n,body,signal)=>{
+   const result=await (opts.postComment?.(o,r,n,body,signal)??{id:99})
+   return {body,created_at:'2026-11-17T00:00:00Z',html_url:'https://github.com/'+o+'/'+r+'/issues/'+n+'#issuecomment-'+result.id,...result}
+  },
  }
 }
 test('#86 Repo A -> B: StrictMode remount hides old cards and preserves per-repo branch',async()=>{
@@ -144,7 +149,8 @@ test('#86 Issue page: two same-tick load-more events are single-flight and IDs d
   const diagnostic=app.host.querySelector('[aria-label="读取状态"] details')
   assert.equal(diagnostic.open,false)
   assert.match(diagnostic.textContent,/2 \/ 3/)
-  assert.equal(app.host.querySelector('[aria-label="读取状态"]').querySelectorAll('[role="status"]').length,1)
+  assert.match(app.host.textContent,/评论数量尚未核对完整/)
+  assert.equal(app.host.querySelector('[aria-label="读取状态"]').querySelectorAll('[role="status"]').length,0)
  }finally{await app.close()}
 })
 test('#86 Member: session invalidation releases pending without replaying a possibly committed POST',async()=>{
@@ -961,6 +967,14 @@ test('#99 D2: concise RepoHome retains one members entry, genuine identities and
   assert.ok(source.querySelector('svg'))
   assert.ok(source.parentElement.querySelector('time[datetime="2026-11-22T12:00:00Z"]'))
   assert.match(source.parentElement.textContent,/更新于/)
+  assert.equal(app.host.querySelector('[aria-label="刷新动态"]'),null)
+  // Internal source remains independent; clicking noninteractive card content navigates.
+  await act(async()=>source.dispatchEvent(new MouseEvent('click',{bubbles:true,ctrlKey:true})))
+  assert.ok(app.host.contains(card))
+  await act(async()=>card.dispatchEvent(new MouseEvent('click',{bubbles:true,ctrlKey:true})))
+  assert.ok(app.host.contains(card))
+  await act(async()=>card.click())
+  assert.equal(app.host.contains(card),false)
  }finally{await app.close()}
 })
 
@@ -1043,7 +1057,7 @@ test('#69 quote choose/replace/cancel, tab and refresh preserve user draft; vali
  const writes=[]
  const svc=issueService({authorized:true,comments:()=>Promise.resolve({items:rows,hasMore:false}),
   postComment:async(o,r,n,body)=>{writes.push({o,r,n,body});return {id:999}}})
- const app=await issueMount(svc)
+ let app=await issueMount(svc)
  const originalConfirm=window.confirm
  try{
   await act(async()=>input(replyArea(app),'my reply'))
@@ -1065,11 +1079,9 @@ test('#69 quote choose/replace/cancel, tab and refresh preserve user draft; vali
   await act(async()=>discussion.click())
   assert.equal(replyArea(app).value,'my reply')
   assert.match(quotePreview(app).textContent,/回复 alice/)
-  const scroller=app.host.querySelector('[aria-label="Issue 阅读区"]')
-  scroller.scrollTop=150
-  await act(async()=>app.host.querySelector('[aria-label="从 GitHub 重新加载此 Issue"]').click())
-  await flush()
-  assert.equal(app.host.querySelector('[aria-label="Issue 阅读区"]'),scroller)
+  assert.equal(app.host.querySelector('[aria-label="从 GitHub 重新加载此 Issue"]'),null)
+  await app.close()
+  app=await issueMount(svc)
   assert.equal(replyArea(app).value,'my reply')
   assert.ok(quotePreview(app))
   window.confirm=()=>false
@@ -1090,8 +1102,19 @@ test('#69 quote total length, empty reply and unauthorized state prevent writes'
   let writes=0
   const svc=issueService({authorized,comments:()=>Promise.resolve({items:[replyComment(101,'长'.repeat(1500))],hasMore:false}),
     postComment:async()=>{writes++;return {id:999}}})
+  clearIssueDrafts()
   const app=await issueMount(svc)
   try{
+   if(!authorized){
+    assert.equal(replyArea(app),null)
+    assert.equal(quoteButtons(app).length,0)
+    assert.equal(replySend(app),null)
+    const link=[...app.host.querySelectorAll('a')].find(a=>a.textContent==='登录后即可发表评论')
+    assert.ok(link)
+    assert.equal(new URL(link.href).searchParams.get('return_to'),'/sample/repo/issues/1')
+    assert.equal(writes,0)
+    continue
+   }
    await act(async()=>quoteButtons(app)[0].click())
    assert.match(quotePreview(app).textContent,/引用已截取/)
    assert.equal(replySend(app).disabled,true)
@@ -1101,16 +1124,13 @@ test('#69 quote total length, empty reply and unauthorized state prevent writes'
    await act(async()=>replyArea(app).closest('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})))
    assert.equal(writes,0)
    await act(async()=>input(replyArea(app),'short'))
-   assert.equal(replySend(app).disabled,!authorized)
-   if(!authorized){
-    await act(async()=>replyArea(app).closest('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})))
-    assert.equal(writes,0)
-   }
+   assert.equal(replySend(app).disabled,false)
   }finally{await app.close()}
  }
 })
 test('#69 failed or uncertain reply retains quote/draft; same-tick double submit and newer editing are isolated',async()=>{
  for(const outcome of ['failure','unknown','success']){
+  clearIssueDrafts()
   const pending=deferred()
   let writes=0
   const svc=issueService({authorized:true,comments:()=>Promise.resolve({items:[replyComment(101,'one'),replyComment(102,'two')],hasMore:false}),
@@ -1127,12 +1147,21 @@ test('#69 failed or uncertain reply retains quote/draft; same-tick double submit
     await act(async()=>quoteButtons(app)[1].click())
     await act(async()=>input(replyArea(app),'new draft'))
     await act(async()=>pending.resolve({id:999}))
-   }else await act(async()=>pending.reject(Error(outcome==='unknown'?'网络中断，结果未知':'GitHub rejected')))
+   }else await act(async()=>pending.reject(outcome==='unknown'?Error('网络中断，结果未知'):Object.assign(Error('GitHub rejected'),{status:422})))
    await flush()
    assert.ok(quotePreview(app))
    assert.equal(replyArea(app).value,outcome==='success'?'new draft':'submitted')
-   if(outcome!=='success')assert.match(app.host.textContent,/避免重复发表/)
-   else assert.match(quotePreview(app).textContent,/two/)
+   if(outcome==='unknown'){
+    assert.match(app.host.textContent,/避免重复发表/)
+    assert.ok(replySend(app).disabled)
+    const unlock=[...app.host.querySelectorAll('button')].find(b=>b.textContent==='我已核查，解除提交锁定')
+    await act(async()=>unlock.click())
+    assert.equal(writes,1)
+    assert.equal(replySend(app).disabled,false)
+   }else if(outcome==='failure'){
+    assert.match(app.host.textContent,/提交未成功/)
+    assert.equal(replySend(app).disabled,false)
+   }else assert.match(quotePreview(app).textContent,/two/)
    await app.go('/sample/repo/issues/2')
    assert.equal(quotePreview(app),null)
    assert.equal(replyArea(app).value,'')
@@ -1467,7 +1496,7 @@ test('#115 case-insensitive resource route emits canonical OAuth return target',
 })
 
 
-test('#20 account disclosure preserves hover/focus and explicit toggle, Escape and outside close without new requests',async()=>{
+test('#20 account disclosure requires explicit activation; Escape and outside close without new requests',async()=>{
  const SessionMenu=(await server.ssrLoadModule('/plugins/react-ui/src/SessionMenu.tsx')).default
  const calls=[]
  const request=async(path,init)=>{
@@ -1485,6 +1514,8 @@ test('#20 account disclosure preserves hover/focus and explicit toggle, Escape a
   const menu=()=>app.host.querySelector('[aria-label="GitHub 账户操作"]')
   assert.equal(expanded(),'false')
   await act(async()=>trigger.dispatchEvent(pointer('pointerover','mouse')))
+  assert.equal(expanded(),'false')
+  await act(async()=>trigger.click())
   assert.equal(expanded(),'true')
   await act(async()=>trigger.click())
   assert.equal(expanded(),'false')
@@ -1500,6 +1531,8 @@ test('#20 account disclosure preserves hover/focus and explicit toggle, Escape a
   assert.equal(expanded(),'false')
   await act(async()=>trigger.blur())
   await act(async()=>trigger.focus())
+  assert.equal(expanded(),'false')
+  await act(async()=>trigger.click())
   assert.equal(expanded(),'true')
   await act(async()=>trigger.click())
   assert.equal(expanded(),'false')
@@ -1514,5 +1547,158 @@ test('#20 account disclosure preserves hover/focus and explicit toggle, Escape a
   await act(async()=>trigger.click())
   assert.equal(expanded(),'false')
   assert.equal(calls.length,count)
+ }finally{await app.close()}
+})
+
+
+test('#20 third round: verified draft and pending lock survive reload, isolate account/kind/Issue, explicit unlock never posts',async()=>{
+ let id=17,loggedIn=true,writes=0
+ const svc=issueService({session:()=>loggedIn,userId:()=>id,comments:()=>Promise.resolve({items:[replyComment(101,'quote survives')],hasMore:false}),
+   postComment:async()=>{writes++;throw Error('connection lost')}})
+ let app=await issueMount(svc)
+ const labourTab=()=>app.host.querySelectorAll('[role="tab"]')[1]
+ const commentTab=()=>app.host.querySelectorAll('[role="tab"]')[0]
+ const work=()=>[...app.host.querySelectorAll('textarea')].find(el=>el.closest('label')?.textContent.includes('工作内容'))
+ try{
+  await act(async()=>input(replyArea(app),'private draft for 17'))
+  await act(async()=>quoteButtons(app)[0].click())
+  await act(async()=>labourTab().click())
+  await act(async()=>input(work(),'work for 17'))
+  await act(async()=>commentTab().click())
+  await act(async()=>replySend(app).click());await flush()
+  assert.equal(writes,1)
+  assert.ok(replySend(app).disabled)
+  await app.close();app=await issueMount(svc)
+  assert.equal(replyArea(app).value,'private draft for 17')
+  assert.match(quotePreview(app).textContent,/quote survives/)
+  assert.ok(replySend(app).disabled)
+  await act(async()=>labourTab().click())
+  assert.equal(work().value,'work for 17')
+  assert.equal(work().closest('form').querySelector('button[type="submit"]').disabled,false)
+  await act(async()=>commentTab().click())
+  await act(async()=>input(replyArea(app),''))
+  await act(async()=>input(replyArea(app),'edited after unknown'))
+  assert.ok(replySend(app).disabled,'clearing draft cannot remove pending marker')
+  loggedIn=false
+  await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')));await flush()
+  assert.equal(replyArea(app),null)
+  assert.doesNotMatch(app.host.textContent,/edited after unknown|work for 17/)
+  loggedIn=true;id=18
+  await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')));await flush()
+  assert.equal(replyArea(app).value,'')
+  assert.equal(work().value,'')
+  assert.equal(quotePreview(app),null)
+  id=17
+  await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')));await flush()
+  assert.equal(replyArea(app).value,'edited after unknown')
+  assert.ok(replySend(app).disabled)
+  const unlock=[...app.host.querySelectorAll('button')].find(b=>b.textContent==='我已核查，解除提交锁定')
+  await act(async()=>unlock.click())
+  assert.equal(writes,1)
+  assert.equal(replySend(app).disabled,false)
+  await app.go('/sample/repo/issues/2')
+  assert.equal(replyArea(app).value,'')
+  assert.equal(work().value,'')
+  await app.go('/sample/repo/issues/1')
+  assert.equal(replyArea(app).value,'edited after unknown')
+  assert.equal(work().value,'work for 17')
+  assert.equal(replySend(app).disabled,false)
+ }finally{await app.close()}
+})
+
+test('#20 draft store: independent controllers preserve newer versions and newer tokens; storage damage/unavailable fail visibly',async()=>{
+ const {IssueDraftStore,draftKey}=await server.ssrLoadModule('/plugins/issue-detail/src/draft-store.ts')
+ const key=draftKey('Sample','Repo',1,17,'comment')
+ const a=new IssueDraftStore(),b=new IssueDraftStore()
+ const first=a.edit(key,d=>({...d,draft:'first'}))
+ const flight=a.begin(key,first.record.version)
+ assert.ok(flight)
+ assert.equal(b.begin(key,b.read(key).record.version),null)
+ b.edit(key,d=>({...d,draft:'new from B'}))
+ a.settle(key,flight.token,flight.version,'success')
+ assert.equal(b.read(key).record.data.draft,'new from B')
+ assert.equal(b.read(key).record.pending,null)
+ const next=b.begin(key,b.read(key).record.version)
+ assert.ok(next)
+ a.settle(key,flight.token,flight.version,'success')
+ assert.equal(b.read(key).record.pending,next.token)
+ b.settle(key,next.token,next.version,'rejected')
+ assert.equal(b.read(key).record.data.draft,'new from B')
+ assert.equal(b.read(key).record.pending,null)
+ const same=b.begin(key,b.read(key).record.version)
+ b.settle(key,same.token,same.version,'success')
+ assert.equal(localStorage.getItem(key),null)
+ localStorage.setItem(key,'{invalid')
+ const damaged=new IssueDraftStore()
+ assert.match(damaged.read(key).warning,/损坏/)
+ assert.ok(damaged.read(key).record.pending)
+ assert.equal(damaged.begin(key,damaged.read(key).record.version),null)
+ damaged.unlock(key,damaged.read(key).record.pending)
+ assert.equal(localStorage.getItem(key),null)
+ const prototype=Object.getPrototypeOf(localStorage),get=prototype.getItem,set=prototype.setItem
+ try{
+  prototype.getItem=()=>{throw Error('disabled')}
+  prototype.setItem=()=>{throw Error('quota')}
+  const fallback=new IssueDraftStore()
+  assert.match(fallback.read(key).warning,/无法可靠保存/)
+  const edited=fallback.edit(key,d=>({...d,draft:'in memory'}))
+  const send=fallback.begin(key,edited.record.version)
+  assert.ok(send)
+  assert.match(send.snapshot.warning,/无法可靠保存/)
+  assert.equal(fallback.read(key).record.data.draft,'in memory')
+  assert.ok(fallback.read(key).record.pending)
+  fallback.settle(key,send.token,send.version,'unknown')
+  assert.equal(fallback.begin(key,edited.record.version),null)
+ }finally{prototype.getItem=get;prototype.setItem=set}
+})
+
+test('#20 explicit publish rejection displays focusable failure and retains form for deliberate retry',async()=>{
+ let posts=0
+ const api={getRepositories:async()=>[{owner:'sample',name:'repo',full_name:'sample/repo'}],getSession:async()=>true,
+  createIssue:async()=>{posts++;throw Object.assign(Error('422 validation failed'),{status:422})}}
+ const app=await mount('/sample/repo/issues/new','/:owner/:repo/issues/new',CreateIssue,{api,owner:'sample',repo:'repo'})
+ try{
+  const field=app.host.querySelector('#create-issue-title')
+  await act(async()=>input(field,'draft title'))
+  await act(async()=>app.host.querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));await flush()
+  const failure=app.host.querySelector('form [role="alert"]')
+  assert.match(failure.textContent,/发布失败.*422 validation failed/)
+  assert.equal(document.activeElement,failure)
+  assert.equal(field.value,'draft title')
+  assert.equal(app.host.querySelector('button[type="submit"]').disabled,false)
+  assert.equal(posts,1)
+ }finally{await app.close()}
+})
+
+test('#20 report modal keeps keyboard focus and restores opener, pending Escape cannot close',async()=>{
+ const Dialog=(await server.ssrLoadModule('/plugins/topic-page/src/TopicReportDialog.tsx')).default
+ function Report(){
+  const [open,setOpen]=React.useState(false),[pending,setPending]=React.useState(false)
+  return h('div',null,h('button',{onClick:()=>setOpen(true)},'Report'),
+    open&&h(Dialog,{title:'report',body:'body',pending,checking:false,uncertain:false,message:'',writeEnabled:true,
+    githubNewIssueUrl:'https://github.com/sample/repo/issues/new',githubIssuesUrl:'https://github.com/sample/repo/issues',
+    loginUrl:'/api/github-login',onTitleChange(){},onBodyChange(){},onCancel:()=>setOpen(false),
+    onConfirmUnknown(){},onSubmit:e=>{e.preventDefault();setPending(true)}}))
+ }
+ const app=await mount('/','/',Report,{})
+ const key=(name,shiftKey=false)=>document.dispatchEvent(new window.KeyboardEvent('keydown',{key:name,shiftKey,bubbles:true,cancelable:true}))
+ try{
+  const opener=app.host.querySelector('button')
+  await act(async()=>{opener.focus();opener.click()})
+  const dialog=app.host.querySelector('[role="dialog"]')
+  assert.equal(document.activeElement,dialog.querySelector('input'))
+  await act(async()=>key('Tab',true))
+  assert.equal(document.activeElement,[...dialog.querySelectorAll('a')].at(-1))
+  await act(async()=>key('Tab'))
+  assert.equal(document.activeElement,dialog.querySelector('input'))
+  await act(async()=>opener.focus())
+  assert.ok(dialog.contains(document.activeElement))
+  await act(async()=>key('Escape'))
+  assert.equal(app.host.querySelector('[role="dialog"]'),null)
+  assert.equal(document.activeElement,opener)
+  await act(async()=>opener.click())
+  await act(async()=>app.host.querySelector('[role="dialog"] form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})))
+  await act(async()=>key('Escape'))
+  assert.ok(app.host.querySelector('[role="dialog"]'))
  }finally{await app.close()}
 })

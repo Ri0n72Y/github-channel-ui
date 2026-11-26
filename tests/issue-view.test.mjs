@@ -58,10 +58,8 @@ const model = {
     draft: '草稿不会自动提交', quote: null, commentLength: 9, refreshing: false,
     labour: { work: '', hours: '0.5', outcome: '', commits: '', start: '', end: '' },
     pending: false, pendingKind: null, notice: null,
-    permission: { state: 'anonymous', allowed: false,
-      reason: '匿名用户只能阅读，发表评论或登记劳动需登录 GitHub。',
-      loginHref: '/api/github-login?return_to=%2Fsample%2Frepo%2Fissues%2F1',
-      loginText: 'GitHub 登录' },
+    permission: { state: 'authorized', allowed: true,
+      reason: '',loginHref: null,loginText: '' },
   },
 }
 
@@ -103,7 +101,7 @@ test('pure View renders identity, outcome, scoped hours and tab relationships wi
   assert.match(html, /aria-selected="true"/)
   assert.match(html, /tabindex="-1"/)
   assert.match(html, /hidden=""/)
-  assert.match(html, /刷新 Issue 与评论/)
+  assert.doesNotMatch(html, /刷新 Issue 与评论/)
   assert.match(html, /aria-label="GitHub 来源"/)
   assert.match(html, /dateTime="2026-11-02T00:00:00Z"/i)
   assert.match(html, /开放中/)
@@ -112,12 +110,14 @@ test('pure View renders identity, outcome, scoped hours and tab relationships wi
   assert.match(html, /加载下一页评论/)
 })
 
-test('pure View places disabled OAuth explanation and login near both forms and preserves draft', () => {
-  const html = renderToStaticMarkup(createElement(View, { model, actions }))
-  assert.match(html, /草稿不会自动提交/)
-  assert.equal((html.match(/匿名用户只能阅读/g) || []).length, 2)
-  assert.equal((html.match(/GitHub 登录/g) || []).length, 2)
-  assert.equal((html.match(/disabled=""/g) || []).length, 2)
+test('anonymous View provides login-only participation, never an editable draft', () => {
+  const anonymous=structuredClone(model)
+  anonymous.form.permission={state:'anonymous',allowed:false,reason:'登录后参与',
+    loginHref:'/api/github-login?return_to=%2Fsample%2Frepo%2Fissues%2F1',loginText:'GitHub 登录'}
+  const html = renderToStaticMarkup(createElement(View, { model:anonymous, actions }))
+  assert.doesNotMatch(html, /草稿不会自动提交|<textarea|引用回复 speaker/)
+  assert.match(html, /登录后即可发表评论/)
+  assert.match(html, /登录后即可登记劳动/)
   assert.match(html, /未加载的评论/)
   assert.match(html, /role="status"/)
 })
@@ -278,5 +278,5 @@ test('#20 complete reading keeps counts and exact times in diagnostics; invalid 
  assert.match(html,/title="unavailable">unavailable/)
  assert.doesNotMatch(html,/还有未加载的评论|加载下一页评论/)
  assert.match(html,/<details[^>]*><summary>读取时间与来源<\/summary><p>已读取 101 \/ 101 条评论/)
- assert.equal((html.match(/aria-label="从 GitHub 重新加载此 Issue"/g)||[]).length,1)
+ assert.equal((html.match(/aria-label="从 GitHub 重新加载此 Issue"/g)||[]).length,0)
 })
