@@ -191,3 +191,6 @@
   .actions span {flex:0 1 auto}
   .localPanel .displayPreference {align-items:stretch}
 }
+
+.secondaryDetails > summary {cursor:pointer;min-height:44px;box-sizing:border-box;padding:10px 0;color:var(--lc-text-secondary)}
+.secondaryDetails > summary:focus-visible {outline:3px solid var(--lc-focus);outline-offset:3px}

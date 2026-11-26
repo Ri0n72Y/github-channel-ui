@@ -24,22 +24,21 @@ export function RepoIssueActivityCard({ issue, base }: { issue: RepoFeedIssue; b
     <div className={styles.cardMeta}>
       <span className={styles.issueNumber}>#{issue.number}</span>
       <span className={styles.issueState} data-state={issue.state === 'closed' ? 'closed' : 'open'}>
-        {issue.state === 'closed' ? 'Closed' : 'Open'}
+        {issue.state === 'closed' ? '已关闭' : '开放中'}
       </span>
       <span className={styles.issueAuthor}>由 {issue.user?.login || '未知作者'} 发布</span>
       <time dateTime={issue.updated_at} title="最近更新">
         {Number.isNaN(updated) ? issue.updated_at : new Date(updated).toLocaleString('zh-CN')}
       </time>
     </div>
-    <h3><Link to={base + '/issues/' + issue.number}>{issue.title}</Link></h3>
-    {!body.trim() ? <p className={styles.muted}>此 Issue 暂无正文</p> :
+    <h3><Link to={base + '/issues/' + issue.number} aria-label={issue.title + ' · 参与讨论'}>{issue.title}</Link></h3>
+    {!body.trim() ? <p className={styles.muted}>暂无正文</p> :
       <div className={styles.issueBody}><SafeMarkdown
         body={long && !expanded ? previewMarkdown(body, mobile ? 160 : 300) : body}
         preview={long && !expanded} article /></div>}
     {long && <button type="button" onClick={() => setExpanded(v => !v)}
       aria-expanded={expanded}>{expanded ? '收起正文' : '展开完整正文'}</button>}
     <div className={styles.cardActions}>
-      <Link to={base + '/issues/' + issue.number}>查看站内详情</Link>
       <a href={issue.html_url} target="_blank" rel="noopener noreferrer">GitHub 原文</a>
     </div>
   </article>

@@ -40,34 +40,34 @@ export function IssueWorkspace({ repo, issues, loggedIn, api }: {
 
   return <section className={styles.workspace}>
     <header className={styles.toolbar}>
-      <h2>Open Issues ({issues.length})</h2>
+      <h2>开放中的讨论 ({issues.length})</h2>
       <button type="button" disabled={!loggedIn || pending}
         onClick={() => setCreating(value => !value)}>
-        {creating ? '取消创建' : '新建 Issue'}
+        {creating ? '取消创建' : '发布动态'}
       </button>
     </header>
-    {!loggedIn && <p>可匿名阅读已授权公开仓库；创建 Issue 需要 GitHub OAuth 登录。</p>}
+    {!loggedIn && <p>可匿名阅读公开讨论，登录 GitHub 后发布。</p>}
     {notice && <p role={notice.error ? 'alert' : 'status'}>{notice.text}
       {notice.url && <> · <a href={notice.url} target="_blank" rel="noreferrer">在 GitHub 查看</a></>}
       {notice.relogin && <> · <a href={loginHref(resourcePath(repo.owner,repo.name,'issues')||'/')}>重新登录</a></>}
     </p>}
     {creating && <form className={styles.form} onSubmit={event => void submitIssue(event)}>
-      <h3>创建 Issue · {repo.full_name}</h3>
+      <h3>发布动态 · {repo.full_name}</h3>
       <label>标题 <input required maxLength={256} value={title}
         onChange={e => setTitle(e.target.value)} /></label>
       <label>正文 <textarea rows={6} maxLength={20000} value={description}
         onChange={e => setDescription(e.target.value)} /></label>
       <button type="submit" disabled={pending || !title.trim()}>
-        {pending ? '创建中…' : '确认创建 Issue'}
+        {pending ? '创建中…' : '确认发布'}
       </button>
     </form>}
     <ul className={styles.list}>{issues.map(issue => <li key={issue.number}>
       <Link to={'/' + repo.owner + '/' + repo.name + '/issues/' + issue.number}>
         #{issue.number} · {issue.title}
       </Link>
-      <small>{issue.comments} comments</small>
+      <small>{issue.comments} 条评论</small>
       <a href={issue.html_url} target="_blank" rel="noreferrer">GitHub</a>
     </li>)}</ul>
-    {!issues.length && <p>暂无 Open Issue。</p>}
+    {!issues.length && <p>暂无开放中的讨论。</p>}
   </section>
 }

@@ -38,11 +38,10 @@ export default function TopicPageView(props: TopicPageViewProps) {
     {props.snapshot && <TopicPageHead snapshot={props.snapshot}/>}
     <section className={styles.section} aria-labelledby="topic-projects-heading">
       <div className={styles.sectionHeading}>
-        <div className={styles.feedTitle}><h2 id="topic-projects-heading">参与项目</h2>
-          <span className={styles.eyebrow}>PROJECT FEED</span></div>
+        <div className={styles.feedTitle}><h2 id="topic-projects-heading">参与项目</h2></div>
         <div className={styles.projectActions}>
-          <span className={styles.count}>{props.projects.length} 个候选项目</span>
-          <button type="button" onClick={props.onRetry} disabled={props.loading}>刷新项目</button>
+          <span className={styles.count}>{props.projects.length} 个已加载项目</span>
+          <button type="button" onClick={props.onRetry} disabled={props.loading} aria-label="刷新项目" title="刷新项目"><span aria-hidden="true">↻</span></button>
         </div>
       </div>
       <TopicStatus loading={props.loading} error={props.error}
@@ -53,7 +52,7 @@ export default function TopicPageView(props: TopicPageViewProps) {
         loginUrl={login}/>
       {props.snapshot?.configState === 'missing' ?
         <div className={styles.empty} role="status">
-          topics.config.yaml 尚未初始化。请在下方“仓库维护”展开配置草稿并明确提交；提交前不搜索项目。
+          活动项目尚未初始化。请联系活动管理者，或在下方“活动管理”完成配置后再加载项目。
         </div> :
         !props.loading && !props.error && props.projects.length === 0 &&
         <div className={styles.empty}>当前可访问搜索范围没有符合配置的项目。</div>}
@@ -69,7 +68,7 @@ export default function TopicPageView(props: TopicPageViewProps) {
       </div>}
     </section>
     {props.snapshot && <details className={styles.configDisclosure}>
-      <summary>仓库维护 · Topic 配置</summary>
+      <summary>活动管理 · 项目配置</summary>
       {props.snapshot && <TopicConfigEditor
         snapshot={props.snapshot} draft={props.draft ?? props.snapshot.configText ?? ''}
         authenticated={props.authenticated === true}

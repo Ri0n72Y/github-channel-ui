@@ -9,19 +9,12 @@
 
 
 .themeButton {
-  min-height: 44px;
-  padding: 10px 16px;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  background: var(--lc-primary);
-  color: var(--lc-on-primary);
-  font: inherit;
-  font-weight: 700;
-  cursor: pointer;
+  display:inline-flex;align-items:center;justify-content:center;
+  min-width:44px;min-height:44px;padding:8px;
+  border:1px solid transparent;border-radius:10px;background:transparent;
+  color:var(--lc-text-secondary);cursor:pointer;
 }
-.themeButton:hover {
-  background: var(--lc-primary-hover);
-}
+.themeButton:hover {background:var(--lc-surface-raised);color:var(--lc-text)}
 .themeButton:focus-visible {
   outline: 3px solid var(--lc-focus);
   outline-offset: 3px;

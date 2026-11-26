@@ -76,3 +76,8 @@
 @media (max-width: 540px) {
   .repoInput, .repoForm button { width: 100%; }
 }
+
+.verification > summary {min-height:44px;box-sizing:border-box;padding:10px 0;cursor:pointer;color:var(--lc-text-secondary)}
+.verification > summary:focus-visible {outline:3px solid var(--lc-focus);outline-offset:3px}
+.verification button {background:transparent;color:var(--lc-text);border:1px solid var(--lc-stroke-strong);font-weight:400}
+.verification button:hover:not(:disabled) {background:var(--lc-surface-raised)}

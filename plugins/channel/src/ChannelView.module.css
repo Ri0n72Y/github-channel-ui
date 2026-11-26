@@ -68,3 +68,8 @@
   .header .actions {justify-items:start}
   .card,.notice {padding:14px 16px}
 }
+
+.header .actions button {min-width:44px;min-height:44px;padding:4px 8px;background:transparent;border:1px solid transparent;color:var(--lc-text-secondary);font-size:22px;font-weight:400}
+.header .actions button:hover:not(:disabled) {background:var(--lc-surface-raised);color:var(--lc-text)}
+.footnote > summary {cursor:pointer;min-height:44px;padding:10px 0;box-sizing:border-box}
+.footnote > summary:focus-visible {outline:3px solid var(--lc-focus);outline-offset:3px}

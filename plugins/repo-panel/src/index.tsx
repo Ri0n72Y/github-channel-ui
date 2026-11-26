@@ -85,9 +85,9 @@ export function RepoPanel({ store }: { store: RepoIssueStore }) {
   },[store,sessionRevision])
   if(owner&&repo&&!routePath)return <UnsupportedRepositoryRoute/>
   return <div className={styles.shell}>
-    <header><h1>LabourChain · Issues</h1><div className={styles.actions}>
+    <header><h1>LabourChain · 讨论列表</h1><div className={styles.actions}>
       {session === 'connected'
-        ? <span className={styles.sessionStatus}>GitHub 会话已建立</span>
+        ? <span className={styles.sessionStatus}>已登录</span>
         : session === 'checking'
           ? <span className={styles.sessionStatus}>检查登录状态…</span>
           : session === 'error'
@@ -100,7 +100,7 @@ export function RepoPanel({ store }: { store: RepoIssueStore }) {
         void store.refresh()
       }}>重新核验</button>
     </div></header>
-    <p>输入要查看的公开 GitHub 仓库 URL。系统只读取目标仓库 Issues，明确授权失败时才引导核验。</p>
+    <p>{s.selected ? '当前项目：'+s.selected : '输入公开 GitHub 仓库地址，查看讨论。'}</p>
     <form className={styles.repoForm} onSubmit={submitRepository}>
       <label htmlFor="lc-repo-url">GitHub 仓库 URL</label>
       <input id="lc-repo-url" className={styles.repoInput} type="url"
@@ -108,14 +108,14 @@ export function RepoPanel({ store }: { store: RepoIssueStore }) {
         placeholder="https://github.com/owner/repo"
         aria-invalid={Boolean(inputError)} aria-describedby={inputError?'lc-repo-url-error':undefined}
         onChange={event => {setRepositoryUrl(event.target.value);setInputError('')}} />
-      <button type="submit">打开仓库 Issues</button>
+      <button type="submit">打开讨论列表</button>
     </form>
     {inputError&&<p id="lc-repo-url-error" role="alert">{inputError}</p>}
-    {s.availability === 'checking' && <p role="status">正在核验公开仓库与 GitHub App 授权…</p>}
-    {s.availability === 'connected' && <p role="status">已验证公开仓库：{s.selected}</p>}
+    {s.availability === 'checking' && <p role="status">正在读取项目…</p>}
     {s.actionUrl && !accessReason && <p><a href={s.actionUrl} target="_blank" rel="noopener noreferrer">
       前往 GitHub 安装或管理授权</a></p>}
-    {session === 'connected' && <section className={styles.verification}>
+    {session === 'connected' && <details className={styles.verification}>
+      <summary>高级：检查账号与仓库权限</summary>
       <button type="button" disabled={!s.selected || verification.status === 'loading'}
         onClick={() => void verifyUserAndRepo()}>验证 GitHub 身份与仓库权限</button>
       {verification.status === 'loading' && <p role="status">正在向 GitHub 验证…</p>}
@@ -131,8 +131,8 @@ export function RepoPanel({ store }: { store: RepoIssueStore }) {
             .join('、') || '无已知权限'}</p>}
         <small>此处只验证读取和 GitHub 返回的权限信息，不代表 Issue 写入已经授权或测试。</small>
       </div>}
-    </section>}
-    {s.loading && s.availability === 'connected' && <p role="status">正在读取该仓库的 Issues…</p>}
+    </details>}
+    {s.loading && s.availability === 'connected' && <p role="status">正在读取讨论…</p>}
     {accessReason&&s.targetUrl&&<RepoAccessNotice owner={s.targetUrl.split('/')[3]} repo={s.targetUrl.split('/')[4]} reason={accessReason} onRetry={()=>void store.refresh()}/>}
     {s.error && !accessReason && <p role="alert">{s.error}</p>}
     {s.repos.find(repo => repo.full_name === s.selected) && <IssueWorkspace
@@ -140,7 +140,7 @@ export function RepoPanel({ store }: { store: RepoIssueStore }) {
         repo={s.repos.find(repo => repo.full_name === s.selected)!}
         issues={s.issues}
         loggedIn={session === 'connected'} api={store.api} />}
-    <footer>仓库必须公开且已授权给当前 GitHub App。匿名用户可浏览；创建 Issue 或评论需 GitHub OAuth 和独立写入授权。</footer>
+    <footer>可阅读已授权的公开项目；发布和回复需要登录并通过权限检查。</footer>
   </div>
 }
 

@@ -49,14 +49,14 @@ test('#31 H1 text, footer order and safe public project attribution render in SS
   assert.doesNotMatch(html, /Before H1/)
   assert.match(html, /邮箱：team@example.org/)
   assert.ok(html.indexOf('查看官方仓库') < html.indexOf('<footer'))
-  assert.match(html, /仅展示符合 Topic 且已登记的公开仓库/)
+  assert.match(html, /仅展示符合活动条件且已登记的公开项目/)
   assert.match(html, /https:\/\/github.com\/member\/project/)
 })
 
 test('#31 Search window exhaustion renders an explicit non-terminal warning', () => {
   const html = render({ snapshot: meta, projects: [project], windowExhausted: true })
-  assert.match(html, /1000 条可访问窗口已耗尽/)
-  assert.match(html, /无法确认是否还有更多候选/)
+  assert.match(html, /1000 条可访问上限/)
+  assert.match(html, /无法确认是否还有更多项目/)
   assert.doesNotMatch(html, /当前可访问搜索范围没有符合配置/)
 })
 
@@ -142,11 +142,11 @@ test('#31 B1-1 incomplete GitHub Search renders retryable failure, never an empt
   const html = render({ error: Object.assign(
     new Error('GitHub Topic Search 结果不完整，请重试读取'),
     { stage: 'topic-search', status: 502 }) })
-  assert.match(html, /TopicPage 读取失败/)
+  assert.match(html, /项目读取失败/)
   assert.match(html, /GitHub Topic Search 结果不完整/)
   assert.match(html, /重新加载/)
   assert.doesNotMatch(html, /当前可访问搜索范围没有符合配置的项目/)
-  assert.doesNotMatch(html, /1000 条可访问窗口已耗尽/)
+  assert.doesNotMatch(html, /1000 条可访问上限/)
 })
 
 test('#31 report Control uses a synchronous in-flight guard against rapid duplicate submits', () => {

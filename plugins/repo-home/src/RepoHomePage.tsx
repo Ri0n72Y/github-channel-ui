@@ -58,7 +58,6 @@ export default function RepoHomePage({ api, theme, coverUrl }: { api: RepoHomeAp
   const sentinel = useRef<HTMLDivElement>(null)
   const [layout, setLayout] = useState<ReturnType<typeof titleLayout>>('small')
   const titleCard = useRef<HTMLDivElement>(null)
-  const feedHeading = useRef<HTMLHeadingElement>(null)
   useEffect(() => {
     const node = titleCard.current
     if (!node) return
@@ -168,12 +167,10 @@ export default function RepoHomePage({ api, theme, coverUrl }: { api: RepoHomeAp
             <h1>{data.repository.name}</h1>
             {description || readmeSummary ? <p className={styles.titleIntro}>{description || readmeSummary}</p> :
               <p className={styles.muted}>暂无项目简介。</p>}
-            <p className={styles.branchNote}>当前展示分支：<code>{branch}</code> ·
-              <Link to={base + '/config'}>本机偏好设置</Link></p>
           </div>
         </div>
         <div className={styles.titleReadme}>
-          <h2>README</h2>
+          <h2>项目说明</h2>
           {summary && <p>{summary}</p>}
           {data.readme.state === 'ready' && !summary && <p className={styles.muted}>查看完整项目说明。</p>}
           {data.readme.state === 'missing' && <p className={styles.muted}>暂无 README。</p>}
@@ -183,16 +180,13 @@ export default function RepoHomePage({ api, theme, coverUrl }: { api: RepoHomeAp
           {readmeUrl && <a className={styles.readmeLink} href={readmeUrl} target="_blank" rel="noopener noreferrer">完整 README</a>}
         </div>
         <div className={[styles.actions, styles.titleActions].join(' ')}>
-          <a className={styles.primaryLink} href="#feed-heading" onClick={event => {
-            const target = feedHeading.current
-            if (!target) return
-            event.preventDefault()
-            target.focus()
-            target.scrollIntoView?.({block:'start',behavior:'auto'})
-          }}>项目动态</a>
-          <a href={data.repository.html_url} target="_blank" rel="noopener noreferrer">GitHub 仓库</a>
-          <Link to={base + '/config'}>仓库配置与 Labels</Link>
           <Link to={base + '/channels'}>项目频道</Link>
+          <details className={styles.secondaryDetails}>
+            <summary>项目设置与来源</summary>
+            <p>当前展示分支：<code>{branch}</code></p>
+            <Link to={base + '/config'}>仓库配置与本机偏好</Link>
+            <a href={data.repository.html_url} target="_blank" rel="noopener noreferrer">GitHub 仓库</a>
+          </details>
         </div>
       </header>
     </>}
@@ -210,16 +204,16 @@ export default function RepoHomePage({ api, theme, coverUrl }: { api: RepoHomeAp
     </section>}
     </div>
     {(!accessReason||items.length>0)&&<section className={[styles.section, styles.feedSection].join(' ')} aria-labelledby="feed-heading">
-      <div className={styles.sectionHead}><h2 id="feed-heading" ref={feedHeading} tabIndex={-1}>Repo Issue 动态</h2>
-        <Link to={base + '/issues/new'}>新建 Issue</Link>
-        <button type="button" onClick={refresh}>刷新动态</button></div>
+      <div className={styles.sectionHead}><h2 id="feed-heading" tabIndex={-1}>项目动态</h2>
+        <Link to={base + '/issues/new'}>发布动态</Link>
+        <button type="button" onClick={refresh} className={styles.iconAction} aria-label="刷新动态" title="刷新动态"><span aria-hidden="true">↻</span></button></div>
       <div className={styles.feed}>{items.map(issue => <RepoIssueActivityCard
         key={issue.id} issue={issue} base={base} />)}</div>
-      {items.length === 0 && !feedLoading && !feedError && !hasMore && <p>暂无 Issue 动态。</p>}
+      {items.length === 0 && !feedLoading && !feedError && !hasMore && <p>暂无项目动态。</p>}
       {feedError && <p role="alert">动态读取失败：{feedError} <button type="button" onClick={() => { stopped.current = false; setFeedError(''); void loadPage() }}>重试本页</button></p>}
-      {feedLoading && <p role="status">正在加载 Issue…</p>}
+      {feedLoading && <p role="status">正在加载动态…</p>}
       {!accessReason && !feedLoading && !feedError && hasMore && <button type="button" onClick={() => void loadPage()}>加载更多</button>}
-      {!hasMore && <p className={styles.muted}>已加载全部 Issue</p>}
+      {!hasMore && <p className={styles.muted}>已加载全部动态</p>}
       <div ref={sentinel} aria-hidden="true" />
     </section>}
     </div>
