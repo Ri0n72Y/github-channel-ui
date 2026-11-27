@@ -36,8 +36,8 @@ test('#67 Repo Home controlled SSR exposes isolated Dark/Lime variants, no inven
     const html = renderHome(theme)
     assert.match(html, new RegExp('data-lc-theme="' + theme + '"'))
     assert.match(html, /团队成员/)
-    assert.match(html, /Repo Issue 动态/)
-    assert.match(html, /平台首页/)
+    assert.match(html, /项目动态/)
+    assert.match(html, /查看全部成员/)
     assert.doesNotMatch(html, /Pull Requests|功能开发|问题修复|投票|3D/)
   }
   const noTheme = renderHome(undefined)
@@ -152,9 +152,10 @@ test('#67 visual scope leaves GitHub business actions and mounted siblings uncha
   for(const pattern of [
     /api\.getHome\(/, /api\.getFeed\(/, /result\.items\.filter\(i => !i\.pull_request/,
     /Date\.parse\(b\.updated_at\)/, /IntersectionObserver/, /setGeneration/,
-    /TeamStrip/, /RepoIssueActivityCard/, /完整 README/, /展示分支/,
-    /刷新动态/, /加载更多/, /重试本页/,
+    /TeamStrip/, /RepoIssueActivityCard/, /完整项目说明（GitHub）/, /展示分支/,
+    /加载更多/, /重试本页/,
   ]) assert.match(home,pattern)
+  assert.doesNotMatch(home,/刷新动态|刷新频道/)
   assert.match(plugin, /register\('repo-home-members'/)
   assert.match(plugin, /register\('repo-home-register'/)
   assert.match(runtime, /repoConfig/)

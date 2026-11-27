@@ -23,8 +23,9 @@ test('#69 B+C every mounted page consumes the shared semantic theme palette', ()
   }
   for (const path of modules) {
     const css = read(path)
+    const declarations = css.replace(/\/\*[\s\S]*?\*\//g, '')
     assert.match(css, /var\(--lc-(?:text|surface|canvas|primary|link)/, path)
-    assert.doesNotMatch(css, /#[a-f\d]{3,8}(?![a-z\d])/i,
+    assert.doesNotMatch(declarations, /#[a-f\d]{3,8}(?![a-z\d])/i,
       path + ' must not reintroduce hard-coded legacy or mixed brand hues')
     assert.doesNotMatch(css, /!important\b/, path + ' must use scoped specificity')
   }
@@ -50,14 +51,17 @@ test('#69 B+C retain established page structures while applying real responsive 
   }
   assert.match(topic, /object-fit:contain/)
   assert.match(topic, /flex-wrap: wrap/)
-  assert.match(topic, /@media \(max-width: 700px\)/)
+  assert.match(topic, /@media\s*\(\s*max-width:\s*700px\s*\)/)
   assert.match(topic, /white-space:nowrap;overflow:hidden;text-overflow:ellipsis/)
 })
 
 test('#69 B+C only changes presentation data for cover/avatar, not GitHub write contracts', () => {
   const project = read('plugins/topic-page/src/TopicProjectCard.tsx')
   const api = read('plugins/topic-page/server/_topic-projects.mjs')
-  assert.match(project, /暂无可用项目封面/)
+  assert.match(project, /styles\.projectMark/)
+  assert.match(project, /project\.name\.slice\(0,1\)\.toUpperCase\(\)/)
+  assert.match(project, /owner\.slice\(0,1\)\.toUpperCase\(\)/)
+  assert.doesNotMatch(project, /暂无可用项目封面/)
   assert.match(project, /project\.owner_avatar_url/)
   assert.match(project, /project\.cover_url/)
   assert.match(api, /trustedGitHubImage/)

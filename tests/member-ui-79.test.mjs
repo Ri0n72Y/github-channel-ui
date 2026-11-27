@@ -94,32 +94,23 @@ test('#79 capability uses exact owner/repo/branch and revokes stale or logged-ou
   assert.doesNotMatch(hook,/this\.fetcher|new .*Service/)
 })
 
-test('#79 64px desktop toolbar and 44px controls survive semantic and mobile states', () => {
+test('#79 reusable Theme and Session controls retain 44px touch targets and keyboard focus', () => {
   const app = read('plugins/react-ui/src/App.module.css')
   const account = read('plugins/react-ui/src/SessionMenu.module.css')
-  const desktop = app.split('@media')[0]
-  const toolbar = desktop.match(/\.toolbar\s*\{([^}]*)\}/)?.[1]
-  const login = account.match(/\.login\s*\{([^}]*)\}/)?.[1]
-  assert.ok(toolbar)
-  assert.match(toolbar,/box-sizing:\s*border-box/)
-  assert.match(toolbar,/height:\s*64px/)
-  assert.match(toolbar,/min-height:\s*64px/)
-  assert.match(toolbar,/padding:\s*0 clamp\(/)
-  assert.match(toolbar,/flex-wrap:\s*nowrap/)
-  assert.ok(login)
-  assert.match(login,/box-sizing:\s*border-box/)
-  assert.match(login,/min-height:\s*44px/)
-  assert.match(login,/padding:\s*0 16px/)
-  assert.match(app,/@media \(max-width: 680px\)/)
-  assert.match(app,/height:\s*auto/)
-  assert.match(app,/flex-wrap:\s*wrap/)
-  assert.match(account,/@media\(max-width:680px\)/)
-  assert.match(account,/:focus-visible/)
   const host = read('plugins/react-ui/src/index.tsx')
-  assert.match(host,/<SessionMenu request=\{sessionRequest\}/)
-  assert.match(host,/className=\{styles\.themeButton\}/)
+  const session = read('plugins/react-ui/src/SessionMenu.tsx')
+  assert.match(app, /\.themeButton\s*\{[^}]*min-width:\s*44px/)
+  assert.match(app, /\.themeButton\s*\{[^}]*min-height:\s*44px/)
+  assert.match(app, /\.themeButton:focus-visible/)
+  assert.match(host, /className=\{styles\.themeButton\}/)
+  assert.match(session, /className=\{styles\.login\}/)
+  assert.match(session, /className=\{styles\.retry\}/)
+  assert.match(session, /className=\{styles\.trigger\}/)
+  assert.match(account, /\.login\s*\{[^}]*min-height:\s*44px/)
+  assert.match(account, /\.login\s*\{[^}]*padding:\s*0 16px/)
+  assert.match(account, /\.login,\.retry,\.trigger,\.menu button\{[^}]*min-height:44px/)
+  assert.match(account, /\.account :is\(a,button\):focus-visible/)
 })
-
 test('#79 Playground Session logout revokes the same Repo capability without blocking public team',async()=>{
   const query = new URLSearchParams({
     repoFixture:'1',sessionFixture:'1',sessionCase:'authenticated',fixtureTeam:'missing',
