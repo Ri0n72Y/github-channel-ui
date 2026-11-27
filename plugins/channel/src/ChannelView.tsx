@@ -45,7 +45,7 @@ export default function ChannelView({ owner, repo, loading, snapshot, error, acc
         <h2>频道暂不可用</h2>
         <p>{stateText[snapshot.state] || snapshot.state}</p>
         {snapshot.error && <p>{snapshot.error}</p>}
-        {!accessBlocked&&!error&&<button type="button" onClick={onRetry}>重试读取</button>}
+        {snapshot.state==='snapshot_incomplete'&&!accessBlocked&&!error&&<button type="button" onClick={onRetry}>重试读取</button>}
         {snapshot.state === 'config_missing' && <details><summary>项目管理者操作</summary><Link to={base + '/config'}>查看配置初始化</Link></details>}
       </section>}
     {!loading && snapshot?.state === 'ready' && <>

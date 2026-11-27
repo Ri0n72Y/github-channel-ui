@@ -34,6 +34,7 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
   const target = useMemo(() => parseGitHubRepositoryUrl(
     'https://github.com/' + owner + '/' + repo), [owner, repo])
   const base = '/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo)
+  const storageKey='labourchain:issue-create:v1:'+owner.toLowerCase()+'/'+repo.toLowerCase()
   const login = loginHref(base + '/issues/new')
   const [revision, setRevision] = useState(0)
   const {reason:accessReason,report}=useRepoAccess(owner+'/'+repo+'/'+revision)
@@ -42,6 +43,29 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
   const [message, setMessage] = useState('')
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
+  const draftRef=useRef({title:'',description:''})
+  useEffect(()=>{
+    let value={title:'',description:''}
+    try{
+      const raw=window.localStorage.getItem(storageKey)
+      if(raw){
+        const saved=JSON.parse(raw)
+        value={title:typeof saved?.title==='string'?saved.title.slice(0,256):'',
+          description:typeof saved?.description==='string'?saved.description.slice(0,20000):''}
+      }
+    }catch{}
+    draftRef.current=value
+    setTitle(value.title);setDescription(value.description)
+  },[storageKey])
+  function updateDraft(nextTitle:string,nextDescription:string){
+    const value={title:nextTitle,description:nextDescription}
+    draftRef.current=value
+    setTitle(nextTitle);setDescription(nextDescription)
+    try{
+      if(nextTitle||nextDescription)window.localStorage.setItem(storageKey,JSON.stringify(value))
+      else window.localStorage.removeItem(storageKey)
+    }catch{}
+  }
   const [pending, setPending] = useState(false)
   const [unknown, setUnknown] = useState(false)
   const [created, setCreated] = useState<{ number: number; url: string } | null>(null)
@@ -83,7 +107,9 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const name = title.trim()
+    const submittedTitle = title
+    const name = submittedTitle.trim()
+    const body = description
     if (!verified || status !== 'ready' || pending || inflight.current ||
         created || unknown || !name || name.length > 256 || description.length > 20000 ||
         !window.confirm('确认以你的 GitHub 身份在 ' + verified.full_name + ' 公开发布此动态？')) return
@@ -91,13 +117,18 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
     inflight.current = controller
     setPending(true); setMessage('')
     try {
-      const result = await api.createIssue(verified, name, description, controller.signal)
+      const result = await api.createIssue(verified, name, body, controller.signal)
       if (controller.signal.aborted) return
       const url = trustedCreatedIssueUrl(result.html_url, result.number, verified)
       if (!url) {
         setUnknown(true)
         setMessage('GitHub 返回的发布链接无法确认；请先在目标仓库核实动态（Issue），禁止直接重试。')
         return
+      }
+      if(draftRef.current.title===submittedTitle&&draftRef.current.description===body){
+        try{window.localStorage.removeItem(storageKey)}catch{}
+        draftRef.current={title:'',description:''}
+        setTitle('');setDescription('')
       }
       setCreated({ number: result.number, url })
     } catch (error) {
@@ -142,11 +173,11 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
         {message&&<p ref={failureRef} tabIndex={-1} role="alert">发布失败：{message}。内容已保留，请检查后重试。</p>}
         <label htmlFor="create-issue-title">标题
           <input id="create-issue-title" required maxLength={256} value={title}
-            onChange={event => setTitle(event.target.value)} />
+            onChange={event => updateDraft(event.target.value,description)} />
         </label>
         <label htmlFor="create-issue-body">正文
           <textarea id="create-issue-body" rows={8} maxLength={20000} value={description}
-            onChange={event => setDescription(event.target.value)} />
+            onChange={event => updateDraft(title,event.target.value)} />
         </label>
         <div className={styles.actions}>
           <button type="submit" disabled={pending || !title.trim()}>

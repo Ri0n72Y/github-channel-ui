@@ -25,20 +25,6 @@ function PermissionHint({ permission }: { permission: PermissionView }) {
   </p>
 }
 
-function DraftProtection({model,actions,kind}:Props & {kind:'comment'|'labour'}) {
-  const form=model.form
-  if(form.permission.state!=='authorized'||form.draftsReady===false)return null
-  const locked=kind==='comment'?form.commentLocked:form.labourLocked
-  return <>
-    {form.storageWarning?<p role="alert" className={styles.warning}>{form.storageWarning}</p>:
-      <p className={styles.meta}>草稿仅保存在当前浏览器。</p>}
-    {locked && !form.pending && <div role="alert" className={styles.warning}>
-      <p>提交结果待核查。请先在 GitHub 确认是否已发表，避免重复发表。</p>
-      {model.issue?.sourceUrl&&<a href={model.issue.sourceUrl} target="_blank" rel="noopener noreferrer">在 GitHub 核查</a>}
-      <button type="button" onClick={()=>actions.onUnlockDraft?.(kind)}>我已核查，解除提交锁定</button>
-    </div>}
-  </>
-}
 function LoginComposer({permission,kind,hidden=false}:{permission:PermissionView;kind:'comment'|'labour';hidden?:boolean}){
   return <div hidden={hidden} className={styles.loginComposer}>
     {!permission.reason.startsWith('登录后')&&<p role="status" className={styles.permission}>{permission.reason}</p>}
@@ -48,7 +34,7 @@ function LoginComposer({permission,kind,hidden=false}:{permission:PermissionView
 function FormFeedback({ notice, kind }: { notice: FormNotice | null; kind: 'comment' | 'labour' }) {
   if (!notice || notice.kind !== kind) return null
   return <p className={notice.tone === 'error' ? styles.error : styles.success}
-    role={notice.tone === 'error' ? 'alert' : 'status'}>{notice.message}</p>
+    role={notice.tone === 'error' ? 'alert' : 'status'}>{notice.message}{notice.url&&<> · <a href={notice.url} target="_blank" rel="noopener noreferrer">查看已发表评论</a></>}</p>
 }
 
 /** @summary Complete read-only discussion content uses the shared safe Markdown subset. */
@@ -101,16 +87,16 @@ function CommentComposer({ model, actions, inputRef, hidden }: Props & { inputRe
     <div className={styles.composerInfo}>
       <PermissionHint permission={form.permission}/>
       {form.pending && form.pendingKind === 'comment' && <p role="status" className={styles.meta}>正在提交评论，请勿重复操作。</p>}
-      <FormFeedback notice={form.notice} kind="comment"/>
-      <DraftProtection model={model} actions={actions} kind="comment"/>
+      <FormFeedback notice={form.notices.comment} kind="comment"/>
+
     </div>
     <div className={styles.commentComposerRow}>
       <label>写下你的评论
-        <textarea ref={inputRef} rows={3} maxLength={20000} value={form.draft} readOnly={form.permission.state!=='authorized'||form.draftsReady===false}
+        <textarea ref={inputRef} rows={3} maxLength={20000} value={form.draft} readOnly={form.permission.state!=='authorized'}
           onChange={event => actions.onCommentChange(event.target.value)} />
       </label>
       <div className={styles.sendActions}>
-        <button type="submit" disabled={!form.permission.allowed || form.pending || form.commentLocked || !form.draft.trim() || tooLong}>
+        <button type="submit" disabled={!form.permission.allowed || form.pending || form.unknownKinds.includes('comment') || !form.draft.trim() || tooLong}>
           {form.pending && form.pendingKind === 'comment' ? '提交中…' : '发表评论'}
         </button>
         {form.quote && <span className={styles.meta}>{form.commentLength} / 20000 字符（含引用）</span>}
@@ -153,7 +139,7 @@ function LabourHistoryView({ model, actions }: Props) {
       actions.onSubmitLabour()
     }}>
       <h3>登记劳动记录</h3>
-      <fieldset disabled={form.permission.state!=='authorized'||form.draftsReady===false} className={styles.labourFields}>
+      <fieldset disabled={form.permission.state!=='authorized'} className={styles.labourFields}>
       <label>工作内容（必填）
         <textarea rows={4} required value={form.labour.work}
           onChange={event => update('work', event.target.value)}/>
@@ -166,7 +152,7 @@ function LabourHistoryView({ model, actions }: Props) {
         <textarea rows={3} value={form.labour.outcome}
           onChange={event => update('outcome', event.target.value)}/>
       </label>
-      <details className={styles.secondaryDetails} open={form.notice?.kind==='labour' && form.notice.tone==='error' ? true : undefined}><summary>关联提交与时间（可选）</summary>
+      <details className={styles.secondaryDetails} open={form.notices.labour?.tone==='error' ? true : undefined}><summary>关联提交与时间（可选）</summary>
       <label>关联 Commit SHA（可选；逗号或换行分隔）
         <textarea rows={3} value={form.labour.commits}
           onChange={event => update('commits', event.target.value)}/>
@@ -184,14 +170,14 @@ function LabourHistoryView({ model, actions }: Props) {
       </details>
       </fieldset>
       <div className={styles.formActions}>
-        <button type="submit" disabled={!form.permission.allowed || form.pending || form.labourLocked || !form.labour.work.trim()}>
+        <button type="submit" disabled={!form.permission.allowed || form.pending || form.unknownKinds.includes('labour') || !form.labour.work.trim()}>
           {form.pending && form.pendingKind === 'labour' ? '提交中…' : '确认登记劳动'}
         </button>
         {form.pending && form.pendingKind === 'labour' && <span role="status">正在提交劳动记录，请勿重复操作。</span>}
       </div>
       <PermissionHint permission={form.permission}/>
-      <FormFeedback notice={form.notice} kind="labour"/>
-      <DraftProtection model={model} actions={actions} kind="labour"/>
+      <FormFeedback notice={form.notices.labour} kind="labour"/>
+
     </form>}
   </>
 }
@@ -206,6 +192,7 @@ export default function IssueDetailView({ model, actions, accessNotice, paginati
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const shellRef = useRef<HTMLDivElement>(null)
   const readingRef = useRef<HTMLDivElement>(null)
+  const dockRef = useRef<HTMLDivElement>(null)
   const discussionTab = useRef<HTMLButtonElement>(null)
   const labourTab = useRef<HTMLButtonElement>(null)
   const tabId = (name: IssueTab) => baseId + '-tab-' + name
@@ -273,23 +260,22 @@ export default function IssueDetailView({ model, actions, accessNotice, paginati
   const ready = model.load.phase === 'ready' && Boolean(model.issue)
   const scrollTarget=()=>pageRef.current?.dataset.heightMode==='compact'?shellRef.current:readingRef.current
   const distance=()=>{
-    const target=scrollTarget(),reading=readingRef.current
-    if(!target||!reading)return 0
-    // Compact uses the shell, but stop at the reading/composer boundary.
-    const end=target===reading?reading.scrollHeight:
-      reading.getBoundingClientRect().bottom-target.getBoundingClientRect().top+target.scrollTop
-    return Math.max(0,end-target.clientHeight-target.scrollTop)
+    const target=scrollTarget()
+    if(!target)return 0
+    // Compact measures the full shell, including the composer dock.
+    return Math.max(0,target.scrollHeight-target.clientHeight-target.scrollTop)
   }
   useEffect(()=>{
     if(!ready)return
     const update=()=>setCanScrollDown(distance()>80)
-    const shell=shellRef.current,reading=readingRef.current
+    const shell=shellRef.current,reading=readingRef.current,dock=dockRef.current
     shell?.addEventListener('scroll',update,{passive:true})
     reading?.addEventListener('scroll',update,{passive:true})
     window.addEventListener('resize',update)
     window.visualViewport?.addEventListener('resize',update)
     const observer=typeof ResizeObserver==='undefined'?null:new ResizeObserver(update)
     if(reading){observer?.observe(reading);for(const child of Array.from(reading.children))observer?.observe(child)}
+    if(dock){observer?.observe(dock);for(const child of Array.from(dock.children))observer?.observe(child)}
     update()
     return ()=>{
       shell?.removeEventListener('scroll',update);reading?.removeEventListener('scroll',update)
@@ -404,12 +390,11 @@ export default function IssueDetailView({ model, actions, accessNotice, paginati
         </p>}
       </section>
       </div>
-      <div className={styles.composerDock} hidden={tab!=='discussion'}>
-        {canScrollDown&&!compact&&<button type="button" className={styles.scrollBottom} aria-label="滚动到底部" title="滚动到底部" onClick={scrollToBottom}>↓</button>}
+      <div ref={dockRef} className={styles.composerDock} hidden={tab!=='discussion'}>
+        {ready&&tab==='discussion'&&canScrollDown&&<button type="button" className={styles.scrollBottom}
+          aria-label="滚动到底部" title="滚动到底部" onClick={scrollToBottom}>↓</button>}
         <CommentComposer model={model} actions={actions} inputRef={inputRef} hidden={tab !== 'discussion'}/>
       </div>
     </div>}
-    {ready&&compact&&tab==='discussion'&&canScrollDown&&<button type="button" className={styles.scrollBottom}
-      aria-label="滚动到底部" title="滚动到底部" onClick={scrollToBottom}>↓</button>}
   </div>
 }

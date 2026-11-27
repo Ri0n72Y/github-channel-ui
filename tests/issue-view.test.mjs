@@ -55,11 +55,12 @@ const model = {
     },
   },
   form: {
-    draft: '草稿不会自动提交', quote: null, commentLength: 9, refreshing: false,
+    draft: '当前评论内容', quote: null, commentLength: 9, refreshing: false,
     labour: { work: '', hours: '0.5', outcome: '', commits: '', start: '', end: '' },
-    pending: false, pendingKind: null, notice: null,
+    pending: false, pendingKind: null, notices: { comment: null, labour: null },
     permission: { state: 'authorized', allowed: true,
       reason: '',loginHref: null,loginText: '' },
+    unknownKinds: [],
   },
 }
 
@@ -84,6 +85,7 @@ test('View/Controller import boundary: View does not reference Router, Cordis, S
   assert.match(controllerSource, /useParams/)
   assert.match(controllerSource, /summarizeIssueComments/)
   assert.match(controllerSource, /service\.postComment/)
+  assert.doesNotMatch(controllerSource, /localStorage|IssueDraftStore|draft-store|unlockDraft|onUnlockDraft|draftsReady|commentLocked|labourLocked|storageWarning/)
 })
 
 test('pure View renders identity, outcome, scoped hours and tab relationships without Router or API', () => {
@@ -115,7 +117,7 @@ test('anonymous View provides login-only participation, never an editable draft'
   anonymous.form.permission={state:'anonymous',allowed:false,reason:'登录后参与',
     loginHref:'/api/github-login?return_to=%2Fsample%2Frepo%2Fissues%2F1',loginText:'GitHub 登录'}
   const html = renderToStaticMarkup(createElement(View, { model:anonymous, actions }))
-  assert.doesNotMatch(html, /草稿不会自动提交|<textarea|引用回复 speaker/)
+  assert.doesNotMatch(html, /<textarea|引用回复 speaker/)
   assert.match(html, /登录后即可发表评论/)
   assert.match(html, /登录后即可登记劳动/)
   assert.match(html, /未加载的评论/)
@@ -127,12 +129,12 @@ test('pure View renders authorized write controls and contextual failure status'
     ...model,
     form: { ...model.form, draft: '已经填写',
       labour: { ...model.form.labour, work: '修复表单' },
-      notice: { kind: 'comment', tone: 'error', message: 'GitHub 提交失败，草稿已保留。' },
+      notices: { comment: { kind: 'comment', tone: 'error', message: 'GitHub 提交失败，请修正内容后重试。' }, labour: null },
       permission: { state: 'authorized', allowed: true, reason: '',
         loginHref: null, loginText: '' } },
   }
   const html = renderToStaticMarkup(createElement(View, { model: ready, actions }))
-  assert.match(html, /GitHub 提交失败，草稿已保留/)
+  assert.match(html, /GitHub 提交失败，请修正内容后重试/)
   assert.match(html, /role="alert"/)
   assert.doesNotMatch(html, /匿名用户只能阅读/)
   assert.doesNotMatch(html, /disabled=""/)
@@ -209,7 +211,7 @@ test('#69 empty and incomplete discussion states are explicit; labour fields sta
   payload.issue.pagination.warnings=['partial results']
   const html=renderToStaticMarkup(createElement(View,{model:payload,actions}))
   for(const label of ['此 Issue 暂无正文','暂无讨论','Commit 冲突','2 条候选劳动评论格式无效',
-    'partial results','read failed','重试本页','非完整汇总','草稿不会自动提交'])
+    'partial results','read failed','重试本页','非完整汇总'])
     assert.ok(html.includes(label),label)
   for(const label of ['开始时间','结束时间','关联 Commit SHA','工作内容','成果（可选）','主观估时'])
     assert.ok(html.includes(label),label)
@@ -250,7 +252,7 @@ test('#69 B2 complete composer budget and compact single-scroll fallback retain 
  payload.form.quote={id:6,author:'长'.repeat(100),excerpt:'引用内容'.repeat(400),truncated:true,sourceUrl:model.issue.discussion.comments[0].sourceUrl}
  payload.form.draft='长'.repeat(20000)
  payload.form.commentLength=21000
- payload.form.notice={kind:'comment',tone:'error',message:'提交反馈'.repeat(100)}
+ payload.form.notices.comment={kind:'comment',tone:'error',message:'提交反馈'.repeat(100)}
  payload.issue.pagination.hasMore=true
  payload.issue.discussion.comments.push({...payload.issue.discussion.comments[0],id:9,body:'最后一条评论'})
  const html=renderToStaticMarkup(createElement(View,{model:payload,actions}))
@@ -262,7 +264,11 @@ test('#69 B2 complete composer budget and compact single-scroll fallback retain 
  assert.match(css,/\.page\[data-height-mode='compact'\] \.conversationShell \{[^}]*display:\s*block;[^}]*overflow-y:\s*auto/s)
  assert.match(css,/\.page\[data-height-mode='compact'\] \.conversationScroll \{[^}]*overflow:\s*visible/s)
  assert.match(css,/\.page\[data-height-mode='compact'\] \.commentComposer \{[^}]*max-height:\s*none;[^}]*overflow:\s*visible/s)
+ assert.match(css,/\.composerDock:has\(\.scrollBottom\) \.commentComposer\{max-height:calc\(var\(--issue-available-height,100dvh\) \* \.5 - 44px\)\}/)
+ assert.doesNotMatch(css,/\.page\[data-ready="true"\]\[data-height-mode='compact'\]/)
  assert.match(viewSource,/available < 480 \? 'compact' : 'split'/)
+ assert.match(viewSource,/const dockRef\s*=\s*useRef<HTMLDivElement>\(null\)/)
+ assert.match(viewSource,/Compact measures the full shell, including the composer dock/)
 })
 
 

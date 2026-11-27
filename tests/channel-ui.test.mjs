@@ -56,6 +56,8 @@ test('#28 missing/invalid/incomplete Channel states render explicit safe errors'
     assert.doesNotMatch(html, /href="\/sample\/repo\/issues\//)
   }
   assert.equal((render({state:'snapshot_incomplete',channels:[]}).match(/重试读取/g)||[]).length,1)
+  assert.equal((render({state:'no_channels',channels:[]}).match(/重试读取/g)||[]).length,0)
+  assert.equal((render({state:'config_missing',channels:[]}).match(/重试读取/g)||[]).length,0)
   const failed=render(null, 'Fixture 429 限流')
   assert.match(failed, /role="alert"/)
   assert.match(failed, /重试读取/)

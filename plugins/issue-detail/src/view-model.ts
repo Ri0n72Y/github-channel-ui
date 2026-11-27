@@ -12,7 +12,7 @@ export type LabourItemView = {
   sourceUrl: string | null; commits: Array<{ sha: string; href: string }>
 }
 export type FormNotice = {
-  kind: 'comment' | 'labour'; tone: 'error' | 'success'; message: string
+  kind: 'comment' | 'labour'; tone: 'error' | 'success'; message: string; url?:string
 }
 export type PermissionView = {
   state: 'checking' | 'anonymous' | 'authorized' | 'denied' | 'error'
@@ -40,9 +40,10 @@ export type IssueDetailViewModel = {
   form: {
     draft: string; quote: QuoteReply | null; commentLength: number; refreshing: boolean;
     labour: LabourDraft; pending: boolean;
-    pendingKind: 'comment' | 'labour' | null; notice: FormNotice | null;
+    pendingKind: 'comment' | 'labour' | null;
+    notices: Record<'comment' | 'labour', FormNotice | null>;
     permission: PermissionView
-    draftsReady?: boolean; commentLocked?: boolean; labourLocked?: boolean; storageWarning?: string
+    unknownKinds: Array<'comment' | 'labour'>
   }
 }
 export type IssueDetailViewActions = {
@@ -50,5 +51,5 @@ export type IssueDetailViewActions = {
   onCommentChange(value: string): void
   onQuoteComment(id: number): void; onCancelQuote(): void
   onLabourChange(field: LabourField, value: string): void
-  onSubmitComment(): void; onSubmitLabour(): void; onUnlockDraft?(kind:'comment'|'labour'):void
+  onSubmitComment(): void; onSubmitLabour(): void
 }
