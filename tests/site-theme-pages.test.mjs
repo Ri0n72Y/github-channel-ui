@@ -23,8 +23,9 @@ test('#69 B+C every mounted page consumes the shared semantic theme palette', ()
   }
   for (const path of modules) {
     const css = read(path)
-    assert.match(css, /var\(--lc-(?:text|surface|canvas|primary|link)/, path)
-    assert.doesNotMatch(css, /#[a-f\d]{3,8}(?![a-z\d])/i,
+    const declarations = css.replace(/\/\*[\s\S]*?\*\//g, '')
+    assert.match(declarations, /var\(--lc-(?:text|surface|canvas|primary|link)/, path)
+    assert.doesNotMatch(declarations, /#[a-f\d]{3,8}(?![a-z\d])/i,
       path + ' must not reintroduce hard-coded legacy or mixed brand hues')
     assert.doesNotMatch(css, /!important\b/, path + ' must use scoped specificity')
   }
@@ -50,7 +51,7 @@ test('#69 B+C retain established page structures while applying real responsive 
   }
   assert.match(topic, /object-fit:contain/)
   assert.match(topic, /flex-wrap: wrap/)
-  assert.match(topic, /@media \(max-width: 700px\)/)
+  assert.match(topic, /@media\s*\(\s*max-width:\s*700px\s*\)/)
   assert.match(topic, /white-space:nowrap;overflow:hidden;text-overflow:ellipsis/)
 })
 

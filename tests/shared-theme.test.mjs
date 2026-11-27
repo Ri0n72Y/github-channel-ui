@@ -114,6 +114,7 @@ test('#69 only Host holds theme state; route, fixture and plugin lifecycles stay
 test('#69 semantic palettes are centralized and shared UI uses CSS Modules', () => {
   const tokens = source('plugins/react-ui/src/theme.css')
   const app = source('plugins/react-ui/src/App.module.css')
+  const session = source('plugins/react-ui/src/SessionMenu.module.css')
   const repo = source('plugins/repo-home/src/RepoHome.module.css')
   const dark = tokens.split('[data-lc-theme="dark"]')[1].split('[data-lc-theme="light"]')[0]
   const light = tokens.split('[data-lc-theme="light"]')[1]
@@ -131,7 +132,10 @@ test('#69 semantic palettes are centralized and shared UI uses CSS Modules', () 
   assert.match(light, /--lc-on-primary: #283327;/)
   assert.match(light, /--lc-link: #4a661b;/)
   assert.match(app, /\.themeButton:focus-visible/)
-  assert.match(app, /var\(--lc-on-primary\)/)
+  const login = session.match(/\.login\s*\{([^}]*)\}/)?.[1]
+  assert.ok(login)
+  assert.match(login, /background:\s*var\(--lc-primary\)/)
+  assert.match(login, /color:\s*var\(--lc-on-primary\)/)
   assert.match(app, /var\(--lc-focus\)/)
   assert.match(app, /min-height: 44px/)
   assert.doesNotMatch(repo, /--lc-primary:/)

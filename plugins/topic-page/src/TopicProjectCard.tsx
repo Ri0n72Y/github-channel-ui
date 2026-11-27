@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { TopicRepository } from './service'
 import styles from './topic-page.module.css'
 
-/** @summary Preserve one real repository link and use compact text for missing imagery. */
+/** @summary Preserve one real repository link and show an explicit fallback when imagery is unavailable. */
 export default function TopicProjectCard({ project }: { project: TopicRepository }) {
   const [failedCover, setFailedCover] = useState<string|null>(null)
   const [loadedCover, setLoadedCover] = useState<string|null>(null)
@@ -14,18 +14,17 @@ export default function TopicProjectCard({ project }: { project: TopicRepository
   return <article className={styles.projectCard}>
     <a className={styles.projectLink} href={project.html_url} target="_blank"
       rel="noopener noreferrer" aria-label={project.full_name + ' — ' +
-        (project.description || '暂无项目简介') + ' — 打开 GitHub'}>
-      {hasCover && <div className={styles.projectCover}
+        (project.description || '暂无项目简介') +
+        (hasCover ? '' : ' — 暂无可用项目封面') + ' — 打开 GitHub'}>
+      {hasCover ? <div className={styles.projectCover}
         data-cover-state={loadedCover===cover?'image':'loading'}>
         <img key={cover} src={cover} alt={project.full_name + ' 项目封面'}
           loading="lazy" decoding="async" referrerPolicy="no-referrer"
           onLoad={() => setLoadedCover(cover ?? null)}
           onError={() => setFailedCover(cover ?? null)}/>
-      </div>}
+      </div> : <div className={styles.coverFallback}>暂无可用项目封面</div>}
       <div className={styles.projectContent}>
         <div className={styles.projectTitle}>
-          {!hasCover && <span className={styles.projectMark} aria-hidden="true">
-            {project.name.slice(0,1).toUpperCase()}</span>}
           <div className={styles.projectSummary}>
             <h3 title={project.name}>{project.name}</h3>
             <p className={styles.projectDescription} title={project.description || undefined}>
