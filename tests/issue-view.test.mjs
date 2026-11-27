@@ -57,9 +57,10 @@ const model = {
   form: {
     draft: '当前评论内容', quote: null, commentLength: 9, refreshing: false,
     labour: { work: '', hours: '0.5', outcome: '', commits: '', start: '', end: '' },
-    pending: false, pendingKind: null, notice: null,
+    pending: false, pendingKind: null, notices: { comment: null, labour: null },
     permission: { state: 'authorized', allowed: true,
       reason: '',loginHref: null,loginText: '' },
+    unknownKinds: [],
   },
 }
 
@@ -128,7 +129,7 @@ test('pure View renders authorized write controls and contextual failure status'
     ...model,
     form: { ...model.form, draft: '已经填写',
       labour: { ...model.form.labour, work: '修复表单' },
-      notice: { kind: 'comment', tone: 'error', message: 'GitHub 提交失败，请修正内容后重试。' },
+      notices: { comment: { kind: 'comment', tone: 'error', message: 'GitHub 提交失败，请修正内容后重试。' }, labour: null },
       permission: { state: 'authorized', allowed: true, reason: '',
         loginHref: null, loginText: '' } },
   }
@@ -251,7 +252,7 @@ test('#69 B2 complete composer budget and compact single-scroll fallback retain 
  payload.form.quote={id:6,author:'长'.repeat(100),excerpt:'引用内容'.repeat(400),truncated:true,sourceUrl:model.issue.discussion.comments[0].sourceUrl}
  payload.form.draft='长'.repeat(20000)
  payload.form.commentLength=21000
- payload.form.notice={kind:'comment',tone:'error',message:'提交反馈'.repeat(100)}
+ payload.form.notices.comment={kind:'comment',tone:'error',message:'提交反馈'.repeat(100)}
  payload.issue.pagination.hasMore=true
  payload.issue.discussion.comments.push({...payload.issue.discussion.comments[0],id:9,body:'最后一条评论'})
  const html=renderToStaticMarkup(createElement(View,{model:payload,actions}))
@@ -263,7 +264,11 @@ test('#69 B2 complete composer budget and compact single-scroll fallback retain 
  assert.match(css,/\.page\[data-height-mode='compact'\] \.conversationShell \{[^}]*display:\s*block;[^}]*overflow-y:\s*auto/s)
  assert.match(css,/\.page\[data-height-mode='compact'\] \.conversationScroll \{[^}]*overflow:\s*visible/s)
  assert.match(css,/\.page\[data-height-mode='compact'\] \.commentComposer \{[^}]*max-height:\s*none;[^}]*overflow:\s*visible/s)
+ assert.match(css,/\.composerDock:has\(\.scrollBottom\) \.commentComposer\{max-height:calc\(var\(--issue-available-height,100dvh\) \* \.5 - 44px\)\}/)
+ assert.doesNotMatch(css,/\.page\[data-ready="true"\]\[data-height-mode='compact'\]/)
  assert.match(viewSource,/available < 480 \? 'compact' : 'split'/)
+ assert.match(viewSource,/const dockRef=useRef<HTMLDivElement>\(null\)/)
+ assert.match(viewSource,/Compact measures the full shell, including the composer dock/)
 })
 
 

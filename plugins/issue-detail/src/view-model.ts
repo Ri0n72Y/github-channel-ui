@@ -40,9 +40,10 @@ export type IssueDetailViewModel = {
   form: {
     draft: string; quote: QuoteReply | null; commentLength: number; refreshing: boolean;
     labour: LabourDraft; pending: boolean;
-    pendingKind: 'comment' | 'labour' | null; notice: FormNotice | null;
+    pendingKind: 'comment' | 'labour' | null;
+    notices: Record<'comment' | 'labour', FormNotice | null>;
     permission: PermissionView
-    unknownKind: 'comment' | 'labour' | null
+    unknownKinds: Array<'comment' | 'labour'>
   }
 }
 export type IssueDetailViewActions = {

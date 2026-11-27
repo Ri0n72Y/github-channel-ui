@@ -1233,6 +1233,144 @@ test('#20 unknown labour write blocks same-page retry without a persistent marke
   assert.equal(writes,1)
  }finally{await app.close()}
 })
+
+const labourWork=app=>[...app.host.querySelectorAll('textarea')].find(el=>el.closest('label')?.textContent.includes('工作内容'))
+const labourSend=app=>labourWork(app)?.closest('form')?.querySelector('button[type="submit"]')
+const issueTabs=app=>app.host.querySelectorAll('[role="tab"]')
+test('#69 comment and labour unknown writes keep independent locks and feedback across cross-kind writes',async()=>{
+ for(const firstKind of ['comment','labour']){
+  for(const secondOutcome of ['failure','success']){
+   let writes=0
+   const svc=issueService({authorized:true,postComment:async()=>{
+    writes++
+    if(writes===1)throw Error('connection lost')
+    if(secondOutcome==='failure')throw Object.assign(Error('GitHub rejected'),{status:422})
+    return {id:990+writes}
+   }})
+   const app=await issueMount(svc)
+   const [discussion,labourTab]=issueTabs(app)
+   const select=async kind=>act(async()=>{(kind==='comment'?discussion:labourTab).click()})
+   const fill=async kind=>act(async()=>input(kind==='comment'?replyArea(app):labourWork(app),
+    kind==='comment'?'comment payload':'labour payload'))
+   const send=kind=>kind==='comment'?replySend(app):labourSend(app)
+   const otherKind=firstKind==='comment'?'labour':'comment'
+   try{
+    await select(firstKind)
+    await fill(firstKind)
+    await act(async()=>send(firstKind).click())
+    await flush()
+    assert.equal(writes,1)
+    assert.ok(send(firstKind).disabled)
+    assert.match(app.host.textContent,/避免重复发表/)
+    await select(otherKind)
+    await fill(otherKind)
+    await act(async()=>send(otherKind).click())
+    await flush()
+    assert.equal(writes,2)
+    if(secondOutcome==='failure')assert.match(app.host.textContent,/提交未成功/)
+    else assert.match(app.host.textContent,/已发表；讨论列表已重新读取/)
+    await select(firstKind)
+    assert.ok(send(firstKind).disabled,'the first kind remains locked')
+    assert.match(app.host.textContent,/避免重复发表/)
+    await select(otherKind)
+    if(secondOutcome==='failure'){
+     assert.ok(!send(otherKind).disabled,'a definite failure of the other kind remains retryable')
+     assert.match(app.host.textContent,/提交未成功/)
+    }else{
+     assert.ok(!send(otherKind).disabled,'success of the other kind does not create an uncertainty lock')
+     assert.match(app.host.textContent,/已发表；讨论列表已重新读取/)
+    }
+   }finally{await app.close()}
+  }
+ }
+})
+
+test('#69 unknown write locks reset on Issue remount and verified account/session change',async()=>{
+ let userId=1,writes=0
+ const svc=issueService({authorized:true,userId:()=>userId,postComment:async()=>{writes++;throw Error('connection lost')}})
+ const app=await issueMount(svc)
+ try{
+  await act(async()=>input(replyArea(app),'issue one'))
+  await act(async()=>replySend(app).click())
+  await flush()
+  assert.equal(writes,1)
+  assert.ok(replySend(app).disabled)
+  await app.go('/sample/repo/issues/2')
+  assert.ok(!replySend(app).disabled,'a different Issue gets a fresh in-memory lock scope')
+  await app.go('/sample/repo/issues/1')
+  assert.ok(!replySend(app).disabled,'returning to the Issue remounts with fresh page state')
+  await act(async()=>input(replyArea(app),'new account check'))
+  await act(async()=>replySend(app).click())
+  await flush()
+  assert.equal(writes,2)
+  assert.ok(replySend(app).disabled)
+  userId=2
+  await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
+  await flush()
+  await flush()
+  assert.ok(!replySend(app).disabled,'re-verifying a different account clears the prior account page lock')
+  assert.equal(replyArea(app).value,'')
+  assert.equal(writes,2,'session revalidation never replays the uncertain POST')
+ }finally{await app.close()}
+})
+
+test('#69 B2 scroll-to-bottom stays in composer dock and targets split reading or the full compact shell',async()=>{
+ const descriptor=Object.getOwnPropertyDescriptor(window,'visualViewport')
+ const viewport=new window.EventTarget()
+ viewport.height=812;viewport.offsetTop=0
+ Object.defineProperty(window,'visualViewport',{configurable:true,value:viewport})
+ const svc=issueService({authorized:true,comments:()=>Promise.resolve({items:[
+  replyComment(101,'first'),replyComment(102,'last visible comment')
+ ],hasMore:false})})
+ const app=await issueMount(svc)
+ try{
+  const shell=app.host.querySelector('[aria-label="Issue 讨论面板"]')
+  const reading=app.host.querySelector('[aria-label="Issue 阅读区"]')
+  const composer=replyArea(app).closest('form')
+  const dock=composer.parentElement
+  const page=shell.parentElement
+  Object.defineProperty(reading,'scrollHeight',{configurable:true,value:1200})
+  Object.defineProperty(reading,'clientHeight',{configurable:true,value:500})
+  reading.scrollTop=100
+  await act(async()=>reading.dispatchEvent(new Event('scroll')))
+  let button=app.host.querySelector('button[aria-label="滚动到底部"]')
+  assert.ok(button,'split mode exposes the scroll action when reading has a remaining distance')
+  assert.equal(button.parentElement,dock)
+  assert.equal(button.nextElementSibling,composer)
+  assert.ok(shell.contains(button))
+  const before=svc.calls.length
+  await act(async()=>button.click())
+  assert.equal(reading.scrollTop,700,'split mode scrolls only the reading region')
+  assert.equal(document.activeElement,reading)
+  assert.equal(svc.calls.length,before,'scrolling never requests another comment page')
+
+  await act(async()=>{viewport.height=320;viewport.dispatchEvent(new Event('resize'))})
+  assert.equal(page.dataset.heightMode,'compact')
+  Object.defineProperty(shell,'scrollHeight',{configurable:true,value:1800})
+  Object.defineProperty(shell,'clientHeight',{configurable:true,value:300})
+  shell.scrollTop=120
+  await act(async()=>shell.dispatchEvent(new Event('scroll')))
+  button=app.host.querySelector('button[aria-label="滚动到底部"]')
+  assert.ok(button,'compact mode exposes the same action for the full shell')
+  assert.equal(button.parentElement,dock)
+  assert.equal(button.nextElementSibling,composer)
+  assert.ok(shell.contains(composer),'the compact scroll range includes the composer')
+  await act(async()=>button.click())
+  assert.equal(shell.scrollTop,1500,'compact mode reaches the end of the complete shell, including composer')
+  assert.equal(document.activeElement,reading)
+  assert.equal(svc.calls.length,before,'compact scrolling never requests another comment page')
+
+  await act(async()=>{viewport.height=812;viewport.dispatchEvent(new Event('resize'))})
+  reading.scrollTop=700
+  await act(async()=>reading.dispatchEvent(new Event('scroll')))
+  assert.equal(app.host.querySelector('button[aria-label="滚动到底部"]'),null,'short reading distance hides the scroll action')
+ }finally{
+  await app.close()
+  if(descriptor)Object.defineProperty(window,'visualViewport',descriptor)
+  else delete window.visualViewport
+ }
+})
+
 test('#69 B2 visual viewport resize keeps quote, feedback, last comment and pagination mounted in compact mode',async()=>{
  const descriptor=Object.getOwnPropertyDescriptor(window,'visualViewport')
  const viewport=new window.EventTarget()

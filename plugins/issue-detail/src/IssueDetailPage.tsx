@@ -66,24 +66,24 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
   const lastUserId=useRef<number|null>(null)
   const writeInFlight=useRef<{kind:FormKind;abort:AbortController}|null>(null)
   const [pendingKind,setPendingKind]=useState<FormKind|null>(null)
-  const [unknownKind,setUnknownKind]=useState<FormKind|null>(null)
+  const [unknownKinds,setUnknownKinds]=useState<FormKind[]>([])
   useEffect(()=>subscribeSessionChanged(()=>{
     activeScope.current=''
     lastUserId.current=null
     writeInFlight.current?.abort.abort()
     writeInFlight.current=null
     setPendingKind(null)
-    setUnknownKind(null)
+    setUnknownKinds([])
     setDraft('')
     setQuote(null)
     setLabour({...initialLabour})
     setAuth({key:'',status:'checking',message:''})
-    setNotice(null)
+    setNotices({comment:null,labour:null})
     setAuthRevision(n=>n+1)
   }),[])
   useEffect(()=>()=>{activeScope.current='';writeInFlight.current?.abort.abort();writeInFlight.current=null},[])
-  const [notice, setNotice] = useState<FormNotice | null>(null)
-  const publishedRefresh=useRef<string|null>(null)
+  const [notices,setNotices]=useState<Record<FormKind,FormNotice|null>>({comment:null,labour:null})
+  const publishedRefresh=useRef<{kind:FormKind;url:string}|null>(null)
   const revision = useRef(0)
   const controller = useRef<AbortController | null>(null)
   const pageInFlight = useRef<number | null>(null)
@@ -123,7 +123,10 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
         const { issue, first } = loaded
         if (current !== revision.current || abort.signal.aborted) return
         const published=publishedRefresh.current
-        if(published){setNotice(previous=>previous?.url===published?{...previous,message:'已发表；讨论列表已重新读取。'}:previous);publishedRefresh.current=null}
+        if(published){setNotices(previous=>{
+          const current=previous[published.kind]
+          return current?.url===published.url?{...previous,[published.kind]:{...current,message:'已发表；讨论列表已重新读取。'}}:previous
+        });publishedRefresh.current=null}
         setState({ key: routeKey, loading: false, refreshing: false, issue, comments: uniqueComments(first.items),
           page: 1, hasMore: first.hasMore, fetchingMore: false,
           lastRead: new Date().toISOString(), error: null, pageError: '' })
@@ -131,7 +134,10 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
         if (current !== revision.current || abort.signal.aborted) return
         report(error)
         const published=publishedRefresh.current
-        if(published){setNotice(previous=>previous?.url===published?{...previous,message:'GitHub 已确认发表；讨论列表刷新失败，请通过评论来源核实。'}:previous);publishedRefresh.current=null}
+        if(published){setNotices(previous=>{
+          const current=previous[published.kind]
+          return current?.url===published.url?{...previous,[published.kind]:{...current,message:'GitHub 已确认发表；讨论列表刷新失败，请通过评论来源核实。'}}:previous
+        });publishedRefresh.current=null}
         const failure=asIssueError(error)
         setState(previous=>previous.key===routeKey&&previous.issue
           ? {...previous,refreshing:false,fetchingMore:false,error:failure,pageError:failure.message}
@@ -189,8 +195,8 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
     setQuote(null)
     setLabour({...initialLabour})
     setPendingKind(null)
-    setUnknownKind(null)
-    setNotice(null)
+    setUnknownKinds([])
+    setNotices({comment:null,labour:null})
     return ()=>{if(activeScope.current===scope)activeScope.current=''}
   },[scope])
 
@@ -241,10 +247,10 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
   }
 
   async function submit(body: string, kind: FormKind) {
-    if (!canWrite || pendingKind || writeInFlight.current || unknownKind===kind ||
+    if (!canWrite || pendingKind || writeInFlight.current || unknownKinds.includes(kind) ||
         !owner || !repo || !valid || !body.trim() || !scope || activeScope.current!==scope) return
     if (body.length > COMMENT_LIMIT) {
-      setNotice({ kind, tone: 'error', message: '提交内容（含引用）超过 20000 字符，请缩短后重试。' })
+      setNotices(previous=>({...previous,[kind]:{kind,tone:'error',message:'提交内容（含引用）超过 20000 字符，请缩短后重试。'}}))
       return
     }
     if (!window.confirm('确认以当前 GitHub 身份在 ' + target + ' #' + numberValue + ' 公开发表这条' +
@@ -257,7 +263,7 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
     const flight={kind,abort}
     writeInFlight.current=flight
     setPendingKind(kind)
-    setNotice(null)
+    setNotices(previous=>({...previous,[kind]:null}))
     const active=()=>writeInFlight.current===flight&&!abort.signal.aborted&&
       current===revision.current&&activeScope.current===scope
     try {
@@ -272,16 +278,16 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
       }else{
         setLabour(value=>sameLabourDraft(value,submittedLabour)?{...initialLabour}:value)
       }
-      publishedRefresh.current=permalink
-      setNotice({kind,tone:'success',message:'GitHub 已确认发表：评论 #'+response.id+'。',url:permalink})
+      publishedRefresh.current={kind,url:permalink}
+      setNotices(previous=>({...previous,[kind]:{kind,tone:'success',message:'GitHub 已确认发表：评论 #'+response.id+'。',url:permalink}}))
       setReload(value=>value+1)
     } catch(error) {
       if(!active())return
       const unknown=uncertainWriteResult(error)
-      if(unknown)setUnknownKind(kind)
-      setNotice({kind,tone:'error',message:asIssueError(error).message+(unknown
+      if(unknown)setUnknownKinds(previous=>previous.includes(kind)?previous:[...previous,kind])
+      setNotices(previous=>({...previous,[kind]:{kind,tone:'error',message:asIssueError(error).message+(unknown
         ? '。提交状态未知，请先在 GitHub 检查，避免重复发表。'
-        : '。提交未成功，请修正内容后重试。')})
+        : '。提交未成功，请修正内容后重试。')}}))
     } finally {
       if(writeInFlight.current===flight){writeInFlight.current=null;setPendingKind(null)}
     }
@@ -296,8 +302,8 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
         start: toRfc3339(labour.start), end: toRfc3339(labour.end) })
       void submit(body, 'labour')
     } catch {
-      setNotice({ kind: 'labour', tone: 'error',
-        message: '请检查工作内容、至少 0.5 小时且按 0.5 递增的估时、完整 Commit SHA，以及成对且顺序正确的起止时间。' })
+      setNotices(previous=>({...previous,labour:{kind:'labour',tone:'error',
+        message:'请检查工作内容、至少 0.5 小时且按 0.5 递增的估时、完整 Commit SHA，以及成对且顺序正确的起止时间。'}}))
     }
   }
 
@@ -369,7 +375,7 @@ export default function IssueDetailPage({ service }: { service: IssueDetailApi }
     } : null,
     form: { draft, quote, commentLength: commentBody.length, refreshing: state.refreshing,
       labour, pending: Boolean(pendingKind), pendingKind,
-      notice, permission, unknownKind },
+      notices, permission, unknownKinds },
   }
 
   function retryRead(){
