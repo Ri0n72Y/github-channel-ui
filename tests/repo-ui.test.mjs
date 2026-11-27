@@ -85,7 +85,9 @@ test('#51 V2: invalid URLs remain marked through edits, clear after valid input'
 
 test('#51 V2: form keeps inline accessibility links and focuses first invalid input', () => {
   const src = readFileSync(resolve(root, 'plugins/repo-home/src/MemberRegisterPage.tsx'), 'utf8')
-  assert.match(src, /fieldRefs\.current\[first\]\?\.focus\(\)/)
+  assert.match(src, /const field = fieldRefs\.current\[first\]/)
+  assert.match(src, /field\?\.closest\('details'\)\?\.setAttribute\('open',''\)/)
+  assert.match(src, /field\?\.focus\(\)/)
   assert.match(src, /aria-invalid=\{Boolean\(fieldErrors\.name\)\}/)
   assert.match(src, /aria-describedby=\{fieldErrors\.name/)
   assert.match(src, /aria-describedby=\{fieldErrors\[urlKey\]/)
@@ -105,8 +107,9 @@ test('#99 Member Strip shows real name and role beside each avatar', () => {
   assert.match(html, /Alice/)
   assert.match(html, /Maintainer/)
   assert.match(html, /Bob/)
-  assert.match(html, /全部成员/)
   assert.doesNotMatch(html, /undefined/)
+  const home = readFileSync(resolve(root, 'plugins/repo-home/src/RepoHomePage.tsx'), 'utf8')
+  assert.ok(home.includes("<Link to={base + '/members'}>查看全部成员</Link>"))
 })
 
 test('#99 member registration exposes only exact GitHub PR and Commit destinations', () => {
