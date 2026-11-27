@@ -267,7 +267,7 @@ test('#69 B2 complete composer budget and compact single-scroll fallback retain 
  assert.match(css,/\.composerDock:has\(\.scrollBottom\) \.commentComposer\{max-height:calc\(var\(--issue-available-height,100dvh\) \* \.5 - 44px\)\}/)
  assert.doesNotMatch(css,/\.page\[data-ready="true"\]\[data-height-mode='compact'\]/)
  assert.match(viewSource,/available < 480 \? 'compact' : 'split'/)
- assert.match(viewSource,/const dockRef=useRef<HTMLDivElement>\(null\)/)
+ assert.match(viewSource,/const dockRef\s*=\s*useRef<HTMLDivElement>\(null\)/)
  assert.match(viewSource,/Compact measures the full shell, including the composer dock/)
 })
 
