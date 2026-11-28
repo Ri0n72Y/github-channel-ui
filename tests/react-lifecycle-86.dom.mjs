@@ -1781,7 +1781,7 @@ test('anonymous publication never sends a write and login returns to the scoped 
  }finally{await page.close()}
 })
 
-test('RepoPanel publication preserves draft and write lock through delayed same-target rechecks',async()=>{
+async function withRepoPanelPublication(run){
  const posts=[],writeSignals=[],pending=deferred(),reads=[]
  let mode='success',nextRead
  const listed=title=>Response.json({issues:[{number:1,title,comments:0,html_url:'https://github.com/sample/repo/issues/1'}]})
@@ -1837,6 +1837,12 @@ test('RepoPanel publication preserves draft and write lock through delayed same-
  }
  try{
   app=await mount('/sample/repo/issues','/:owner/:repo/issues',RepoPanel,{store})
+  await run({app,store,posts,writeSignals,pending,button,form,submit,edit,draft,recheck,
+   listed,setMode:value=>{mode=value}})
+ }finally{window.confirm=confirm;try{await app?.close()}finally{store.dispose();globalThis.fetch=originalFetch}}
+}
+
+test('RepoPanel publication preserves draft and write lock through delayed same-target rechecks',()=>withRepoPanelPublication(async({app,store,posts,writeSignals,pending,button,form,submit,edit,draft,recheck,setMode})=>{
   assert.match(app.host.textContent,/Existing issue/)
   await act(async()=>button('发布动态').click())
   await edit('First confirmed','First body')
@@ -1852,7 +1858,7 @@ test('RepoPanel publication preserves draft and write lock through delayed same-
   await act(async()=>button('发布动态').click())
   assert.deepEqual(draft(),['',''])
   await edit('Review','Keep this draft')
-  mode='rejected'
+  setMode('rejected')
   await act(async()=>submit());await flush()
   assert.match(app.host.textContent,/Validation failed/)
   assert.equal(button('确认发布').disabled,false)
@@ -1874,7 +1880,7 @@ test('RepoPanel publication preserves draft and write lock through delayed same-
   assert.match(app.host.textContent,/Recovered issue/)
   assert.equal(button('确认发布').disabled,false)
   assert.deepEqual(draft(),['Review','Keep this draft'])
-  mode='unknown'
+  setMode('unknown')
   await act(async()=>{submit();submit()})
   assert.equal(posts.length,3)
   assert.equal(writeSignals[2].aborted,false)
@@ -1921,5 +1927,55 @@ test('RepoPanel publication preserves draft and write lock through delayed same-
   await act(async()=>submit())
   assert.deepEqual(posts,[{owner:'sample',repo:'repo',title:'First confirmed',body:'First body'},
    ...Array(2).fill({owner:'sample',repo:'repo',title:'Review',body:'Keep this draft'})])
- }finally{window.confirm=confirm;try{await app?.close()}finally{store.dispose();globalThis.fetch=originalFetch}}
-})
+}))
+
+test('RepoPanel denied same-target recheck cancels pending publication and rejects late success',()=>withRepoPanelPublication(async({
+ app,store,posts,writeSignals,pending,button,form,submit,edit,draft,recheck,listed,setMode
+})=>{
+ assert.match(app.host.textContent,/Existing issue/)
+ await act(async()=>button('发布动态').click())
+ const expectedDraft=['Pending review','Preserve the submitted draft']
+ await edit(...expectedDraft)
+ window.confirm=()=>true
+ setMode('unknown')
+ await act(async()=>submit())
+ const expectedPosts=[{owner:'sample',repo:'repo',title:expectedDraft[0],body:expectedDraft[1]}]
+ assert.deepEqual(posts,expectedPosts)
+ assert.equal(writeSignals[0].aborted,false)
+ const denied=await recheck()
+ assert.deepEqual(draft(),expectedDraft)
+ assert.equal(button('创建中…').disabled,true)
+ assert.equal(writeSignals[0].aborted,false,'a pending read alone cannot decide a write outcome')
+ denied.resolve(Response.json({state:'repo_access_required',error:'Access revoked'},{status:403}))
+ await flush()
+ assert.equal(store.getSnapshot().availability,'repo_access_required')
+ assert.equal(writeSignals[0].aborted,true,'denied recheck must abort pending POST')
+ assert.match(app.host.textContent,/发布结果尚未确认/)
+ assert.equal(button('确认发布').disabled,true)
+ assert.deepEqual(draft(),expectedDraft)
+ await act(async()=>submit())
+ assert.deepEqual(posts,expectedPosts)
+ // The upstream can finish despite local cancellation. A valid late result must not
+ // become a success notice, clear the draft, or release the unknown-result lock.
+ pending.resolve(Response.json({issue:{number:19,html_url:'https://github.com/sample/repo/issues/19'}},{status:201}))
+ await flush()
+ function assertStillUnknown(){
+  assert.match(app.host.textContent,/发布结果尚未确认/)
+  assert.doesNotMatch(app.host.textContent,/Issue #19 创建成功/)
+  assert.equal(app.host.querySelector('a[href="https://github.com/sample/repo/issues/19"]'),null)
+  assert.ok(form())
+  assert.deepEqual(draft(),expectedDraft)
+  assert.equal(button('确认发布').disabled,true)
+  assert.deepEqual(posts,expectedPosts)
+ }
+ assertStillUnknown()
+ await act(async()=>submit())
+ const recovery=await recheck('notice')
+ recovery.resolve(listed('Recovered issue'));await flush()
+ assert.equal(store.getSnapshot().availability,'connected')
+ assert.match(app.host.textContent,/Recovered issue/)
+ assertStillUnknown()
+ await act(async()=>submit())
+ assert.deepEqual(posts,expectedPosts)
+}))
+
