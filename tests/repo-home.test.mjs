@@ -335,27 +335,24 @@ test('repo-home review P1: unavailable effective branch rules fail closed', asyn
 })
 
 
-test('repo-home review B1 follow-up: first unbroken Chinese text token respects preview budget', () => {
-  const body = '这是项目介绍。'.repeat(200)
-  const preview = previewMarkdown(body, 160)
-  assert.ok(preview.length < 100, 'unbroken first token must not consume the whole body')
-  assert.ok(preview.startsWith('这是项目介绍。'))
-  assert.ok(preview.endsWith('…'), 'truncated prose signals expansion')
-  assert.equal(preview.replace(/\n\n…$/, '').length, 80, 'Chinese codepoints count as width 2')
+test('Markdown preview respects visible text budget before, at and after the boundary',()=>{
+  for(const [char,capacity] of [['A',160],['中',80]]){
+    for(const size of [capacity-1,capacity,capacity+1]){
+      const source=char.repeat(size)
+      assert.equal(previewMarkdown(source,160),char.repeat(Math.min(size,capacity))+
+        (size>capacity?'\n\n…':''))
+    }
+    const hidden='[hidden action](https://example.org/hidden)'
+    assert.equal(previewMarkdown(char.repeat(capacity+1)+'\n\n'+hidden,160),
+      char.repeat(capacity)+'\n\n…')
+  }
 })
-test('repo-home review B1 follow-up: very long first token and hidden link respect the boundary', () => {
-  const body = 'A'.repeat(2000) + '\n\n[hidden action](https://example.org/private)'
-  const preview = previewMarkdown(body, 160)
-  assert.equal(preview.replace(/\n\n…$/, '').length, 160)
-  assert.doesNotMatch(preview, /https:\/\/example.org\/private|hidden action/)
-  assert.match(preview, /…$/)
-})
-test('repo-home review B1 follow-up: first structured media token stays complete before trimming prose', () => {
-  const image = '![示例图片](https://example.org/' + 'a'.repeat(220) + '.jpg)'
-  const body = image + '\n\n' + '无空格中文正文'.repeat(100) +
-    '[hidden action](https://example.org/hidden)'
-  const preview = previewMarkdown(body, 160)
-  assert.ok(preview.startsWith(image), 'image is not split even with an oversized URL')
-  assert.doesNotMatch(preview, /hidden action/)
-  assert.match(preview, /…$/)
+
+test('an oversized leading structured Markdown token stays atomic without leaking the next token',()=>{
+  const tokens=['![示例图片](https://example.org/pic.jpg)',
+    '[result](https://example.org/'+'a'.repeat(220)+')']
+  for(const token of tokens){
+    const body=token+'\n\n[hidden action](https://example.org/hidden)'
+    assert.equal(previewMarkdown(body,100),token+'\n\n…')
+  }
 })

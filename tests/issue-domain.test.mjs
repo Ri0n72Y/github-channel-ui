@@ -12,16 +12,17 @@ const comment = (id, body) => ({ id, body, created_at: '2026-11-01T00:00:00Z',
   html_url: 'https://github.com/example/repo/issues/1#issuecomment-' + id,
   user: { login: 'worker' } })
 
-test('§9.4 accepts with and without h as numeric hours for 0.5 steps', () => {
-  for (const hours of [0.5, 1, 1.5, 3]) {
-    assert.equal(parseLabourComment(labour(hours))?.hours, hours)
-    assert.equal(parseLabourComment(labour(hours, 'h'))?.hours, hours)
+test('labour hours accept positive safe half-hour units and reject adjacent invalid values', () => {
+  const max = Number.MAX_SAFE_INTEGER / 2
+  for (const hours of [0.5, 1, 1.5, max]) {
+    for (const suffix of ['', 'h']) assert.equal(parseLabourComment(labour(hours, suffix))?.hours, hours)
+    assert.equal(parseLabourComment(formatLabourComment({work:'x',hr:hours}))?.hours,hours)
   }
-  const result = summarizeIssueComments([comment(1, labour(0.5)),
-    comment(2, labour(1, 'h')), comment(3, labour(1.5))], true)
-  assert.equal(result.hours, 3)
-  assert.equal(result.complete, true)
-  assert.equal(result.discussion.length, 0)
+  for (const hours of [-0.5, 0, 0.25, 0.75, 1.25, max + 0.5]) {
+    assert.equal(parseLabourComment(labour(hours)),null)
+    assert.throws(()=>formatLabourComment({work:'x',hr:hours}),/Invalid labour record/)
+  }
+  for (const hr of [NaN, Infinity, '0.5']) assert.throws(()=>formatLabourComment({work:'x',hr}),/Invalid labour record/)
 })
 
 test('§9.4 multiline work, outcome, commits and RFC 3339 timestamps round-trip', () => {
@@ -35,7 +36,8 @@ test('§9.4 multiline work, outcome, commits and RFC 3339 timestamps round-trip'
 
 test('invalid YAML, extra fields, bad hour steps and dates remain ordinary discussion', () => {
   for (const body of [
-    labour(0), labour(0.3), labour('abc'), labour(1, 'hours'),
+    labour('abc'), labour(1, 'hours'),
+    labour(1,'\n  hr: ~2'),
     '```yaml\nlabour:\n  work: x\n  hr: ~1h\n  author: forged\n```',
     'prefix\n' + labour(1),
     '```yaml\nlabour:\n  hr: ~1h\n```',
@@ -44,7 +46,8 @@ test('invalid YAML, extra fields, bad hour steps and dates remain ordinary discu
   ]) assert.equal(parseLabourComment(body), null, body)
   const result = summarizeIssueComments([comment(1, labour(0.3)), comment(2, '普通聊天')], true)
   assert.equal(result.records.length, 0)
-  assert.equal(result.discussion.length, 2)
+  assert.deepEqual(result.discussion.map(c=>c.id),[1,2])
+  assert.deepEqual(result.invalidCandidates,[1])
   assert.equal(result.complete, false)
 })
 
@@ -52,6 +55,15 @@ test('one comment with multiple SHAs is one labour record; repeated SHA conflict
   const a = formatLabourComment({ work: '记录 A', hr: 2, commits: [sha, 'b'.repeat(40)] })
   const b = formatLabourComment({ work: '记录 B', hr: 3, commits: [sha] })
   const c = formatLabourComment({ work: '无 Commit', hr: 0.5 })
+  const independent=[comment(1,a),comment(3,c),comment(3,c),comment(4,'discussion')]
+  for(const complete of [true,false]){
+    const sum=summarizeIssueComments(independent,complete)
+    assert.deepEqual(sum.records.map(r=>r.comment.id),[1,3])
+    assert.equal(sum.hours,2.5)
+    assert.deepEqual(sum.conflicts,[])
+    assert.deepEqual(sum.discussion.map(c=>c.id),[4])
+    assert.equal(sum.complete,complete)
+  }
   const result = summarizeIssueComments([comment(1, a), comment(2, b),
     comment(3, c), comment(3, c)], true)
   assert.equal(result.records.length, 3)
@@ -62,8 +74,8 @@ test('one comment with multiple SHAs is one labour record; repeated SHA conflict
 })
 
 test('Issue target rejects invalid numbers and Channel labels parse from supported YAML', () => {
-  assert.equal(validIssueTarget('sample', 'repo', '28'), true)
-  for (const number of ['0', '-1', '1.5', 'abc', '9007199254740992']) {
+  for (const number of ['1', String(Number.MAX_SAFE_INTEGER)]) assert.equal(validIssueTarget('sample','repo',number),true)
+  for (const number of ['0', '-1', '01', '1.5', 'abc', '9007199254740992']) {
     assert.equal(validIssueTarget('sample', 'repo', number), false)
   }
   assert.deepEqual(parseIssueLabels('channel: [wishlist, discussion]'),
@@ -73,19 +85,13 @@ test('Issue target rejects invalid numbers and Channel labels parse from support
 
 })
 
-test('real §9.4 no-suffix examples preserve multiline Markdown and inline outcome links', () => {
-  const issue2 = '```yaml\nlabour:\n  work: |\n    确定仓库首页、Kanban 专注页及路由交互方案\n    沉淀 UI/UX 设计基线文档\n  hr: ~3\n  outcome: |\n    [UI/UX 设计基线](https://github.com/Ri0n72Y/hackathon-platform/blob/main/docs/LabourChain-Repo-Board-Issue-UX-Baseline.md)\n```'
-  const issue5 = '```yaml\nlabour:\n  work: 完成环境变量配置与vercel部署，实现最小代码\n  hr: ~1\n  outcome: [测试网站](https://hackathon-platform-sigma-drab.vercel.app/)\n```'
-  const issue20 = '```yaml\nlabour:\n  work: |\n    明确使用者向社区合作者转化的参与路径\n    建立独立的社区体验 Discovery 议题\n  hr: ~0.5\n  outcome: |\n    [社区体验 Discovery](https://github.com/Ri0n72Y/hackathon-platform/issues/20)\n```'
-  assert.equal(parseLabourComment(issue2)?.hours, 3)
-  assert.equal(parseLabourComment(issue5)?.outcome,
-    '[测试网站](https://hackathon-platform-sigma-drab.vercel.app/)')
-  assert.equal(parseLabourComment(issue20)?.hours, 0.5)
-  const result = summarizeIssueComments([comment(2, issue2), comment(5, issue5),
-    comment(20, issue20)], true)
-  assert.equal(result.hours, 4.5)
-  assert.equal(result.complete, true)
-  assert.equal(result.records.length, 3)
+test('external fenced YAML preserves block and inline text without relying on the formatter',()=>{
+  const block='\x60\x60\x60yaml\nlabour:\n  work: |\n    first line\n    second line\n  hr: ~0.5\n  outcome: |\n    [result](https://example.org/result)\n\x60\x60\x60'
+  const inline='\x60\x60\x60yml\nlabour:\n  work: single line\n  hr: ~1\n  outcome: [result](https://example.org/result)\n\x60\x60\x60'
+  assert.deepEqual(parseLabourComment(block),{work:'first line\nsecond line',hours:0.5,
+    outcome:'[result](https://example.org/result)',commits:[],startEnd:null})
+  assert.deepEqual(parseLabourComment(inline),{work:'single line',hours:1,
+    outcome:'[result](https://example.org/result)',commits:[],startEnd:null})
 })
 
 test('#69 quote replies bind permalink to owner/repo/issue/comment and never count quoted labour',()=>{
@@ -106,7 +112,10 @@ test('#69 quote replies bind permalink to owner/repo/issue/comment and never cou
   const lines=reply.split('\n').slice(2,-2)
   assert.ok(lines.every(line=>line.startsWith('> ')))
   assert.doesNotMatch(reply,/(?:^|\n)labour:/)
-  assert.doesNotMatch(reply,/<script>/g.test(original)?/(^|[^\\])<script>/:/<script>/)
+  if(original.includes('<script>')){
+   assert.ok(reply.includes('\\<script>'))
+   assert.doesNotMatch(reply,/(^|[^\\])<script>/)
+  }
   const result=summarizeIssueComments([comment(10,labour(2)),comment(11,reply)],true)
   assert.equal(result.hours,2);assert.equal(result.records.length,1)
   assert.deepEqual(result.invalidCandidates,[]);assert.equal(result.complete,true)
@@ -118,11 +127,16 @@ test('#69 quote replies bind permalink to owner/repo/issue/comment and never cou
  assert.doesNotMatch(reply,/\]\(javascript:/)
  assert.ok(reply.includes('\\@person'))
  assert.ok(reply.includes('\\<img>'))
- const bounded=createQuoteReply(comment(1,'😀'.repeat(1500)),'example','repo',1)
- assert.equal(Array.from(bounded.excerpt).length,1000)
- assert.equal(bounded.truncated,true)
- assert.match(buildCommentReply('draft',bounded),/引用已截取/)
- const malformed=summarizeIssueComments([comment(1,labour(0.3))],true)
- assert.deepEqual(malformed.invalidCandidates,[1])
- assert.equal(malformed.complete,false)
+ for(const size of [999,1000,1001]){
+  const bounded=createQuoteReply(comment(1,'😀'.repeat(size)),'example','repo',1)
+  assert.equal(bounded.excerpt,'😀'.repeat(Math.min(size,1000)))
+  assert.equal(bounded.truncated,size>1000)
+  assert.equal(buildCommentReply('draft',bounded).includes('引用已截取'),size>1000)
+ }
+ for(const size of [11,12,13]){
+  const lines=Array.from({length:size},(_,i)=>'line '+i)
+  const bounded=createQuoteReply(comment(1,lines.join('\n')),'example','repo',1)
+  assert.equal(bounded.excerpt,lines.slice(0,12).join('\n'))
+  assert.equal(bounded.truncated,size>12)
+ }
 })

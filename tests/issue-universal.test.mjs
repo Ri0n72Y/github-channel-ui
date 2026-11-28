@@ -1,6 +1,5 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { validIssueForPage, validChannelIssue } from '../plugins/issue-detail/src/domain.mjs'
 import { loadIssueContent } from '../plugins/issue-detail/src/load-issue.mjs'
 
@@ -31,15 +30,6 @@ function fakeApi(value, options = {}) {
   return { service, calls }
 }
 
-test('domain TypeScript declarations preserve separate Issue and Channel contracts', () => {
-  const declarations = readFileSync(new URL('../plugins/issue-detail/src/domain.d.mts',
-    import.meta.url), 'utf8')
-  assert.match(declarations,
-    /export function validIssueForPage\(issue: unknown\): boolean/)
-  assert.match(declarations,
-    /export function validChannelIssue\(issue: unknown, allowedLabels: string\[\]\): boolean/)
-})
-
 test('universal validity accepts ordinary, multiple-Channel and Open/Closed Issues', () => {
   for (const labels of [[], ['status:todo'], [{ name: 'channel:discussion' }],
     [{ name: 'channel:discussion' }, { name: 'channel:other' }],
@@ -69,7 +59,7 @@ test('generic Issue loading does not depend on Config', async () => {
     const { service, calls } = fakeApi(issue(28, labels))
     const loaded = await loadIssueContent(service, 'sample', 'repo', 28, new AbortController().signal)
     assert.equal(loaded.issue.number, 28)
-    assert.equal(loaded.first.items.length, 1)
+    assert.deepEqual(loaded.first,{items:[labour(28)],hasMore:false})
     assert.deepEqual(calls, ['issue:sample/repo/28', 'comments:sample/repo/28/1'])
   }
 })

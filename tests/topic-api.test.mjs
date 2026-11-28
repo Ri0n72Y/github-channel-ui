@@ -73,19 +73,10 @@ test('legacy exported aggregation excludes source and deduplicates case-insensit
   assert.equal(result.ended, true)
 })
 
-test('#31 source and Search failures remain retryable errors distinct from empty result', async () => {
-  const m = fixture({ rateLimit: true })
-  const endpoint = createTopicProjectsEndpoint({ fetcher: m.fetcher })
-  const response = await endpoint.fetch(new Request(url('topic-projects') + '&page=2&head='+HEAD))
-  assert.equal(response.status, 429)
-  const body = await response.json()
-  assert.equal(body.stage, 'topic-search')
-  assert.equal(body.retryable, true)
-  assert.ok(body.error.includes('限流'))
-  const privateRepo = fixture({ private: true })
-  const invalid = await createTopicPageEndpoint({ fetcher: privateRepo.fetcher })
-    .fetch(new Request(url('topic-page')))
-  assert.equal(invalid.status, 404)
+test('private source repository cannot expose Topic metadata',async()=>{
+  const privateRepo=fixture({private:true})
+  const invalid=await createTopicPageEndpoint({fetcher:privateRepo.fetcher}).fetch(new Request(url('topic-page')))
+  assert.equal(invalid.status,404)
 })
 
 test('#31 Topic API POST is rejected and source target validation occurs before GitHub', async () => {

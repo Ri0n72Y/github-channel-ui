@@ -47,25 +47,6 @@ test('#83 public search excludes private, malformed, mismatched and source candi
   assert.deepEqual((await response.json()).items.map(p=>p.id),[1,2])
   assert.equal(mock.calls.length,6)
 })
-test('#83 incomplete Search, throttling and invalid cursor fail closed',async()=>{
-  const incomplete=searchMock({incomplete:true})
-  const response=await createTopicProjectsEndpoint({fetcher:incomplete.fetcher})
-    .fetch(new Request('https://labour.test'+address))
-  assert.equal(response.status,502)
-  assert.equal((await response.json()).stage,'topic-search')
-  const limited=searchMock()
-  const throttled=await createTopicProjectsEndpoint({fetcher:(url,init)=>
-    new URL(url).pathname==='/search/repositories'?
-      reply(403,{}, {'x-ratelimit-remaining':'0'}):limited.fetcher(url,init)})
-    .fetch(new Request('https://labour.test'+address))
-  assert.equal(throttled.status,429)
-  assert.equal((await throttled.json()).stage,'topic-search')
-  const invalid=searchMock()
-  const result=await createTopicProjectsEndpoint({fetcher:invalid.fetcher})
-    .fetch(new Request('https://labour.test'+address+'&offset=90'))
-  assert.equal(result.status,400)
-  assert.equal(invalid.calls.length,0)
-})
 test('#83 public batch fills sparse pages, dedups stable ID and distinguishes window exhaustion',async()=>{
   const meta={repository:{full_name:'sample/repo'},
     config:{whitelist:true},allowedRepositories:['member/p1','member/p2']}
@@ -87,7 +68,7 @@ test('#83 public batch fills sparse pages, dedups stable ID and distinguishes wi
   assert.equal(result.cursor,null)
   const aborted=new AbortController()
   aborted.abort()
-  await assert.rejects(loadInstalledTopicBatch(meta,getPage,aborted.signal))
+  await assert.rejects(loadInstalledTopicBatch(meta,()=>assert.fail('aborted batch must not read'),aborted.signal),/aborted/i)
 })
 
 function configMock({protectedBranch=false,appWrite=true,appPrWrite=true,

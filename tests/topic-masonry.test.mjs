@@ -4,13 +4,12 @@ import { layoutMasonry, masonryColumns } from '../plugins/topic-page/src/masonry
 
 const keys = n => Array.from({ length:n },(_,i)=>'repo-'+(i+1))
 
-test('#83 actual measured 323/369 heights pack by shortest column, not grid rows',()=>{
- const heights=[323,369,390,405,420,...Array(7).fill(250)]
- const result=layoutMasonry({keys:keys(12),heights,width:1288})
+test('new cards use the currently shortest column rather than a row grid',()=>{
+ const heights=[323,369,390,405,420,250]
+ const result=layoutMasonry({keys:keys(heights.length),heights,width:1288,gap:7})
  assert.equal(result.columns,5)
- assert.equal(result.assignments[5],0)
- assert.equal(result.positions[5].top,336)
- assert.ok(result.positions[5].top < 369)
+ assert.deepEqual(result.assignments,[0,1,2,3,4,0])
+ assert.equal(result.positions[5].top,heights[0]+7)
  assert.equal(result.positions[5].left,result.positions[0].left)
 })
 test('#83 incremental append preserves old keys, columns and positions',()=>{
@@ -18,16 +17,27 @@ test('#83 incremental append preserves old keys, columns and positions',()=>{
  const next=layoutMasonry({keys:keys(12),heights:[240,300,280,290,260,330,345,275,315,350,300,255],width:1288,previous:first})
  assert.deepEqual(next.assignments.slice(0,7),first.assignments)
  assert.deepEqual(next.positions.slice(0,7),first.positions)
- assert.equal(new Set(next.keys).size,12)
+ assert.deepEqual(next.keys,keys(12))
 })
 test('#83 image load / failure reflows y but never jumps an already visible key to another column',()=>{
- const old=layoutMasonry({keys:keys(10),heights:[220,270,240,230,200,160,160,160,160,160],width:1288})
- const changed=layoutMasonry({keys:keys(10),heights:[380,270,240,230,200,160,160,160,160,160],width:1288,previous:old})
- assert.deepEqual(changed.assignments,old.assignments)
- assert.ok(changed.positions[5].top>=old.positions[5].top)
+ const heights=[220,270,240,230,200,160,160,160,160,160]
+ const old=layoutMasonry({keys:keys(10),heights,width:1288})
+ assert.ok(old.assignments.slice(1).includes(old.assignments[0]),'a later card must depend on the changed height')
+ for(const delta of [-80,160]){
+  const changed=layoutMasonry({keys:keys(10),heights:heights.map((h,i)=>i===0?h+delta:h),width:1288,previous:old})
+  assert.deepEqual(changed.assignments,old.assignments)
+  for(const [i,position] of changed.positions.entries()){
+   const affected=i>0&&old.assignments[i]===old.assignments[0]
+   assert.deepEqual(position,{...old.positions[i],top:old.positions[i].top+(affected?delta:0)})
+  }
+ }
 })
 test('#83 responsive columns 5/4/3/2/1 reflow on CSS viewport width',()=>{
- assert.deepEqual([1288,950,716,520,347,292].map(masonryColumns),[5,4,3,2,1,1])
+ for(const [threshold,next] of [[460,2],[640,3],[880,4],[1100,5]]){
+  assert.equal(masonryColumns(threshold-1),next-1)
+  assert.equal(masonryColumns(threshold),next)
+  assert.equal(masonryColumns(threshold+1),next)
+ }
  const desktop=layoutMasonry({keys:keys(10),heights:Array(10).fill(210),width:1288})
  const tablet=layoutMasonry({keys:keys(10),heights:Array(10).fill(210),width:716,previous:desktop})
  assert.equal(tablet.columns,3)
@@ -50,5 +60,5 @@ test('#83 measured positions do not overlap and height contains final cards',()=
 test('#83 empty and rejected layout never makes up measurements',()=>{
  assert.equal(layoutMasonry({keys:[],heights:[],width:700}).height,0)
  assert.throws(()=>layoutMasonry({keys:keys(2),heights:[30],width:700}),RangeError)
- assert.throws(()=>layoutMasonry({keys:keys(1),heights:[30],width:0}),RangeError)
+ for(const width of [-1,0,NaN,Infinity])assert.throws(()=>layoutMasonry({keys:keys(1),heights:[30],width}),RangeError)
 })

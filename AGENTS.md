@@ -13,6 +13,7 @@ This repository provides reusable React/Cordis client plugins, pure domain modul
 ## 测试维护
 
 - 遵循 [dependency-risk-testing](https://github.com/Ri0n72Y/agent-identity/blob/main/.agents/skills/dependency-risk-testing/SKILL.md)：从实际生产责任边界出发，说明结构性依赖风险、能拒绝错误实现的用例及可观察失败。优先最近的有效保护；不得以历史 Issue、测试数量或 CI 绿色替代意义判断。
+- 永久回归用例应证明可重复的结构性风险：列出可能的错误实现、能使错误显现的输入或状态转换、可观察失败及最近的保护边界。长度/数值/分页/权限等边界须用合法基准与临界反例，避免仅用原始事故样本、先天无效输入、OR 断言掩盖独立条件、永真或未被实际调用的 mock 断言。必要时用定向反例验证区分能力；不要求新增全套 mutation 框架。
 - 以现行产品契约和实际行为为测试依据。修改或删除功能时，同步更新、合并或删除对应旧测试；新增回归前先检查现有覆盖。
 - 业务计算、数据契约、授权、真实写入防重、未知结果、并发、分页、缓存、路由和生命周期保护不得因精简而丢失。用可控 mock/fixture 验证，不对真实 GitHub 写入。
 - 优先调用公共 API、渲染组件或触发实际 DOM 事件。避免固定 CSS 数值、选择器、属性排列、变量名和内部函数调用顺序的源码断言。仅对稳定架构、安全或构建配置契约保留必要的静态检查；不得用 JSDOM 或 CSS 字符串冒充真实浏览器布局验收。

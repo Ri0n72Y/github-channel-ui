@@ -77,3 +77,22 @@ npm run test:dom
 - Channel Handler 与普通 Issue 创建安装授权具有独立写入/读取风险，加入现有 critical 清单；不改变 workflow 或批准后 full-regression 门槛。全量目录中未选入常规 CI 的改动仍须通过完整回归确认。
 
 本轮仍为定向清理，尚不代表全部用例的生产依赖逐项审计完成。线上运行以新提交实际结果为准。
+
+## 严格筛选：边界和区分能力（基于 5e00cd77）
+
+已核对基线线上 CI #46106908035：16 installation / 222 critical / 78 DOM / 4 router / 7 policy，327/327；完整 Node 回归 skipped。先回读生产函数、直接消费者和断言，再按风险作删减决定。单次历史事故、测试名称、任意输入和 CI 绿色均不能单独构成保留依据。
+
+| 责任边界 | 错误实现与旧测试缺陷 | 保留或替代的有效保护 |
+|---|---|---|
+| issue-detail/domain.mjs 的工时表示与累计 | 非半小时、超安全整数、重复评论或冲突 SHA 计入总工时；三个历史 Issue 样本只重复常规 hr | 最小合法值/相邻无效值/安全上限；读写格式拒绝无效数字；独立真实 YAML 输入、正常累计、重复 ID、SHA 冲突及未读完的不完整状态。删除历史业务数据依赖 |
+| quote-reply.mjs | 引用截断临界错误、拆 Unicode codepoint、伪造链接或把引用当劳动记录；1500 字单点无法判定边界 | 999/1000/1001 codepoint、11/12/13 行；明确转义和引用劳动隔离 |
+| repo-config/domain.mjs | 移除长度保护后仍拒绝任意无效内容；重复 YAML 映射或归一化后重复名称；解析、计划、预览反复跑相同错误 | 合法 Config 长度 256Ki 字符 -1/0/+1；语法等价类及大小写冲突在 parser；planner 独立验证不可执行快照及空 namespace 的含义；preview 仅用解码失败与非法映射代表验证不枚举后续数据、不生成计划 |
+| repo-home/domain.mjs previewMarkdown | 预算截断跨越一个普通 token、拆断结构化 token、泄漏后续链接；旧长 URL 图片成本实际为 115，160 预算并未触发超限分支 | 普通 ASCII/CJK 前/等于/后预算，精确前缀与截断信号；100 预算下实际超限的首个图片和链接保持完整；保留文本/图片/视频原始顺序测试 |
+| topic-page/masonry.mjs | 完全不更新位置仍满足旧 `>=` 断言；任意宽度不足以证明切换边界 | 同列后续卡片高度增减必须位移相应量、其他列位置不变；实际阈值 460/640/880/1100 前/等于/后；新卡最短列、非默认 gap、保留 key、非有限宽度拒绝 |
+| _topic-projects / loadInstalledTopicBatch / browser service | 第一页/后续页失败被当成功、循环/越界游标、服务端接受本地 slice offset | 在 topic-pagination 合并首/后续页 × 限流/不完整；保持 HTTP retryable、前置目标校验不访问 GitHub、游标严格推进的独立保护；删除 topic-p1-83/topic-api 的重复 HTTP 检查。browser service 自有 25-item 切片、同 HEAD 刷新、缓存失效另有独立测试 |
+| Issue loader 与 view | .d.mts 字符串和固定 DOM 层级没有实际风险；OR 断言掩盖评论或错误反馈丢失；重复 split 滚动测试 | 保留 loader 输出、调用隔离、取消；删除声明格式检查；视口在模式阈值及代表矮视口转换时同时验证两项内容、草稿及分页；滚动在 79/80/81 距离边界、焦点及无新请求合并保护 |
+| Repo Title / CI policy | 固定三个 DOM child 和重复 titleLayout 数值、CI 表达式字面重复 | 保留实际 resize 生命周期、展示信息及来源链接、真实图片失败；取消重复纯 helper 检查和固定 DOM 包装层；CI 调度表达式行为模型保留，移除重复文字匹配 |
+
+对四个修改后的测试回调，直接加载基线实际生产源码，使用 V8 小型断言适配器执行原函数及单点内存变异；原实现均通过，四个错误实现均拒绝：不更新 Masonry top、删除 Config 长度限制、截断首个原子 Markdown token、放宽工时半小时精度。这是定向区分能力实验，不是 Node 测试运行或全面 mutation coverage；变异未写入仓库。旧 Masonry 断言确实接受完全不更新位置的结果。其他改动待真实 CI 运行。
+
+本轮减少 5 个声明测试（Config preview、Repo Home、Topic p1、Issue universal、DOM 各 1），保留独立权限、签名、并发、持久化、读取预算及数据契约。对于不同授权调用点或错误传播路径，不因历史标题相似直接删除。其余用例仍未全部逐项证明区分能力；继续保持集成门槛，不将本轮记录称为完整审计结论。

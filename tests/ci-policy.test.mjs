@@ -54,8 +54,7 @@ test('light CI selects explicit, non-overlapping business scenarios without hidd
   }
 })
 
-test('PR stale runs cancel, main does not, no deploy', () => {
-  assert.ok(workflow.includes("cancel-in-progress: ${{ github.event_name == 'pull_request' }}"))
+test('routine CI uses read-only repository permissions and has no deploy command', () => {
   assert.ok(workflow.includes('contents: read'))
   assert.doesNotMatch(workflow,/vercel deploy|secrets\.VERCEL_TOKEN/)
 })

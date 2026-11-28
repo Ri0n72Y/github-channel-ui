@@ -1440,9 +1440,12 @@ test('#69 B2 scroll-to-bottom stays in composer dock and targets split reading o
   assert.equal(svc.calls.length,before,'compact scrolling never requests another comment page')
 
   await act(async()=>{viewport.height=812;viewport.dispatchEvent(new Event('resize'))})
-  reading.scrollTop=700
-  await act(async()=>reading.dispatchEvent(new Event('scroll')))
-  assert.equal(app.host.querySelector('button[aria-label="滚动到底部"]'),null,'short reading distance hides the scroll action')
+  for(const remaining of [81,80,79,0]){
+   reading.scrollTop=700-remaining
+   await act(async()=>reading.dispatchEvent(new Event('scroll')))
+   assert.equal(Boolean(app.host.querySelector('button[aria-label="滚动到底部"]')),remaining>80)
+  }
+  assert.equal(svc.calls.length,before)
  }finally{
   await app.close()
   if(descriptor)Object.defineProperty(window,'visualViewport',descriptor)
@@ -1473,16 +1476,16 @@ test('#69 B2 visual viewport resize keeps quote, feedback, last comment and pagi
   await flush()
   assert.equal(writes,1)
   assert.match(app.host.textContent,/避免重复发表/)
-  for(const height of [480,479,320,280,240,200,160,120,80,812]){
+  for(const height of [480,479,160,812]){
    await act(async()=>{viewport.height=height;viewport.dispatchEvent(new Event('resize'))})
    assert.equal(page.dataset.heightMode,height<480?'compact':'split')
-   assert.equal(page.style.getPropertyValue('--issue-available-height'),height+'px')
    assert.equal(app.host.querySelector('[aria-label="Issue 讨论面板"]'),shell)
    assert.equal(app.host.querySelector('[aria-label="Issue 阅读区"]'),reading)
    assert.equal(replyArea(app).value,'long draft\n'.repeat(1000))
    assert.ok(quotePreview(app))
    assert.ok(replySend(app))
-   assert.match(app.host.textContent,/last comment page 1|避免重复发表/)
+   assert.match(reading.textContent,/last comment page 1/)
+   assert.match(app.host.textContent,/避免重复发表/)
   }
   await act(async()=>{viewport.height=160;viewport.dispatchEvent(new Event('resize'))})
   await act(async()=>[...reading.querySelectorAll('button')].find(b=>b.textContent==='加载下一页评论').click())
@@ -1500,26 +1503,20 @@ test('#69 B2 visual viewport resize keeps quote, feedback, last comment and pagi
 })
 
 test('#99 Title layout uses measured card width, one identity/README/actions/team order, safe optional cover and secondary settings',async()=>{
- const source=(await server.ssrLoadModule('/plugins/repo-home/src/RepoHomePage.tsx'))
- for(const [width,layout] of [[320,'small'],[479,'small'],[480,'narrow'],[699,'narrow'],[700,'medium'],[1099,'medium'],[1100,'wide']])
-  assert.equal(source.titleLayout(width),layout)
  const cover='https://raw.githubusercontent.com/sample/repo/'+'a'.repeat(40)+'/banner.png'
  const api={getHome:async()=>({repository:{name:'repo',full_name:'sample/repo',description:'Real description',
   html_url:'https://github.com/sample/repo'},branch:'main',readme:{state:'ready',path:'README.md',content:'# repo\n\nReal description\n\nUnique README prose'},
   team:{state:'ready',members:[{id:'1',name:'Alice',role:'Reviewer'}]}}),
   getFeed:async(_o,_r,page)=>({page,hasMore:false,items:[]}),getCapability:async()=>({user:{login:'operator'},mode:'direct',branch:'main'})}
- for(const url of [undefined,cover,'javascript:alert(1)','https://raw.githubusercontent.com/other/repo/'+'a'.repeat(40)+'/banner.png']){
+ for(const url of [undefined,cover,'javascript:alert(1)']){
   const app=await mount('/sample/repo','/:owner/:repo',Home,{api,coverUrl:url})
   try{
    const title=app.host.querySelector('[data-title-layout]')
    const header=title.querySelector('header')
-   assert.equal(header.children.length,3)
-   assert.match(header.children[0].textContent,/sample\/repo.*Real description/)
-   assert.match(header.children[1].textContent,/Unique README prose/)
-   assert.doesNotMatch(header.children[1].textContent,/Real description/)
-   const actions=header.children[2]
-   assert.equal(actions.querySelector('a[href="/sample/repo/channels"]').textContent,'项目频道')
-   const more=actions.querySelector('details')
+   assert.match(header.textContent,/sample\/repo.*Real description.*Unique README prose/)
+   assert.equal(header.textContent.split('Real description').length-1,1)
+   assert.equal(header.querySelector('a[href="/sample/repo/channels"]').textContent,'项目频道')
+   const more=header.querySelector('details')
    assert.ok(more&&!more.open,'settings and source are secondary by default')
    assert.ok(more.querySelector('a[href="/sample/repo/config"]'))
    assert.ok(more.querySelector('a[href="https://github.com/sample/repo"]'))
@@ -2166,29 +2163,6 @@ test('#20 report modal keeps keyboard focus and restores opener, pending Escape 
  }finally{await app.close()}
 })
 
-
-test('#20 scroll to loaded discussion end is distance-gated and does not request or load more',async()=>{
- const svc=issueService({authorized:false})
- const app=await issueMount(svc)
- try{
-  const reading=app.host.querySelector('[aria-label="Issue 阅读区"]')
-  Object.defineProperties(reading,{clientHeight:{configurable:true,value:300},scrollHeight:{configurable:true,value:1000}})
-  reading.scrollTo=({top})=>{reading.scrollTop=top}
-  const scroll=()=>app.host.querySelector('[aria-label="滚动到底部"]')
-  const count=svc.calls.length
-  reading.scrollTop=100
-  await act(async()=>reading.dispatchEvent(new Event('scroll')))
-  assert.ok(scroll())
-  await act(async()=>scroll().click())
-  assert.equal(reading.scrollTop,700)
-  assert.equal(scroll(),null)
-  assert.equal(document.activeElement,reading,'focus remains in the discussion when the scroll action disappears')
-  assert.equal(svc.calls.length,count)
-  reading.scrollTop=670
-  await act(async()=>reading.dispatchEvent(new Event('scroll')))
-  assert.equal(scroll(),null)
- }finally{await app.close()}
-})
 
 test('#20 feed card preserves title, independent markdown link, expansion, selection and modifiers',async()=>{
  const Card=(await server.ssrLoadModule('/plugins/repo-home/src/RepoIssueActivityCard.tsx')).RepoIssueActivityCard

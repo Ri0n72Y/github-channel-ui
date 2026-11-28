@@ -63,13 +63,13 @@ function mockRead(options = {}) {
 test('#47 Config parsing distinguishes absent, empty, managed, and default suggested values', () => {
   const missing = parseConfigNamespaces(null)
   assert.equal(missing.state, 'config_missing')
-  assert.match(missing.defaultPreview, /wishlist/)
+  assert.equal(parseConfigNamespaces(missing.defaultPreview).state,'ready')
+  assert.equal(missing.defaultPreview,defaultConfigPreview())
   const parsed = parseConfigNamespaces(CONFIG)
   assert.equal(parsed.state, 'ready')
   assert.deepEqual(parsed.namespaces.status, ['status:todo', 'status:done'])
   assert.deepEqual(parsed.namespaces.foo, [])
   assert.deepEqual(parseConfigNamespaces(CONFIG.replace(/\n/g, '\r\n')).namespaces, parsed.namespaces)
-  assert.ok(defaultConfigPreview().includes('  status:'))
   assert.deepEqual(parseConfigNamespaces('namespaces:\n  channel: [wishlist, channel:general]\n')
     .namespaces.channel, ['channel:wishlist', 'channel:general'])
 })
@@ -82,37 +82,20 @@ test('#47 malformed, ambiguous or unsupported YAML fails closed', () => {
     'namespaces:\n  foo: [a]\n  foobar: [foo:bad]',
     'namespaces:\n  foo: [a\n', 'namespaces:\n  foo:\n    - a\n      bad: value',
     '---\nnamespaces:\n  foo: []', 'namespaces:\n  foo: []\n  bar:',
-    'namespaces:\n  foo: [a]\n  foo: [b]', 'namespaces:\n  foo: [] #comment',
+    'namespaces:\n  foo: [a]\n  FOO: [b]', 'namespaces:\n  foo: [] #comment',
+    'namespaces:\n  foo: [a, A]', 'namespaces:\n  foo:[]\n', 'namespaces:\n  foo:[bar]\n',
+    'namespaces:\n  foo:\u00a0[]\n',
   ]) {
     assert.equal(parseConfigNamespaces(source).state, 'invalid_config', source)
   }
-  assert.equal(parseConfigNamespaces('x'.repeat(300000)).state, 'invalid_config')
 })
 
-test('#47 B1: block mapping rejects missing separation after namespace colon', () => {
-  for (const source of [
-    'namespaces:\n  foo:[]\n',
-    'namespaces:\n  foo:[bar]\n',
-    'namespaces:\n  foo:[bar, baz]\n',
-    'namespaces:\n  foo:[]\n  status: [todo]\n',
-    'namespaces:\n  status: [todo]\n  foo:[]\n',
-    'namespaces:\n  foo:\u00a0[]\n',
-  ]) {
-    const parsed = parseConfigNamespaces(source)
-    assert.equal(parsed.state, 'invalid_config', source)
-    const plan = planLabelChanges(parsed, [{ name: 'foo:obsolete' }],
-      [issue(1, ['foo:obsolete'])], { complete: true })
-    assert.equal(plan.hasChanges, false)
-    assert.deepEqual(plan.removeIssueLabels, [])
-  }
-  const accepted = parseConfigNamespaces('namespaces:\n  foo: []\n')
-  assert.equal(accepted.state, 'ready')
-  assert.deepEqual(accepted.namespaces.foo, [])
-  assert.deepEqual(planLabelChanges(accepted, [{ name: 'foo:obsolete' }],
-    [issue(1, ['foo:obsolete'])], { complete: true }).removeIssueLabels,
-  [{ number: 1, labels: ['foo:obsolete'] }])
-  assert.deepEqual(parseConfigNamespaces('namespaces:\n  foo: [bar]\n').namespaces.foo,
-    ['foo:bar'])
+test('Config size boundary rejects otherwise valid oversized documents',()=>{
+  const base='namespaces:\n  status: [todo]\n'
+  const limit=256*1024
+  const valid=size=>base+'#'+'x'.repeat(size-base.length-1)
+  for(const size of [limit-1,limit])assert.deepEqual(parseConfigNamespaces(valid(size)),{state:'ready',namespaces:{status:['status:todo']}})
+  assert.equal(parseConfigNamespaces(valid(limit+1)).state,'invalid_config')
 })
 
 test('#47 full namespace-prefix matching never touches foobar or unmanaged tags; PRs excluded', () => {
@@ -201,36 +184,14 @@ test('#47 absent Config offers default preview but cannot trigger sync', async (
 })
 
 test('#47 corrupted file and invalid YAML never enumerate issues/labels or apply', async () => {
-  for (const opts of [{ invalidFile: true }, { configText: 'namespaces:\n  foo: [' }]) {
+  for (const opts of [{ invalidFile: true }, { configText: 'namespaces:\n  foo:[]\n' }]) {
     const mock = mockRead(opts)
     const result = await readRepoConfigPreview({ owner: 'octocat', repo: 'demo',
       accessFactory: mock.accessFactory, read: mock.read })
     assert.equal(result.state, 'invalid_config')
+    assert.equal(result.config.state,'invalid_config')
     assert.equal(result.plan, null)
-    assert.ok(!mock.calls.some(path => path.includes('/labels?') || path.includes('/issues?')))
-  }
-})
-
-test('#47 B1: malformed mapping cannot trigger Label/Issue enumeration or diff', async () => {
-  for (const configText of [
-    'namespaces:\n  foo:[]\n',
-    'namespaces:\n  foo:[bar]\n',
-    'namespaces:\n  status: [todo]\n  foo:[]\n',
-  ]) {
-    const mock = mockRead({
-      configText,
-      labelPages: [[{ name: 'foo:obsolete' }]],
-      issuePages: [[issue(1, ['foo:obsolete'])]],
-    })
-    const preview = await readRepoConfigPreview({
-      owner: 'octocat', repo: 'demo',
-      accessFactory: mock.accessFactory, read: mock.read,
-    })
-    assert.equal(preview.state, 'invalid_config', configText)
-    assert.equal(preview.config.state, 'invalid_config')
-    assert.equal(preview.plan, null)
-    assert.equal(preview.canApply, false)
-    assert.ok(mock.calls.some(path => path.includes('/contents/labourchain.config.yaml')))
+    assert.equal(result.canApply,false)
     assert.ok(!mock.calls.some(path => path.includes('/labels?') || path.includes('/issues?')))
   }
 })
