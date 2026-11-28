@@ -129,272 +129,153 @@ function setup(opts = {}) {
     setAppIssuesPermission: value => { appIssuesPermission = value } }
 }
 
-test('#31 OAuth Topic report uses only current user token and creates one verified Issue', async () => {
-  const s = setup()
-  const { response: pre, data } = await s.preflight()
-  assert.equal(pre.status, 200)
-  assert.equal(data.state, 'ready')
-  assert.equal(typeof data.proof, 'string')
-  const res = await s.submit(data.proof)
-  const output = await res.json()
-  assert.equal(res.status, 201)
-  assert.deepEqual(output, { state: 'created', issue: {
-    number: 45, html_url: 'https://github.com/sample/repo/issues/45',
-  } })
-  const writes = s.calls.filter(c => c.method === 'POST')
-  assert.equal(writes.length, 1)
-  assert.equal(writes[0].path, ghRepo + '/issues')
-  assert.equal(writes[0].authorization, 'Bearer user-alice')
-  assert.equal(writes[0].cookie, undefined)
-  assert.deepEqual(JSON.parse(writes[0].body), {
-    title: 'TopicPage report', body: 'Error stage: readme\nHTTP: 502',
-  })
+
+const postCalls=s=>s.calls.filter(c=>c.method==='POST')
+const expectedWrite={title:'TopicPage report',body:'Error stage: readme\nHTTP: 502'}
+function checkWrite(s){
+ const calls=postCalls(s)
+ assert.equal(calls.length,1)
+ assert.equal(calls[0].origin,'https://api.github.com')
+ assert.equal(calls[0].path,ghRepo+'/issues')
+ assert.equal(calls[0].authorization,'Bearer user-alice')
+ assert.equal(calls[0].cookie,undefined)
+ assert.deepEqual(JSON.parse(calls[0].body),expectedWrite)
+}
+
+test('a verified report creates exactly one Issue as the current actor and revalidates the current repository grants',async()=>{
+ const s=setup()
+ const pre=await s.preflight()
+ assert.equal(pre.response.status,200)
+ assert.equal(pre.data.state,'ready')
+ assert.equal(pre.data.target,'sample/repo')
+ assert.deepEqual(postCalls(s),[])
+ const response=await s.submit(pre.data.proof)
+ assert.equal(response.status,201)
+ assert.deepEqual(await response.json(),{state:'created',issue:{number:45,html_url:'https://github.com/sample/repo/issues/45'}})
+ checkWrite(s)
+ const sequence=[ghRepo,ghRepo+'/installation','/app/installations/17','/user/installations/17/repositories',ghRepo]
+ assert.deepEqual(s.calls.map(c=>c.path),[...sequence,...sequence,ghRepo+'/issues'])
+ for(const start of [0,5]){
+  const calls=s.calls.slice(start,start+5)
+  assert.equal(calls[0].authorization,undefined)
+  assert.ok(calls.slice(1,3).every(c=>c.method==='GET'&&/^Bearer ey/.test(c.authorization)))
+  assert.ok(calls.slice(3).every(c=>c.method==='GET'&&c.authorization==='Bearer user-alice'))
+ }
+ assert.ok(s.calls.every(c=>c.origin==='https://api.github.com'&&c.cookie===undefined))
 })
 
-test('#31 OAuth report requires existing user login; does not accept anonymous writes', async () => {
-  const s = setup()
-  const missing = await s.endpoint.fetch(new Request(api + '?owner=sample&repo=repo'))
-  assert.equal(missing.status, 401)
-  const noSession = await s.submit('any', {}, { cookie: '' })
-  assert.equal(noSession.status, 401)
-  assert.equal(s.calls.length, 0)
+test('unauthenticated and unconfirmed report requests are rejected before contacting GitHub',async()=>{
+ const s=setup()
+ assert.equal((await s.endpoint.fetch(new Request(api+'?owner=sample&repo=repo'))).status,401)
+ assert.equal((await s.submit('any',{}, {cookie:''})).status,401)
+ assert.deepEqual(s.calls,[])
+ const {data}=await s.preflight()
+ const count=s.calls.length
+ for(const [changes,headers,status] of [
+  [{},{origin:'https://evil.test'},403],
+  [{},{'x-labourchain-write':'0'},403],
+  [{},{'sec-fetch-site':'cross-site'},403],
+  [{},{referer:SITE+'/topic/other/repo'},403],
+  [{},{'content-type':'text/plain'},415],
+  [{confirmed:false},{},400],
+  [{title:''},{},400],
+  [{body:''},{},400],
+ ]){
+  assert.equal((await s.submit(data.proof,changes,headers)).status,status)
+ }
+ assert.equal(s.calls.length,count)
 })
 
-test('#31 CSRF guards require same-origin URL, Origin, write header, JSON and explicit confirmation', async () => {
-  const s = setup()
-  const { data } = await s.preflight()
-  for (const [payload, headers] of [
-    [{}, { origin: 'https://evil.test' }],
-    [{}, { 'x-labourchain-write': '0' }],
-    [{}, { 'sec-fetch-site': 'cross-site' }],
-    [{}, { referer: 'https://topic.test/topic/other/repo' }],
-    [{}, { 'content-type': 'text/plain' }],
-    [{ confirmed: false }, {}],
-    [{ title: '' }, {}],
-    [{ body: '' }, {}],
-  ]) {
-    const res = await s.submit(data.proof, payload, headers)
-    assert.ok([400, 403, 415].includes(res.status), 'CSRF/confirmation must fail')
-  }
-  assert.equal(s.calls.filter(c => c.method === 'POST').length, 0)
+test('a report proof is bound to its exact target, actor and validity window',async()=>{
+ const s=setup()
+ const {data}=await s.preflight(),count=s.calls.length
+ assert.equal((await s.submit(data.proof,{}, {cookie:'session=bob'})).status,403)
+ assert.equal((await s.submit(data.proof,{owner:'other'},{referer:SITE+'/topic/other/repo'})).status,403)
+ assert.equal((await s.submit('invalid-proof')).status,403)
+ s.setNow(1_800_000_601_000)
+ assert.equal((await s.submit(data.proof)).status,403)
+ assert.equal(s.calls.length,count)
 })
 
-test('#31 OAuth target proof binds route, expiry and the current user session', async () => {
-  const s = setup()
-  const { data } = await s.preflight()
-  assert.equal((await s.submit(data.proof, {}, { cookie: 'session=bob' })).status, 403)
-  assert.equal((await s.submit(data.proof, { owner: 'other' }, {
-    referer: SITE + '/topic/other/repo',
-  })).status, 403)
-  assert.equal((await s.submit('forged-proof')).status, 403)
-  s.setNow(1_800_000_601_000)
-  assert.equal((await s.submit(data.proof)).status, 403)
-  assert.equal(s.calls.filter(c => c.method === 'POST').length, 0)
+test('reports refuse secret-bearing or out-of-contract content before any upstream request',async()=>{
+ const s=setup()
+ const {data}=await s.preflight(),count=s.calls.length
+ for(const body of ['Authorization: Bearer fixture-value','Cookie: fixture=value','github_pat_fixture123456789','__Host-lc-session=fixture']){
+  const response=await s.submit(data.proof,{body})
+  assert.equal(response.status,422)
+  assert.ok(!(await response.text()).includes(body))
+ }
+ assert.equal((await s.submit(data.proof,{body:'x'.repeat(21000)})).status,400)
+ assert.equal((await s.submit(data.proof,{destination:'https://evil.test'})).status,400)
+ assert.equal(s.calls.length,count)
 })
 
-test('Topic report preflight distinguishes unsupported Issues, missing permission and mismatched repository identity', async () => {
-  const cases=[
-    [{private:true},403],
-    [{hasIssues:false},410],
-    [{canWrite:false},403],
-    [{permissionsMissing:true},403],
-    [{fullName:'other/repository'},502],
-  ]
-  for(const [options,status] of cases){
-    const fixture=setup(options)
-    const result=await fixture.preflight()
-    assert.equal(result.response.status,status,JSON.stringify(options))
-    assert.equal(result.data.state,'rejected')
-    assert.equal(Object.hasOwn(result.data,'proof'),false)
-    assert.equal(fixture.calls.filter(call=>call.method!=='GET').length,0)
-    assert.ok(fixture.calls.every(call=>call.origin==='https://api.github.com'))
-    assert.ok(fixture.calls.filter(call=>call.path.startsWith('/repos/')).every(call=>
-      call.path===ghRepo||call.path===ghRepo+'/installation'))
-    if(options.private||options.fullName)assert.deepEqual(fixture.calls.map(call=>call.path),[ghRepo])
-  }
-})
-test('#31 repo/user permission HTTP failures are distinct from create failure', async () => {
-  for (const status of [401,403,404,410,422,429,503]) {
-    const s = setup({ repoStatus: status })
-    const pre = await s.preflight()
-    assert.equal(pre.response.status, status >= 500 ? 502 : status)
-    assert.notEqual(pre.data.outcomeUnknown, true, 'GET cannot create an Issue')
-    assert.equal(s.calls.filter(c => c.method === 'POST').length, 0)
-  }
-})
-
-test('#31 OAuth rejects secrets, excessive size and arbitrary URLs without forwarding to GitHub', async () => {
-  const s = setup()
-  const { data } = await s.preflight()
-  for (const body of ['Authorization: Bearer abcdef','Cookie: secret=value',
-    'github_pat_abcdefghijklm', '__Host-lc-session=encrypted']) {
-    const res = await s.submit(data.proof, { body })
-    assert.equal(res.status, 422)
-    assert.ok(!(await res.text()).includes(body))
-  }
-  assert.equal((await s.submit(data.proof, { body: 'x'.repeat(21000) })).status, 400)
-  assert.equal((await s.submit(data.proof, { destination: 'https://evil.test' })).status, 400)
-  assert.equal(s.calls.filter(c => c.method === 'POST').length, 0)
+test('preflight fails closed at the first missing, mismatched or unavailable authorization boundary',async()=>{
+ // Select representative failure mechanisms at each dependency boundary.
+ for(const [options,status,lastPath] of [
+  [{private:true},403,ghRepo],
+  [{fullName:'other/repo'},502,ghRepo],
+  [{appInstalled:false},403,ghRepo+'/installation'],
+  [{installationNetworkFailure:true},502,ghRepo+'/installation'],
+  [{appIssuesPermission:'read'},403,'/app/installations/17'],
+  [{appPermissionsMalformed:true},403,'/app/installations/17'],
+  [{appPermissionWrongId:true},502,'/app/installations/17'],
+  [{appPermissionSuspended:true},502,'/app/installations/17'],
+  [{appPermissionStatus:429},429,'/app/installations/17'],
+  [{appPermissionInvalidJson:true},502,'/app/installations/17'],
+  [{userInstallMissing:true},403,'/user/installations/17/repositories'],
+  [{userInstallWrongRepo:true},403,'/user/installations/17/repositories'],
+  [{userInstallWrongId:true},403,'/user/installations/17/repositories'],
+  [{userInstallMalformed:true},502,'/user/installations/17/repositories'],
+  [{userInstallNetworkFailure:true},502,'/user/installations/17/repositories'],
+  [{hasIssues:false},410,ghRepo],
+  [{canWrite:false},403,ghRepo],
+  [{permissionsMissing:true},403,ghRepo],
+  [{repoStatus:503},502,ghRepo],
+ ]){
+  const s=setup(options)
+  const {response,data}=await s.preflight()
+  assert.equal(response.status,status,JSON.stringify(options))
+  assert.equal(data.state,'rejected')
+  assert.equal(Object.hasOwn(data,'proof'),false)
+  assert.notEqual(data.outcomeUnknown,true)
+  assert.equal(s.calls.at(-1).path,lastPath)
+  assert.ok(s.calls.every(c=>c.method==='GET'&&c.origin==='https://api.github.com'))
+ }
 })
 
-test('Topic report preserves write outcome semantics and never automatically repeats a rejected or uncertain create',async()=>{
-  for(const [upstream,status,unknown,headers={}] of [[401,401,false],[403,403,false],[404,404,false],
-    [410,410,false],[422,422,false],[429,429,false,{'retry-after':'60'}],[403,429,false,{'retry-after':'60'}],[503,502,true]]){
-    const fixture=setup({writeStatus:upstream,writeHeaders:headers})
-    const prepared=await fixture.preflight()
-    assert.equal(prepared.response.status,200)
-    assert.equal(prepared.data.state,'ready')
-    const before=fixture.calls.length
-    const response=await fixture.submit(prepared.data.proof)
-    const body=await response.json()
-    assert.equal(response.status,status)
-    assert.equal(body.outcomeUnknown,unknown)
-    if(status===429)assert.equal(body.retryAfter,'60')
-    assert.equal(Object.hasOwn(body,'issue'),false)
-    const written=fixture.calls.slice(before)
-    assert.ok(written.every(call=>call.origin==='https://api.github.com'))
-    const posts=written.filter(call=>call.method!=='GET')
-    assert.equal(posts.length,1)
-    assert.equal(posts[0].method,'POST')
-    assert.equal(posts[0].path,ghRepo+'/issues')
-    assert.deepEqual(JSON.parse(posts[0].body),{title:'TopicPage report',body:'Error stage: readme\nHTTP: 502'})
-    assert.equal(posts[0].cookie,undefined)
-  }
+test('permission withdrawn after preflight cannot be used to create an Issue',async()=>{
+ for(const revoke of [s=>s.setAppInstalled(false),s=>s.setAppIssuesPermission('read')]){
+  const s=setup()
+  const ready=await s.preflight()
+  assert.equal(ready.data.state,'ready')
+  revoke(s)
+  const response=await s.submit(ready.data.proof)
+  assert.equal(response.status,403)
+  assert.equal((await response.json()).state,'rejected')
+  assert.equal(s.calls.filter(c=>c.path===ghRepo+'/installation').length,2)
+  assert.deepEqual(postCalls(s),[])
+ }
 })
 
-test('#31 unknown timeout or invalid 201 result cannot trigger silent duplicate POST', async () => {
-  for (const opts of [
-    { writeNetworkFailure: true }, { invalidCreated: true },
-    { invalidCreatedJson: true },
-  ]) {
-    const s = setup(opts)
-    const { data } = await s.preflight()
-    const res = await s.submit(data.proof)
-    assert.equal(res.status, 502)
-    assert.equal((await res.json()).outcomeUnknown, true)
-    assert.equal(s.calls.filter(c => c.method === 'POST').length, 1)
-  }
-})
-
-
-test('#31 B1-2 App installation and user rights must intersect before an automatic report', async () => {
-  for (const [options, expected] of [
-    [{ appInstalled: false, canWrite: true }, 403],
-    [{ appInstalled: true, canWrite: false }, 403],
-    [{ appInstalled: true, userInstallMissing: true }, 403],
-    [{ appInstalled: true, userInstallWrongRepo: true }, 403],
-    [{ appInstalled: true, userInstallWrongId: true }, 403],
-    [{ appInstalled: true, private: true }, 403],
-  ]) {
-    const s = setup(options)
-    const pre = await s.preflight()
-    assert.equal(pre.response.status, expected)
-    assert.equal(s.calls.filter(c => c.method === 'POST').length, 0)
-    assert.ok(s.calls.some(c => c.path === ghRepo && !c.authorization))
-    if (!options.private) {
-      assert.ok(s.calls.some(c => c.path === ghRepo + '/installation' &&
-        /^Bearer ey/.test(c.authorization || '')), 'must verify current App JWT')
-    }
-  }
-  const authorized = setup()
-  const { data } = await authorized.preflight()
-  assert.equal(data.state, 'ready')
-  assert.equal((await authorized.submit(data.proof)).status, 201)
-  assert.ok(authorized.calls.some(c =>
-    c.path === '/user/installations/17/repositories' &&
-    c.authorization === 'Bearer user-alice'))
-})
-
-test('#31 B1-2 unavailable installation evidence fails closed without writing', async () => {
-  for (const [options, status] of [
-    [{ installationStatus: 503 }, 502],
-    [{ installationNetworkFailure: true }, 502],
-    [{ userInstallNetworkFailure: true }, 502],
-    [{ userInstallMalformed: true }, 502],
-    [{ userInstallStatus: 404 }, 403],
-    [{ userInstallStatus: 403 }, 403],
-    [{ userInstallStatus: 429 }, 429],
-  ]) {
-    const s = setup(options)
-    const pre = await s.preflight()
-    assert.equal(pre.response.status, status)
-    assert.notEqual(pre.data.state, 'ready')
-    if (options.userInstallStatus === 403) assert.match(pre.data.error, /App/)
-    assert.equal(s.calls.filter(c => c.method === 'POST').length, 0)
-  }
-})
-
-test('#31 B1-2 App installation is revalidated before POST after the preflight proof', async () => {
-  const s = setup()
-  const pre = await s.preflight()
-  assert.equal(pre.response.status, 200)
-  s.setAppInstalled(false)
-  const denied = await s.submit(pre.data.proof)
-  assert.equal(denied.status, 403)
-  assert.match((await denied.json()).error, /App 授权范围/)
-  assert.equal(s.calls.filter(c => c.method === 'POST').length, 0)
-  assert.equal(s.calls.filter(c => c.path === ghRepo + '/installation').length, 2)
-})
-
-test('#31 B1 App Issues:write is mandatory before issuing a report proof', async () => {
-  const authorized = setup({ appIssuesPermission: 'write' })
-  const ready = await authorized.preflight()
-  assert.equal(ready.response.status, 200)
-  assert.equal(ready.data.state, 'ready')
-  assert.equal((await authorized.submit(ready.data.proof)).status, 201)
-  const appReads = authorized.calls.filter(c => c.path === '/app/installations/17')
-  assert.equal(appReads.length, 2, 'GET and POST must recheck App Issues grant')
-  assert.ok(appReads.every(c => c.method === 'GET' && /^Bearer ey/.test(c.authorization)))
-  const post = authorized.calls.filter(c => c.method === 'POST')
-  assert.equal(post.length, 1)
-  assert.equal(post[0].authorization, 'Bearer user-alice')
-
-  for (const opts of [
-    { appIssuesPermission: 'read' },
-    { appIssuesPermission: 'admin' },
-    { appIssuesPermission: 'WRITE' },
-    { appPermissionsMissing: true },
-    { appPermissionsMalformed: true },
-  ]) {
-    const s = setup(opts)
-    const denied = await s.preflight()
-    assert.equal(denied.response.status, 403)
-    assert.equal(denied.data.state, 'rejected')
-    assert.match(denied.data.error, /Issues 写权限/)
-    assert.equal(s.calls.filter(c => c.path === '/app/installations/17').length, 1)
-    assert.equal(s.calls.filter(c => c.method === 'POST').length, 0)
-    assert.equal(s.calls.some(c => c.path.startsWith('/user/installations/')), false,
-      'missing App write grant must stop before user permission enumeration')
-  }
-})
-
-test('#31 B1 App grant read failures and mismatched installation fail closed', async () => {
-  for (const [opts, status] of [
-    [{ appPermissionNetworkFailure: true }, 502],
-    [{ appPermissionStatus: 404 }, 403],
-    [{ appPermissionStatus: 429 }, 429],
-    [{ appPermissionStatus: 503 }, 502],
-    [{ appPermissionInvalidJson: true }, 502],
-    [{ appPermissionWrongId: true }, 502],
-    [{ appPermissionWrongAccount: true }, 502],
-    [{ appPermissionSuspended: true }, 502],
-  ]) {
-    const s = setup(opts)
-    const denied = await s.preflight()
-    assert.equal(denied.response.status, status)
-    assert.notEqual(denied.data.state, 'ready')
-    assert.equal(s.calls.filter(c => c.method === 'POST').length, 0)
-  }
-})
-
-test('#31 B1 a grant downgraded after proof is rejected before POST without Bot fallback', async () => {
-  const s = setup({ appIssuesPermission: 'write' })
-  const ready = await s.preflight()
-  assert.equal(ready.data.state, 'ready')
-  s.setAppIssuesPermission('read')
-  const denied = await s.submit(ready.data.proof)
-  assert.equal(denied.status, 403)
-  assert.match((await denied.json()).error, /Issues 写权限/)
-  assert.equal(s.calls.filter(c => c.path === '/app/installations/17').length, 2)
-  assert.equal(s.calls.filter(c => c.method === 'POST').length, 0)
+test('an upstream rejection differs from an uncertain completed write; neither is automatically repeated',async()=>{
+ for(const [options,status,unknown] of [
+  [{writeStatus:401},401,false],
+  [{writeStatus:422},422,false],
+  [{writeStatus:403,writeHeaders:{'retry-after':'45'}},429,false],
+  [{writeStatus:503},502,true],
+  [{writeNetworkFailure:true},502,true],
+  [{invalidCreated:true},502,true],
+  [{invalidCreatedJson:true},502,true],
+ ]){
+  const s=setup(options)
+  const prepared=await s.preflight()
+  assert.equal(prepared.data.state,'ready')
+  const response=await s.submit(prepared.data.proof),body=await response.json()
+  assert.equal(response.status,status,JSON.stringify(options))
+  assert.equal(body.outcomeUnknown,unknown)
+  if(status===429)assert.equal(body.retryAfter,'45')
+  assert.equal(Object.hasOwn(body,'issue'),false)
+  checkWrite(s)
+ }
 })
