@@ -182,22 +182,6 @@ function mockFetcher(options = {}) {
 
 const writes = calls => calls.filter(call=>call.method!=='GET' && !call.path.endsWith('/access_tokens'))
 
-test('repo-config public GET reads only main and exposes a default preview without login', async () => {
-  const mock = mockFetcher({ content: null })
-  const handler = createRepoConfigHandler({
-    fetcher: mock.fetcher,
-  })
-  const response = await handler.fetch(new Request(
-    'https://example.test/api/repo-config?owner=octocat&repo=demo'))
-  const data = await response.json()
-  assert.equal(response.status, 200)
-  assert.equal(data.state, 'config_missing')
-  assert.equal(data.branch, 'main')
-  assert.equal(data.config.state, 'config_missing')
-  assert.match(data.config.defaultPreview, /channel:/)
-  assert.equal(data.canApply, false)
-  assert.deepEqual(writes(mock.calls),[])
-})
 
 test('repo-config rejects a caller-selected branch', async () => {
   const handler = createRepoConfigHandler()

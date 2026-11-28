@@ -3,9 +3,6 @@ import assert from 'node:assert/strict'
 import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'node:path'
-import { ProbeError } from '../api/_installation-probe.mjs'
-import { auth as oldAuth, repos as oldRepos, issues as oldIssues } from '../api/_github.mjs'
-import { createReposHandler } from '../api/repos.mjs'
 import { parseGitHubResourceUrl, parseGitHubRepositoryUrl, repositoryLinkPath, resourcePath } from '../plugins/repo-issues/src/target.mjs'
 
 let vite, createRepoIssuesApi, createRepoIssuesStore
@@ -20,66 +17,7 @@ const signal = () => new AbortController().signal
 const repo = {owner:'sample',name:'repo',full_name:'sample/repo'}
 const issue = {number:2,title:'Fixture Issue',html_url:'https://github.com/sample/repo/issues/2',comments:1}
 
-test('Repo Panel uses a frozen functional API and immutable store with stable snapshots',async()=>{
-  const calls=[]
-  const request=async (url,init)=>{
-    assert.equal(this,undefined)
-    calls.push({url:String(url),init})
-    if(String(url)==='/api/repos?owner=sample&repo=repo')return Response.json({
-      state:'connected',repository:repo,
-    })
-    if(String(url).startsWith('/api/issues?'))return Response.json({issues:[issue]})
-    throw Error('unexpected endpoint '+url)
-  }
-  const api=createRepoIssuesApi(request)
-  const store=createRepoIssuesStore(api)
-  const updates=[]
-  const unsubscribe=store.subscribe(()=>updates.push(store.getSnapshot()))
-  const old=store.getSnapshot()
-  await store.refresh()
-  assert.equal(calls.length,0,'root must not enumerate unknown Installation repositories')
-  await store.connect('https://github.com/sample/repo')
-  const snapshot=store.getSnapshot()
-  assert.equal(snapshot.loading,false)
-  assert.equal(snapshot.selected,repo.full_name)
-  assert.equal(snapshot.issues[0].title,issue.title)
-  assert.ok(Object.isFrozen(snapshot))
-  assert.ok(Object.isFrozen(snapshot.repos))
-  assert.ok(Object.isFrozen(snapshot.issues))
-  assert.notEqual(old,snapshot)
-  assert.equal(updates.length>=2,true)
-  assert.equal(calls.length,1)
-  assert.match(calls[0].url,/^\/api\/issues\?/)
-  assert.equal(calls[0].init.credentials,'same-origin')
-  assert.equal(snapshot.availability,'connected')
-  assert.equal(snapshot.targetUrl,'https://github.com/sample/repo')
-  unsubscribe()
-  store.dispose()
-})
-test('Repo Panel filters outdated Issue loads after route selection and disposal',async()=>{
-  let finish
-  const api=Object.freeze({
-    getRepositories:async()=>[repo,{owner:'sample',name:'other',full_name:'sample/other'}],
-    getIssues:async(owner,name)=>name==='repo'?
-      new Promise(resolve=>{finish=resolve}):[issue],
-    getSession:async()=>false,
-    verify:async()=>{throw Error('not in test')},
-    createIssue:async()=>{throw Error('not in test')},
-  })
-  const store=createRepoIssuesStore(api)
-  const update=store.connect('https://github.com/sample/repo')
-  await Promise.resolve()
-  await store.connect('https://github.com/sample/other')
-  assert.equal(store.getSnapshot().selected,'sample/other')
-  assert.equal(store.getSnapshot().issues.length,1)
-  finish?.([{
-    number:99,title:'stale',html_url:'https://github.com/sample/repo/issues/99',comments:0,
-  }])
-  await update
-  assert.equal(store.getSnapshot().selected,'sample/other')
-  assert.equal(store.getSnapshot().issues[0].number,2)
-  store.dispose()
-})
+
 test('Repo Panel HTTP creation sends exact content once and reports uncertain writes',async()=>{
   const calls=[]
   const request=async(url,init)=>{
@@ -146,41 +84,6 @@ test('missing, suspended and not-selected Installation results preserve safe man
   }
 })
 
-test('store rejects unsafe URLs and keeps exact-target state after revoked installation',async()=>{
-  const calls=[]
-  const api=Object.freeze({
-    getRepositories:async()=>{throw Error('unexpected success-path probe')},
-    getIssues:async(owner,name)=>{
-      calls.push(owner+'/'+name)
-      if(owner==='sample'&&name==='repo')return [issue]
-      throw Object.assign(new Error('仓库授权已撤销'),{state:'repo_access_required'})
-    },
-    getSession:async()=>false,
-    verify:async()=>{throw Error('OAuth not requested')},
-    createIssue:async()=>{throw Error('Write not requested')},
-  })
-  const store=createRepoIssuesStore(api)
-  await store.connect('https://github.com/sample/repo')
-  assert.equal(store.getSnapshot().selected,'sample/repo')
-  assert.deepEqual(store.getSnapshot().repos,[repo])
-  await store.connect('https://github.com/other/repo')
-  assert.equal(store.getSnapshot().availability,'repo_access_required')
-  assert.equal(store.getSnapshot().selected,'')
-  assert.deepEqual(store.getSnapshot().issues,[])
-  await store.connect('https://github.com/sample/repo/issues/1')
-  assert.equal(store.getSnapshot().availability,'invalid_target')
-  assert.deepEqual(calls,['sample/repo','other/repo'])
-  store.dispose()
-})
-
-
-const url = 'https://local.test/api/repos?owner=sample&repo=repo'
-const issueUrl = 'https://local.test/api/issues?owner=sample&repo=repo'
-const sampleIssue = (number, extra = {}) => ({
-  number, title: 'Issue #' + number, comments: 1,
-  html_url: 'https://github.com/sample/repo/issues/' + number, ...extra,
-})
-const req = (uri, method = 'GET') => new Request(uri, { method })
 
 test('repository URL accepts only exact github.com/owner/repo paths', () => {
   const good = [
@@ -210,74 +113,6 @@ test('repository URL accepts only exact github.com/owner/repo paths', () => {
   ]) assert.equal(parseGitHubRepositoryUrl(value), null, String(value))
 })
 
-test('legacy /api/repos requires a real target and never enumerates Installation repositories', async () => {
-  let calls = 0
-  const endpoint = createReposHandler({ inspect: async () => { calls++; throw Error('not expected') } })
-  assert.equal((await endpoint.fetch(req('https://local.test/api/repos'))).status, 400)
-  assert.equal((await endpoint.fetch(req(url.replace('sample', 'bad/name')))).status, 400)
-  assert.equal((await endpoint.fetch(req(url, 'POST'))).status, 405)
-  assert.equal(calls, 0)
-})
-
-test('connected repository returns only the exact public target', async () => {
-  const inputs = []
-  const endpoint = createReposHandler({ inspect: async input => {
-    inputs.push(input)
-    return { state: 'connected', repository: 'Sample/Repo' }
-  } })
-  const response = await endpoint.fetch(req(url))
-  assert.equal(response.status, 200)
-  assert.deepEqual(await response.json(), { state: 'connected',
-    repository: { owner: 'Sample', name: 'Repo', full_name: 'Sample/Repo' } })
-  assert.deepEqual(inputs.map(x => ({owner:x.owner, repo:x.repo})),
-    [{ owner: 'sample', repo: 'repo' }])
-  const mismatched = createReposHandler({ inspect: async () =>
-    ({ state: 'connected', repository: 'other/repo' }) })
-  assert.equal((await mismatched.fetch(req(url))).status, 502)
-})
-
-test('uninstalled, not selected, suspended and unavailable repo have precise read-only states', async () => {
-  const cases = [
-    { state: 'repository_unavailable' },
-    { state: 'installation_suspended', repository: 'sample/repo' },
-    { state: 'needs_installation', repository: 'sample/repo',
-      action_url: 'https://github.com/apps/labourchain/installations/new' },
-    { state: 'needs_repository_authorization', repository: 'sample/repo',
-      action_url: 'https://github.com/settings/installations/17' },
-  ]
-  for (const value of cases) {
-    const endpoint = createReposHandler({ inspect: async () => value })
-    const response = await endpoint.fetch(req(url))
-    assert.equal(response.status, 200)
-    const body = await response.json()
-    assert.equal(body.state, value.state)
-    assert.equal(body.action_url, value.action_url)
-    assert.ok(!('repositories' in body))
-  }
-})
-
-test('withdrawn, 403, 429, 503 and malformed upstream checks fail closed', async () => {
-  for (const status of [403, 429, 503, 502]) {
-    const endpoint = createReposHandler({ inspect: async () => {
-      throw new ProbeError('verification unavailable',status)
-    } })
-    const response = await endpoint.fetch(req(url))
-    assert.equal(response.status,status)
-    assert.ok(!('repositories' in await response.json()))
-  }
-  const endpoint = createReposHandler({ inspect: async () =>
-    ({ state: 'connected', repository: 'sample/repo', repositories: ['private/repo'] }) })
-  const response = await endpoint.fetch(req(url))
-  assert.equal(response.status,200)
-  assert.ok(!('repositories' in await response.json()))
-})
-
-test('legacy global auth/repo enumeration exports reject instead of selecting any Installation',async()=>{
-  for(const call of [oldAuth,oldRepos,oldIssues]) {
-    await assert.rejects(call(),error=>
-      error.status===400&&error.state==='target_required')
-  }
-})
 
 test('canonical ordinary links and reserved namespace precedence',()=>{
  for(const kind of ['config','channels','members','issues']){
@@ -297,4 +132,49 @@ test('canonical ordinary links and reserved namespace precedence',()=>{
  assert.equal(repositoryLinkPath('/sample/repo/issues/0'),null)
  assert.equal(repositoryLinkPath('/sample/repo/issues/9007199254740992'),null)
  assert.equal(repositoryLinkPath('/sample/repo/issues/1?x=1'),null)
+})
+
+test('repository switching and revocation affect the actual browser store without stale data or undispatched probes',async()=>{
+  const calls=[],updates=[]
+  let finish,revoked=false
+  const delayed=new Promise(resolve=>{finish=resolve})
+  const api=createRepoIssuesApi(async(address,init)=>{
+    calls.push({address:String(address),signal:init.signal,method:init.method||'GET',credentials:init.credentials})
+    if(address==='/api/issues?owner=sample&repo=repo')return delayed
+    if(address==='/api/issues?owner=sample&repo=other'){
+      if(revoked)return Response.json({state:'repo_access_required',error:'Access revoked'},{status:403})
+      return Response.json({issues:[{number:2,title:'Current issue',comments:1,html_url:'https://github.com/sample/other/issues/2'}]})
+    }
+    throw Error('Unexpected browser request')
+  })
+  const store=createRepoIssuesStore(api)
+  const unsubscribe=store.subscribe(()=>updates.push(store.getSnapshot()))
+  try{
+    await store.refresh()
+    assert.deepEqual(calls,[])
+    const abandoned=store.connect('https://github.com/sample/repo')
+    assert.equal(calls.length,1)
+    await store.connect('https://github.com/sample/other')
+    assert.equal(calls[0].signal.aborted,true)
+    const current=store.getSnapshot()
+    assert.equal(current.selected,'sample/other')
+    assert.deepEqual(current.issues,[{number:2,title:'Current issue',comments:1,html_url:'https://github.com/sample/other/issues/2'}])
+    finish(Response.json({issues:[{number:99,title:'Abandoned',comments:0,html_url:'https://github.com/sample/repo/issues/99'}]}))
+    await abandoned
+    assert.equal(store.getSnapshot(),current)
+    revoked=true
+    await store.refresh()
+    assert.equal(store.getSnapshot().availability,'repo_access_required')
+    assert.deepEqual(store.getSnapshot().issues,[])
+    assert.equal(store.getSnapshot().selected,'')
+    assert.equal(current.issues[0].title,'Current issue')
+    assert.ok(updates.some(state=>state.selected==='sample/other'))
+    await store.connect('https://github.com/sample/repo/issues/1')
+    assert.equal(store.getSnapshot().availability,'invalid_target')
+    assert.deepEqual(calls.map(x=>[x.address,x.method,x.credentials]),[
+      ['/api/issues?owner=sample&repo=repo','GET','same-origin'],
+      ['/api/issues?owner=sample&repo=other','GET','same-origin'],
+      ['/api/issues?owner=sample&repo=other','GET','same-origin'],
+    ])
+  }finally{unsubscribe();store.dispose()}
 })

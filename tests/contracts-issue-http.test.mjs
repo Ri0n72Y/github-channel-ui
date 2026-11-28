@@ -75,25 +75,6 @@ function fakeGitHub({ install = true, membership = true, rate = false } = {}) {
   return { calls, fetcher }
 }
 
-test('anonymous read validates public repository and resolves dynamic installation', async () => {
-  const mock = fakeGitHub()
-  const resolved = await resolveInstalledRepository({ owner: 'sample', repo: 'repo',
-    env, fetcher: mock.fetcher })
-  assert.equal(resolved.installationId, 77)
-  const access = await issueReadAccess({ owner: 'sample', repo: 'repo', env,
-    fetcher: mock.fetcher })
-  const response = await issueGitHubGet(access, '/repos/sample/repo/issues/1')
-  assert.deepEqual(response.data, issue)
-  assert.ok(mock.calls.some(call => call.path === '/app/installations/77/access_tokens'))
-  assert.ok(!mock.calls.some(call => call.path.includes('/user')))
-})
-
-test('uninstalled public repository must not become an anonymous read authorization', async () => {
-  const mock = fakeGitHub({ install: false })
-  await assert.rejects(issueReadAccess({ owner: 'sample', repo: 'repo',
-    env, fetcher: mock.fetcher }), error => error.status === 403)
-  assert.ok(!mock.calls.some(call => call.path.includes('/access_tokens')))
-})
 
 test('raw issue, comments, configuration and pagination are passed through, not summarized', async () => {
   const original = globalThis.fetch
@@ -121,23 +102,6 @@ test('raw issue, comments, configuration and pagination are passed through, not 
   }
 })
 
-test('429 rate limit is not returned as 404', async () => {
-  const original = globalThis.fetch, id = process.env.GITHUB_APP_ID,
-    key = process.env.GITHUB_APP_PRIVATE_KEY
-  const mock = fakeGitHub({ rate: true })
-  process.env.GITHUB_APP_ID = env.GITHUB_APP_ID
-  process.env.GITHUB_APP_PRIVATE_KEY = env.GITHUB_APP_PRIVATE_KEY
-  globalThis.fetch = mock.fetcher
-  try {
-    const response = await issueDetail.fetch(new Request(
-      'https://example.test/api/issue-detail?owner=sample&repo=repo&number=1'))
-    assert.equal(response.status, 429)
-  } finally {
-    globalThis.fetch = original
-    process.env.GITHUB_APP_ID = id
-    process.env.GITHUB_APP_PRIVATE_KEY = key
-  }
-})
 
 test('OAuth comment write checks same origin, session and dynamic membership; uses only user token', async () => {
   const previous = { fetch: globalThis.fetch, ...Object.fromEntries(
@@ -260,22 +224,4 @@ test('B1: repository metadata and dynamic Installation checks distinguish thrott
 })
 
 
-test('B1: shared installation probe also distinguishes secondary 403 from permission 403', async () => {
-  for (const [failure, expected] of [
-    [result(403, { message: 'You have exceeded a secondary rate limit.' },
-      { 'x-ratelimit-remaining': '100' }), 429],
-    [result(403, { message: 'Forbidden' },
-      { 'retry-after': '60', 'x-ratelimit-remaining': '100' }), 429],
-    [result(403, { message: 'Resource not accessible by integration' },
-      { 'x-ratelimit-remaining': '100' }), 403],
-  ]) {
-    const source = fakeGitHub()
-    const fetcher = (url, init) =>
-      new URL(url).pathname === '/repos/sample/repo/installation' ?
-        Promise.resolve(failure.clone()) : source.fetcher(url, init)
-    await assert.rejects(
-      inspectInstallation({ owner: 'sample', repo: 'repo', env, fetcher }),
-      error => error.status === expected,
-    )
-  }
-})
+

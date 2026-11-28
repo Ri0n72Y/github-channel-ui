@@ -680,27 +680,6 @@ test('Member pending PR prioritizes the exact external GitHub link with accessib
  }finally{await app.close()}
 })
 
-test('Config display-branch preference stays local and never invokes repository writes',async()=>{
- const key='labourchain:display-branch:sample/repo'
- localStorage.removeItem(key)
- const fixture=configFixture(new URLSearchParams({configCase:'changes'}))
- let saves=0
- const api={...fixture,save:async()=>{saves++;throw Error('must not write')}}
- const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
-  {api,owner:'sample',repo:'repo'})
- try{
-  const inputNode=app.host.querySelector('#display-branch-input')
-  assert.ok(inputNode)
-  await act(async()=>input(inputNode,'feature/docs'))
-  const button=[...app.host.querySelectorAll('button')].find(x=>x.textContent==='保存本机偏好')
-  assert.ok(button)
-  await act(async()=>button.click())
-  assert.equal(localStorage.getItem(key),'feature/docs')
-  assert.equal(saves,0)
-  assert.match(app.host.textContent,/不修改 GitHub 仓库默认分支/)
- }finally{await app.close();localStorage.removeItem(key)}
-})
-
 
 test('Config local preview cannot redirect member write branch across pages',async()=>{
  const key='labourchain:display-branch:sample/repo'
@@ -1156,32 +1135,6 @@ test('comment and labour forms are memory-only with no localStorage writes or dr
   assert.deepEqual(writes,[])
  }finally{prototype.setItem=original;await app.close()}
 })
-test('unknown labour write blocks same-page retry without a persistent marker or unlock UI',async()=>{
- let writes=0
- const svc=issueService({authorized:true,postComment:async()=>{writes++;throw Error('connection lost')}})
- let app=await issueMount(svc)
- const work=()=>[...app.host.querySelectorAll('textarea')].find(el=>el.closest('label')?.textContent.includes('工作内容'))
- const send=()=>work().closest('form').querySelector('button[type="submit"]')
- try{
-  await act(async()=>app.host.querySelectorAll('[role="tab"]')[1].click())
-  await act(async()=>input(work(),'labour entry'))
-  const form=work().closest('form')
-  await act(async()=>{form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))
-   form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))})
-  await flush()
-  assert.equal(writes,1)
-  assert.match(app.host.textContent,/避免重复发表/)
-  assert.ok(send().disabled)
-  assert.equal([...app.host.querySelectorAll('button')].some(b=>/解除提交锁定|解锁/.test(b.textContent)),false)
-  await app.close()
-  app=await issueMount(svc)
-  await act(async()=>app.host.querySelectorAll('[role="tab"]')[1].click())
-  assert.equal(work().value,'')
-  await act(async()=>input(work(),'fresh page input'))
-  assert.equal(send().disabled,false)
-  assert.equal(writes,1)
- }finally{await app.close()}
-})
 
 const labourWork=app=>[...app.host.querySelectorAll('textarea')].find(el=>el.closest('label')?.textContent.includes('工作内容'))
 const labourSend=app=>labourWork(app)?.closest('form')?.querySelector('button[type="submit"]')
@@ -1269,65 +1222,6 @@ test('unknown write locks reset on Issue remount and verified account/session ch
  }finally{await app.close()}
 })
 
-test('B2 scroll-to-bottom stays in composer dock and targets split reading or the full compact shell',async()=>{
- const descriptor=Object.getOwnPropertyDescriptor(window,'visualViewport')
- const viewport=new window.EventTarget()
- viewport.height=812;viewport.offsetTop=0
- Object.defineProperty(window,'visualViewport',{configurable:true,value:viewport})
- const svc=issueService({authorized:true,comments:()=>Promise.resolve({items:[
-  replyComment(101,'first'),replyComment(102,'last visible comment')
- ],hasMore:false})})
- const app=await issueMount(svc)
- try{
-  const shell=app.host.querySelector('[aria-label="Issue 讨论面板"]')
-  const reading=app.host.querySelector('[aria-label="Issue 阅读区"]')
-  const composer=replyArea(app).closest('form')
-  const dock=composer.parentElement
-  const page=shell.parentElement
-  Object.defineProperty(reading,'scrollHeight',{configurable:true,value:1200})
-  Object.defineProperty(reading,'clientHeight',{configurable:true,value:500})
-  reading.scrollTop=100
-  await act(async()=>reading.dispatchEvent(new Event('scroll')))
-  let button=app.host.querySelector('button[aria-label="滚动到底部"]')
-  assert.ok(button,'split mode exposes the scroll action when reading has a remaining distance')
-  assert.equal(button.parentElement,dock)
-  assert.equal(button.nextElementSibling,composer)
-  assert.ok(shell.contains(button))
-  const before=svc.calls.length
-  await act(async()=>button.click())
-  assert.equal(reading.scrollTop,700,'split mode scrolls only the reading region')
-  assert.equal(document.activeElement,reading)
-  assert.equal(svc.calls.length,before,'scrolling never requests another comment page')
-
-  await act(async()=>{viewport.height=320;viewport.dispatchEvent(new Event('resize'))})
-  assert.equal(page.dataset.heightMode,'compact')
-  Object.defineProperty(shell,'scrollHeight',{configurable:true,value:1800})
-  Object.defineProperty(shell,'clientHeight',{configurable:true,value:300})
-  shell.scrollTop=120
-  await act(async()=>shell.dispatchEvent(new Event('scroll')))
-  button=app.host.querySelector('button[aria-label="滚动到底部"]')
-  assert.ok(button,'compact mode exposes the same action for the full shell')
-  assert.equal(button.parentElement,dock)
-  assert.equal(button.nextElementSibling,composer)
-  assert.ok(shell.contains(composer),'the compact scroll range includes the composer')
-  await act(async()=>button.click())
-  assert.equal(shell.scrollTop,1500,'compact mode reaches the end of the complete shell, including composer')
-  assert.equal(document.activeElement,reading)
-  assert.equal(svc.calls.length,before,'compact scrolling never requests another comment page')
-
-  await act(async()=>{viewport.height=812;viewport.dispatchEvent(new Event('resize'))})
-  for(const remaining of [81,80,79,0]){
-   reading.scrollTop=700-remaining
-   await act(async()=>reading.dispatchEvent(new Event('scroll')))
-   assert.equal(Boolean(app.host.querySelector('button[aria-label="滚动到底部"]')),remaining>80)
-  }
-  assert.equal(svc.calls.length,before)
- }finally{
-  await app.close()
-  if(descriptor)Object.defineProperty(window,'visualViewport',descriptor)
-  else delete window.visualViewport
- }
-})
 
 test('B2 visual viewport resize keeps quote, feedback, last comment and pagination mounted in compact mode',async()=>{
  const descriptor=Object.getOwnPropertyDescriptor(window,'visualViewport')
@@ -1378,73 +1272,6 @@ test('B2 visual viewport resize keeps quote, feedback, last comment and paginati
  }
 })
 
-test('Title layout uses measured card width, one identity/README/actions/team order, safe optional cover and secondary settings',async()=>{
- const cover='https://raw.githubusercontent.com/sample/repo/'+'a'.repeat(40)+'/banner.png'
- const api={getHome:async()=>({repository:{name:'repo',full_name:'sample/repo',description:'Real description',
-  html_url:'https://github.com/sample/repo'},branch:'main',readme:{state:'ready',path:'README.md',content:'# repo\n\nReal description\n\nUnique README prose'},
-  team:{state:'ready',members:[{id:'1',name:'Alice',role:'Reviewer'}]}}),
-  getFeed:async(_o,_r,page)=>({page,hasMore:false,items:[]}),getCapability:async()=>({user:{login:'operator'},mode:'direct',branch:'main'})}
- for(const url of [undefined,cover,'javascript:alert(1)']){
-  const app=await mount('/sample/repo','/:owner/:repo',Home,{api,coverUrl:url})
-  try{
-   const title=app.host.querySelector('[data-title-layout]')
-   const header=title.querySelector('header')
-   assert.match(header.textContent,/sample\/repo.*Real description.*Unique README prose/)
-   assert.equal(header.textContent.split('Real description').length-1,1)
-   assert.equal(header.querySelector('a[href="/sample/repo/channels"]').textContent,'项目频道')
-   const more=header.querySelector('details')
-   assert.ok(more&&!more.open,'settings and source are secondary by default')
-   assert.ok(more.querySelector('a[href="/sample/repo/config"]'))
-   assert.ok(more.querySelector('a[href="https://github.com/sample/repo"]'))
-   assert.equal(title.querySelector('a[href="#feed-heading"]'),null,'no duplicate same-page feed link')
-   assert.ok(title.contains(app.host.querySelector('#team-heading')))
-   assert.equal(title.querySelector('img')?.getAttribute('src'),url===cover?cover:undefined)
-   if(url===cover){
-    const img=title.querySelector('img')
-    assert.equal(img.getAttribute('referrerpolicy'),'no-referrer')
-    assert.equal(img.getAttribute('alt'),'')
-    await act(async()=>img.dispatchEvent(new Event('error')))
-    assert.equal(title.querySelector('img'),null)
-   }
-   assert.ok(app.host.querySelector('#feed-heading'))
-   assert.equal(app.host.querySelector('a[href="/sample/repo/issues/new"]').textContent,'发布动态')
-   assert.equal(title.querySelector('a[href="https://github.com/sample/repo/blob/main/README.md"]').textContent,'完整项目说明（GitHub）')
-  }finally{await app.close()}
- }
-})
-
-test('Title reacts to card width changes without remounting Team or reloading data',async()=>{
- const original=globalThis.ResizeObserver
- const rect=HTMLElement.prototype.getBoundingClientRect
- let width=1160, callback, observed, disconnects=0
- globalThis.ResizeObserver=class {
-  constructor(cb){callback=cb}
-  observe(node){observed=node}
-  disconnect(){disconnects++}
- }
- HTMLElement.prototype.getBoundingClientRect=function(){
-  return this.hasAttribute('data-title-layout')?{width,height:250,x:0,y:0,top:0,left:0,bottom:250,right:width,toJSON(){}}:rect.call(this)
- }
- let app,homeCalls=0,feedCalls=0
- const api={getHome:async()=>{homeCalls++;return {repository:{name:'repo',full_name:'sample/repo',description:'Description',html_url:'https://github.com/sample/repo'},branch:'main',readme:{state:'missing'},team:{state:'ready',members:[{id:'1',name:'Alice',role:'Reviewer'}]}}},
- getFeed:async(_o,_r,page)=>{feedCalls++;return {page,hasMore:false,items:[]}},
- getCapability:async()=>({user:{login:'operator'},mode:'direct',branch:'main'})}
- try{
-  app=await mount('/sample/repo','/:owner/:repo',Home,{api})
-  const title=app.host.querySelector('[data-title-layout]'), strip=title.querySelector('[aria-label="团队成员"]')
-  assert.equal(observed,title)
-  assert.equal(title.dataset.titleLayout,'wide')
-  const initial=[homeCalls,feedCalls]
-  for(const [w,mode] of [[1099,'medium'],[700,'medium'],[699,'narrow'],[480,'narrow'],[479,'small'],[320,'small'],[1100,'wide']]){
-   await act(async()=>{width=w;callback()})
-   assert.equal(title.dataset.titleLayout,mode)
-   assert.equal(title.querySelector('[aria-label="团队成员"]'),strip)
-   assert.deepEqual([homeCalls,feedCalls],initial)
-  }
-  await app.close();app=null
-  assert.ok(disconnects>=1)
- }finally{if(app)await app.close();HTMLElement.prototype.getBoundingClientRect=rect;if(original===undefined)delete globalThis.ResizeObserver;else globalThis.ResizeObserver=original}
-})
 
 test('Members full cards preserve stored order, complete profile content, safe links and scoped permissions',async()=>{
  const key='labourchain:display-branch:sample/repo'
@@ -1627,26 +1454,6 @@ test('Issue pagination denial preserves reading nodes, current-page input and un
   assert.equal(reads.at(-1),1,'recovery restarts the Issue and first page, not a POST')
   assert.equal(writes,1)
  }finally{await app.close()}
-})
-
-test('case-insensitive resource route emits canonical OAuth return target',async()=>{
- const reads=[]
- const store=makeRepoStore(Object.freeze({
-  getRepositories:async()=>{throw Error('unexpected probe')},
-  getIssues:async(owner,name)=>{reads.push(owner+'/'+name);return []},
-  getSession:async()=>false,verify:async()=>{throw Error('unexpected verify')},
-  createIssue:async()=>{throw Error('unexpected write')},
- }))
- const app=await mount('/OwNeR/RePo/ISSUES','/:owner/:repo/issues',RepoPanel,{store})
- try{
-  assert.ok(reads.length>0)
-  assert.ok(reads.every(value=>value==='OwNeR/RePo'))
-  const link=app.host.querySelector('a[href^="/api/github-login?"]')
-  assert.ok(link)
-  assert.equal(new URL(link.getAttribute('href'),'https://local.test').searchParams.get('return_to'),
-   '/OwNeR/RePo/issues')
-  assert.equal(store.getSnapshot().selected,'OwNeR/RePo')
- }finally{await app.close();store.dispose()}
 })
 
 

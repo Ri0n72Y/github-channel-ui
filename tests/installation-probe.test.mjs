@@ -1,5 +1,6 @@
 import {observeHttp} from './helpers/observe-http.mjs'
 import test from 'node:test'
+import {createReposHandler} from '../api/repos.mjs'
 import assert from 'node:assert/strict'
 import { generateKeyPairSync, verify } from 'node:crypto'
 import { inspectInstallation, appJwt, validRepository, ProbeError } from '../api/_installation-probe.mjs'
@@ -162,4 +163,22 @@ test('repository metadata must match the exact requested target', async () => {
   await assert.rejects(inspectInstallation({ owner: 'octocat', repo: 'hello', env, fetcher: m.fetcher }),
     error => error instanceof ProbeError && error.status === 502)
   assert.equal(m.calls.length, 1)
+})
+
+test('repository lookup translates real installation evidence to the exact public target and refuses a missing target before HTTP',async()=>{
+  const m=mock({
+    '/repos/octocat/hello':respond(200,publicRepo()),
+    '/repos/octocat/hello/installation':respond(200,install()),
+  })
+  const endpoint=createReposHandler({inspect:args=>inspectInstallation({...args,env,fetcher:m.fetcher})})
+  const origin='https://example.test/api/repos'
+  for(const suffix of ['', '?owner=wrong%2Fname&repo=hello']){
+    assert.equal((await endpoint.fetch(new Request(origin+suffix))).status,400)
+  }
+  assert.equal((await endpoint.fetch(new Request(origin+'?owner=octocat&repo=hello',{method:'POST'}))).status,405)
+  assert.deepEqual(m.calls,[])
+  const response=await endpoint.fetch(new Request(origin+'?owner=octocat&repo=hello'))
+  assert.equal(response.status,200)
+  assert.deepEqual(await response.json(),{state:'connected',repository:{owner:'octocat',name:'hello',full_name:'octocat/hello'}})
+  assert.deepEqual(m.calls.map(c=>c.path),['/repos/octocat/hello','/repos/octocat/hello/installation'])
 })

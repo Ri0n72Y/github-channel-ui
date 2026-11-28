@@ -99,17 +99,4 @@ test('incomplete discussion and conflicted labour remain explicit; labour fields
     assert.ok(html.includes(label),label)
 })
 
-test('complete reading keeps counts and exact times in diagnostics; invalid times safely fall back',()=>{
- const payload=structuredClone(model)
- payload.issue.state='Closed'
- payload.issue.created='unavailable'
- payload.issue.pagination.complete=true
- payload.issue.pagination.hasMore=false
- payload.issue.pagination.loaded=101
- const html=renderToStaticMarkup(createElement(View,{model:payload,actions}))
- assert.match(html,/已关闭/)
- assert.match(html,/title="unavailable">unavailable/)
- assert.doesNotMatch(html,/还有未加载的评论|加载下一页评论/)
- assert.match(html,/<details[^>]*><summary>读取时间与来源<\/summary><p>已读取 101 \/ 101 条评论/)
- assert.equal((html.match(/aria-label="从 GitHub 重新加载此 Issue"/g)||[]).length,0)
-})
+

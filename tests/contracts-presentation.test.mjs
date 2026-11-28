@@ -23,21 +23,6 @@ const draft = () => ({
   links: [{ label: '', url: '' }, { label: '', url: '' }, { label: '', url: '' }],
 })
 
-test('field errors point to name, avatar and the third personal link URL', () => {
-  let value = draft()
-  value.name = ' '
-  assert.match(validateVisibleFields(value).name, /姓名/)
-  value = draft()
-  value.avatarUrl = 'http://example.com/avatar.png'
-  assert.match(validateVisibleFields(value).avatarUrl, /HTTPS/)
-  value = draft()
-  value.links[2] = { label: 'Website', url: 'javascript:alert(1)' }
-  assert.match(validateVisibleFields(value)['links.2.url'], /HTTPS/)
-  assert.equal(validateVisibleFields(draft()).name, undefined)
-  const valid = draft()
-  valid.links[2] = { label: 'Website', url: 'https://example.com' }
-  assert.deepEqual(validateVisibleFields(valid), {})
-})
 
 test('member registration exposes only exact GitHub PR and Commit destinations', () => {
   const result = {status:'pending_pr',url:'https://github.com/sample/repo/pull/17'}

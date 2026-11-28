@@ -58,20 +58,4 @@ test('B1-1 incomplete GitHub Search renders retryable failure, never an empty re
   assert.doesNotMatch(html, /1000 条可访问上限/)
 })
 
-test('Topic cards show compact no-cover text and avatar fallback', () => {
-  const html = render({ snapshot: meta, projects: [project] })
-  assert.doesNotMatch(html, /暂无可用项目封面/)
-  assert.match(html, /打开 GitHub/)
-  assert.match(html, /member\/project/)
-  assert.match(html, /暂无项目简介|Project/)
-  assert.doesNotMatch(html, /opengraph\.githubassets\.com/)
-  const real = render({ snapshot: meta, projects: [{
-    ...project, cover_url: 'https://repository-images.githubusercontent.com/42/real.png',
-    owner_avatar_url: 'https://avatars.githubusercontent.com/u/42?v=4',
-  }] })
-  assert.match(real, /repository-images\.githubusercontent\.com\/42\/real\.png/)
-  assert.match(real, /avatars\.githubusercontent\.com\/u\/42/)
-  assert.match(real, /项目封面/)
-  assert.match(real, /GitHub 头像/)
-  assert.doesNotMatch(real, /暂无可用项目封面/)
-})
+

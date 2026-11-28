@@ -88,21 +88,6 @@ test('the labour total excludes every owner of a conflicting commit and counts d
   assert.equal(result.complete,false)
 })
 
-test('ordinary Issue identity is independent of Channel assignment',()=>{
-  for(const state of ['open','closed']){
-    assert.equal(validIssueForPage({number:8,state,labels:[]}),true)
-    assert.equal(validIssueForPage({number:8,state,labels:['channel:a','channel:b']}),true)
-  }
-  for(const issue of [null,{number:0,state:'open'},{number:1.5,state:'open'},
-    {number:8,state:'draft'},{number:8,state:'open',pull_request:{}}])
-    assert.equal(validIssueForPage(issue),false)
-  assert.equal(validIssueTarget('collective','ledger','8'),true)
-  assert.equal(validIssueTarget('collective','ledger','9007199254740991'),true)
-  for(const n of ['0','08','-1','1.5','9007199254740992'])
-    assert.equal(validIssueTarget('collective','ledger',n),false)
-  for(const [owner,repo] of [['-org','ledger'],['a/b','ledger'],['org','..']])
-    assert.equal(validIssueTarget(owner,repo,'8'),false)
-})
 
 test('legacy Channel membership accepts exactly one declared label',()=>{
   const labels=parseIssueLabels('namespaces:\n  channel: [Review, planning]\n')

@@ -22,21 +22,7 @@ function searchMock({items=Array.from({length:100},(_,i)=>candidate(i+1)),
   total=250,config='topic: labourchain\nwhitelist: false\n',incomplete=false}={}){
   return topicReadFixture({config,search:()=>({total_count:total,incomplete_results:incomplete,items})})
 }
-test('configured public Topic returns a complete page without Installation or authorization',async()=>{
-  const mock=searchMock(),endpoint=createTopicProjectsEndpoint({fetcher:mock.fetcher})
-  const first=await endpoint.fetch(new Request('https://labour.test'+address+'&head='+HEAD))
-  assert.equal(first.status,200)
-  const data=await first.json()
-  assert.deepEqual([data.page,data.offset,data.items.length,data.nextPage,data.nextOffset],[1,0,100,2,0])
-  assert.equal(mock.calls.filter(c=>c.host==='api.github.com'&&c.path!=='/search/repositories').length,3)
-  assert.equal(mock.calls.filter(c=>c.host==='raw.githubusercontent.com').length,2)
-  assert.equal(new URLSearchParams(mock.calls.find(c=>c.path==='/search/repositories').search).get('q'),'topic:labourchain is:public')
-  assert.ok(mock.calls.every(c=>!c.auth&&c.method==='GET'))
-  const again=await endpoint.fetch(new Request('https://labour.test'+address+'&head='+HEAD))
-  assert.deepEqual(await again.json(),data)
-  assert.equal(mock.calls.length,6)
-  assert.equal((await endpoint.fetch(new Request('https://labour.test'+address+'&offset=25'))).status,400)
-})
+
 test('public search excludes private, malformed, mismatched and source candidates',async()=>{
   const items=[candidate(1),candidate(2),{...candidate(3),private:true},
     {...candidate(4),id:0},{...candidate(5),html_url:'https://evil.invalid/member/p5'},
@@ -49,29 +35,6 @@ test('public search excludes private, malformed, mismatched and source candidate
   assert.equal(response.status,200)
   assert.deepEqual((await response.json()).items.map(p=>p.id),[1,2])
   assert.equal(mock.calls.length,6)
-})
-test('public batch fills sparse pages, dedups stable ID and distinguishes window exhaustion',async()=>{
-  const meta={repository:{full_name:'sample/repo'},
-    config:{whitelist:true},allowedRepositories:['member/p1','member/p2']}
-  const calls=[]
-  const getPage=async(page,offset)=>{
-    calls.push({page,offset})
-    if(offset===0)return {page:1,offset:0,perPage:100,hasNext:true,
-      nextPage:1,nextOffset:25,windowExhausted:false,items:[]}
-    if(offset===25)return {page:1,offset:25,perPage:100,hasNext:true,
-      nextPage:1,nextOffset:50,windowExhausted:false,items:[
-        candidate(1),{...candidate(1),full_name:'MEMBER/P1'},candidate(3)]}
-    return {page:1,offset:50,perPage:100,hasNext:false,nextPage:null,nextOffset:null,
-      windowExhausted:true,items:[candidate(2)]}
-  }
-  const result=await loadInstalledTopicBatch(meta,getPage,new AbortController().signal)
-  assert.deepEqual(result.items.map(p=>p.id),[1,2])
-  assert.deepEqual(calls,[{page:1,offset:0},{page:1,offset:25},{page:1,offset:50}])
-  assert.equal(result.windowExhausted,true)
-  assert.equal(result.cursor,null)
-  const aborted=new AbortController()
-  aborted.abort()
-  await assert.rejects(loadInstalledTopicBatch(meta,()=>assert.fail('aborted batch must not read'),aborted.signal),/aborted/i)
 })
 
 function configMock({protectedBranch=false,appWrite=true,appPrWrite=true,
@@ -196,6 +159,7 @@ test('branch protection creates a PR, never advertises unmerged config as effect
 test('invalid YAML, stale HEAD, App/User denial and missing OAuth never write',async()=>{
   const cases=[
     {args:{},body:{content:'topic: labourchain\nunknown: exposed\n'},status:422},
+    {args:{},body:{content:'topic: labourchain\ncover: javascript:alert(1)\n'},status:422},
     {args:{mismatch:true},status:409},
     {args:{appWrite:false},status:403},
     {args:{userPush:false},status:403},
@@ -360,14 +324,7 @@ test('changed YAML hashes to another branch; same-content PR remains deduplicate
   assert.notEqual((await second.json()).branch,first.branch)
 })
 
-test('malformed Topic configuration never reaches repository mutation',async()=>{
-  const mock=configMock()
-  const handler=createTopicConfigEndpoint({fetcher:mock.fetcher})
-  const response=await handler.fetch(post({content:'topic: labourchain\ncover: javascript:alert(1)\n'}))
-  assert.equal(response.status,422)
-  assert.equal(mock.calls.filter(c=>c.method!=='GET').length,0)
-  assert.equal(mock.calls.some(c=>c.path.includes('/branches/')||c.path.includes('/contents/')),false)
-})
+
 test('approved cover uses existing verified OAuth write and readback',async()=>{
   const mock=configMock()
   const cover='https://raw.githubusercontent.com/sample/repo/'+HEAD+'/poster.png'

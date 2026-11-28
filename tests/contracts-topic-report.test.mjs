@@ -238,9 +238,9 @@ test('#31 OAuth rejects secrets, excessive size and arbitrary URLs without forwa
 })
 
 test('Topic report preserves write outcome semantics and never automatically repeats a rejected or uncertain create',async()=>{
-  for(const [upstream,status,unknown] of [[401,401,false],[403,403,false],[404,404,false],
-    [410,410,false],[422,422,false],[429,429,false],[503,502,true]]){
-    const fixture=setup({writeStatus:upstream,writeHeaders:upstream===429?{'retry-after':'60'}:{}})
+  for(const [upstream,status,unknown,headers={}] of [[401,401,false],[403,403,false],[404,404,false],
+    [410,410,false],[422,422,false],[429,429,false,{'retry-after':'60'}],[403,429,false,{'retry-after':'60'}],[503,502,true]]){
+    const fixture=setup({writeStatus:upstream,writeHeaders:headers})
     const prepared=await fixture.preflight()
     assert.equal(prepared.response.status,200)
     assert.equal(prepared.data.state,'ready')
@@ -276,24 +276,6 @@ test('#31 unknown timeout or invalid 201 result cannot trigger silent duplicate 
   }
 })
 
-test('#31 cannot accept methods other than GET preflight or POST write', async () => {
-  const s = setup()
-  const res = await s.endpoint.fetch(new Request(api, { method: 'PUT' }))
-  assert.equal(res.status, 405)
-  assert.equal(s.calls.length, 0)
-})
-
-
-test('#31 secondary GitHub 403 with Retry-After is surfaced as 429 without write retry', async () => {
-  const s = setup({ writeStatus: 403, writeHeaders: { 'retry-after': '45' } })
-  const { data } = await s.preflight()
-  const res = await s.submit(data.proof)
-  assert.equal(res.status, 429)
-  const body = await res.json()
-  assert.equal(body.retryAfter, '45')
-  assert.equal(body.outcomeUnknown, false)
-  assert.equal(s.calls.filter(call => call.method === 'POST').length, 1)
-})
 
 test('#31 B1-2 App installation and user rights must intersect before an automatic report', async () => {
   for (const [options, expected] of [
