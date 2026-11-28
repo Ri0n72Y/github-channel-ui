@@ -110,6 +110,12 @@ test('#83 Raw failure, mismatching blob, truncated tree and Search failure are n
     assert.equal(retry.status,200,mode);assert.equal((await retry.json()).items[0].id,1)
   }
 })
+function deferred(){
+  let resolve,reject
+  const promise=new Promise((a,b)=>{resolve=a;reject=b})
+  return {promise,resolve,reject}
+}
+
 test('#83 B2 server refresh bypasses old ordinary source, coalesces refresh and blocks its late Search',async()=>{
   const oldStarted=deferred(),oldGate=deferred(),newStarted=deferred(),newGate=deferred()
   let sourceReads=0
