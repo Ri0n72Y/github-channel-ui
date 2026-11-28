@@ -6,13 +6,15 @@
 
 | 责任与执行边界 | 保护 |
 |---|---|
-| domain-*：直接运行真实领域函数 | 工时及引用安全、Config 删除边界、Channel 选择、成员身份和资料、README、Topic/图片与几何 |
+| domain-*：直接运行真实生产规则 | 工时和引用按独立的 GitHub 评论文本与汇总结果验证；Label 计划按授权的删除/新增集合及应用后的稳定状态验证；成员按实际文档持久化内容验证；Topic 按声明、游标、筛选和几何契约验证。 |
 | GitHub 安装和会话 | 签名、会话来源、安装范围、最小读权限、撤销与用户权限；每种入口的组合风险；不复跑全部领域分区 |
 | HTTP 读取与写入契约 | 真 Request/Response、生产 Handler、授权与解析；外部 GitHub HTTP 替身。Config/Topic 写入不再注入 writeContext 或 Installation 假结果。Config preview 与 Channel 读取不再绕过真实授权和 HTTP 解析 |
 | 浏览器 service 契约 | 真实 service 调用、HTTP 参数、响应校验、状态/错误转换、缓存和取消；模拟浏览器 HTTP 而非服务返回值 |
 | 用户行为、Cordis 注册及 Host 组合 | 生产插件注册/卸载、实际 React 组件、真实路由；独立组件只验证自己拥有的状态；可控 service port 用于时序状态，代表性的 Channel 读取执行真实 browser service 到 HTTP。真实 GitHub 兼容性不由替身证明 |
 | 渲染契约 | Markdown 语法与安全在实际共享渲染器的 DOM 验证；Issue 组合只保留正文/讨论与劳动文本语义的差异及独立状态反馈。报告权限通过真实注册路由、browser service 与受控 HTTP 验证，禁止把任意 disabled 属性当作写入保护。 |
 | 工程检查 | 正式 API/SPA 映射、Function 上限、已批准 CI 配置、真实插件隔离；不固化历史测试文件或复制 Actions 调度算法 |
+
+Channel HTTP 使用真实 Handler、安装授权、生产解析与选择；仅外部 GitHub HTTP 替身。所有实际请求在执行完成后核对，验证安装签名、只读 token 范围、main Config、完整分页和失败后无成功结果；不在可能被捕获的替身断言中证明请求正确。
 
 Config Save/Sync 结果未知、Config 跨仓库切换、Topic 报告权限与防重使用真实 browser service 和真实注册路由，只在 HTTP 边界控制响应、失败及迟到结果；检查实际请求体、目标、取消和禁止副作用。重复的控制器替身场景删除；独立 wire 解析错误类别仍在 service 层保护。
 
