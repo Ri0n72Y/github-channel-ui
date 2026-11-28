@@ -16,7 +16,7 @@
 
 Config Save/Sync 结果未知、Config 跨仓库切换、Topic 报告权限与防重使用真实 browser service 和真实注册路由，只在 HTTP 边界控制响应、失败及迟到结果；检查实际请求体、目标、取消和禁止副作用。重复的控制器替身场景删除；独立 wire 解析错误类别仍在 service 层保护。
 
-重构保持 Private 使用的顶层 `tests/*.test.mjs` 和 `tests/react-lifecycle-86.dom.mjs` 兼容；不新增框架，不改生产模块。保留两套现有 DOM 入口是 Hosted 兼容性与独立 Playground 组合的选择。历史审查过程在 PR #122 的记录中保留，当前文件只维护现行契约。
+重构保持 Private 使用的顶层 `tests/*.test.mjs` 和 `tests/react-lifecycle-86.dom.mjs` 兼容；不新增框架。Config 与 Member 共用生产 write gate，集中保护同步单飞、会话失效取消、未知结果锁与过期完成；各页面独立保留真实授权刷新、用户确认、请求接线和反馈验证。保留两套现有 DOM 入口是 Hosted 兼容性与独立 Playground 组合的选择。历史审查过程在 PR #122 的记录中保留，当前文件只维护现行契约。
 
 ## 执行口径
 

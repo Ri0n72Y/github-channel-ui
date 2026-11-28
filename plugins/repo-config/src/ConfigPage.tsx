@@ -8,6 +8,7 @@ import { configState } from './service'
 import ConfigView from './ConfigView'
 import { subscribeSessionChanged } from '../../shared/src/session-change'
 import { uncertainWriteResult } from '../../shared/src/browser-http'
+import { useWriteGate } from '../../shared/src/useWriteGate'
 
 /** @summary Own Config requests, validation, confirmations and state transitions; the View only renders props. */
 export default function ConfigPage({ api, owner, repo }: {
@@ -20,36 +21,27 @@ export default function ConfigPage({ api, owner, repo }: {
   const [snapshot, setSnapshot] = useState<ConfigSnapshot | null>(null)
   const [content, setContent] = useState('')
   const [loading, setLoading] = useState(true)
-  const [busy, setBusy] = useState(false)
+  const { gate: writeGate, pending: busy, unknown: writeOutcomeUnknown } = useWriteGate()
   const [error, setError] = useState('')
   const [result, setResult] = useState<ConfigActionResult | null>(null)
   const [confirmRemovals, setConfirmRemovals] = useState(false)
   const [revision, setRevision] = useState(0)
   const {reason:accessReason,report}=useRepoAccess(owner+'/'+repo+'/'+revision)
   const readController = useRef<AbortController | null>(null)
-  const writeController = useRef<AbortController | null>(null)
   const edited = useRef(false)
   const draftBase = useRef<{ head: string | null; file: string | null } | null>(null)
   const discardOnRefresh = useRef(false)
   const [draftStale, setDraftStale] = useState(false)
-  const [writeOutcomeUnknown, setWriteOutcomeUnknown] = useState(false)
   useEffect(() => subscribeSessionChanged(() => {
-    if (writeController.current) {
-      writeController.current.abort()
-      writeController.current = null
-      setBusy(false)
-      setWriteOutcomeUnknown(true)
-    }
+    writeGate.invalidate()
     setSnapshot(null)
     setRevision(n => n + 1)
-  }), [])
+  }), [writeGate])
   const pendingPr = useRef<{ url: string; content: string } | null>(null)
 
   useEffect(() => () => {
     readController.current?.abort()
-    writeController.current?.abort()
     readController.current = null
-    writeController.current = null
   }, [])
 
   const load = useCallback(async (signal: AbortSignal, discardDraft: boolean) => {
@@ -134,7 +126,7 @@ export default function ConfigPage({ api, owner, repo }: {
     if (busy || loading || !writeOutcomeUnknown || !window.confirm(
       '请确认已在 GitHub 检查 Config、Labels 和可能的维护 PR，确定可以安全重新操作。解除锁定后将重新读取权限与快照，继续吗？'
     )) return
-    setWriteOutcomeUnknown(false)
+    if (!writeGate.unlock()) return
     setSnapshot(null)
     setConfirmRemovals(false)
     setError('')
@@ -151,22 +143,21 @@ export default function ConfigPage({ api, owner, repo }: {
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!snapshot?.headSha || !canSave || busy || loading || draftStale || writeOutcomeUnknown || writeController.current) return
+    if (!snapshot?.headSha || !canSave || busy || loading || draftStale || writeOutcomeUnknown) return
     if (validation.state !== 'ready') {
       setError('当前 v1 仅支持已校验的 namespaces 列表；未知字段不会被覆盖。')
       return
     }
-    const controller = new AbortController()
-    writeController.current = controller
-    setBusy(true)
+    const controller = writeGate.begin()
+    if (!controller) return
     setError('')
     setResult(null)
     try {
       const saved = await api.save(owner, repo, content, snapshot.headSha,
         snapshot.fileSha ?? null, controller.signal)
-      if (controller.signal.aborted || writeController.current !== controller) return
+      if (!writeGate.isCurrent(controller)) return
       setResult(saved)
-      if (saved.state === 'partial_failure') setWriteOutcomeUnknown(true)
+      if (saved.state === 'partial_failure') writeGate.markUnknown(controller)
       if (saved.state === 'awaiting_pr_merge' && saved.prUrl) {
         pendingPr.current = { url: saved.prUrl, content }
         edited.current = false
@@ -182,48 +173,41 @@ export default function ConfigPage({ api, owner, repo }: {
         setRevision(value => value + 1)
       }
     } catch (e) {
-      if (!controller.signal.aborted && writeController.current === controller) {
+      if (writeGate.isCurrent(controller)) {
         setError(e instanceof Error ? e.message : 'Config 提交失败')
-        if (uncertainWriteResult(e)) setWriteOutcomeUnknown(true)
+        if (uncertainWriteResult(e)) writeGate.markUnknown(controller)
         if (configState(e) === 'stale_preview') {
           setRevision(value => value + 1)
         }
       }
     } finally {
-      if (writeController.current === controller) {
-        writeController.current = null
-        setBusy(false)
-      }
+      writeGate.finish(controller)
     }
   }
 
   async function sync() {
-    if (!snapshot?.snapshotId || !canSync || busy || loading || draftStale || writeOutcomeUnknown || writeController.current) return
-    const controller = new AbortController()
-    writeController.current = controller
-    setBusy(true)
+    if (!snapshot?.snapshotId || !canSync || busy || loading || draftStale || writeOutcomeUnknown) return
+    const controller = writeGate.begin()
+    if (!controller) return
     setError('')
     setResult(null)
     try {
       const synced = await api.sync(owner, repo, snapshot.snapshotId,
         confirmRemovals, controller.signal)
-      if (controller.signal.aborted || writeController.current !== controller) return
+      if (!writeGate.isCurrent(controller)) return
       setResult(synced)
-      if (synced.state === 'partial_failure') setWriteOutcomeUnknown(true)
+      if (synced.state === 'partial_failure') writeGate.markUnknown(controller)
       setRevision(value => value + 1)
     } catch (e) {
-      if (!controller.signal.aborted && writeController.current === controller) {
+      if (writeGate.isCurrent(controller)) {
         setError(e instanceof Error ? e.message : 'Label 同步失败')
-        if (uncertainWriteResult(e)) setWriteOutcomeUnknown(true)
+        if (uncertainWriteResult(e)) writeGate.markUnknown(controller)
         if (configState(e) === 'stale_preview') {
           setRevision(value => value + 1)
         }
       }
     } finally {
-      if (writeController.current === controller) {
-        writeController.current = null
-        setBusy(false)
-      }
+      writeGate.finish(controller)
     }
   }
 

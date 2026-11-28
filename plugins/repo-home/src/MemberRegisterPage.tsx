@@ -10,6 +10,7 @@ import { memberWriteBranch, repoHomeStatus, type MemberCapability, type MemberSu
 import styles from './RepoHome.module.css'
 import { subscribeSessionChanged } from '../../shared/src/session-change'
 import { uncertainWriteResult } from '../../shared/src/browser-http'
+import { useWriteGate } from '../../shared/src/useWriteGate'
 type Fields = { name: string; githubUsername: string; role: string; bio: string; avatarUrl: string;
   links: Array<{ label: string; url: string }> }
 const initial = (): Fields => ({ name: '', githubUsername: '', role: '', bio: '', avatarUrl: '',
@@ -75,29 +76,17 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
   // After the first submit, diagnostics follow current field values.
   const fieldErrors: FieldErrors = submitAttempted ? validateVisibleFields(fields) : {}
   const fieldRefs = useRef<Partial<Record<FieldKey, HTMLInputElement | HTMLTextAreaElement | null>>>({})
-  const [pending, setPending] = useState(false)
+  const { gate: writeGate, pending, unknown: writeOutcomeUnknown } = useWriteGate()
   const [result, setResult] = useState<MemberSubmitResult | null>(null)
   const resultHeading = useRef<HTMLHeadingElement>(null)
-  const [writeOutcomeUnknown, setWriteOutcomeUnknown] = useState(false)
   const [revision, setRevision] = useState(0)
   const {reason:accessReason,report}=useRepoAccess(owner+'/'+repo+'/'+revision)
-  const pendingController = useRef<AbortController | null>(null)
   useEffect(() => { if (result) resultHeading.current?.focus() }, [result])
   useEffect(() => subscribeSessionChanged(() => {
-    const write = pendingController.current
-    if (write) {
-      pendingController.current = null
-      write.abort()
-      setPending(false)
-      setWriteOutcomeUnknown(true)
-    }
+    writeGate.invalidate()
     setCapability(null)
     setRevision(n => n + 1)
-  }), [])
-  useEffect(() => () => {
-    pendingController.current?.abort()
-    pendingController.current = null
-  }, [])
+  }), [writeGate])
   useEffect(() => {
     const controller = new AbortController()
     setCapability(null); setAuthStatus(null)
@@ -117,7 +106,7 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
   }, [api, owner, repo, branch, revision, report])
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!capability || pending || result?.status === 'pending_pr' || writeOutcomeUnknown || pendingController.current) return
+    if (!capability || pending || result?.status === 'pending_pr' || writeOutcomeUnknown) return
     setSubmitAttempted(true)
     const first = Object.keys(validateVisibleFields(fields))[0] as FieldKey | undefined
     if (first) {
@@ -131,30 +120,27 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
     let member
     try { member = validateMemberInput(fields) }
     catch (e) { setError(e instanceof Error ? e.message : '资料无效'); return }
-    const controller = new AbortController()
-    pendingController.current = controller
-    setPending(true); setError(''); setResult(null)
+    const controller = writeGate.begin()
+    if (!controller) return
+    setError(''); setResult(null)
     try {
       const saved = await api.register(owner, repo, branch, member, controller.signal)
-      if (pendingController.current === controller && !controller.signal.aborted) setResult(saved)
+      if (writeGate.isCurrent(controller)) setResult(saved)
     } catch (e) {
-      if (pendingController.current === controller && !controller.signal.aborted) {
+      if (writeGate.isCurrent(controller)) {
         setError(e instanceof Error ? e.message : '提交失败，请先核查 GitHub 状态')
-        if (uncertainWriteResult(e)) setWriteOutcomeUnknown(true)
+        if (uncertainWriteResult(e)) writeGate.markUnknown(controller)
         if (repoHomeStatus(e) === 401) { setAuthStatus(401); setCapability(null) }
       }
     } finally {
-      if (pendingController.current === controller) {
-        pendingController.current = null
-        setPending(false)
-      }
+      writeGate.finish(controller)
     }
   }
   function unlockUnknownWrite() {
     if (pending || !writeOutcomeUnknown || !window.confirm(
       '请确认已在 GitHub 检查成员文件和可能存在的维护 PR，并确认可以安全发起新的提交。解除锁定后将重新检查写入权限，继续吗？'
     )) return
-    setWriteOutcomeUnknown(false)
+    if (!writeGate.unlock()) return
     setCapability(null)
     setError('')
     setRevision(n => n + 1)
