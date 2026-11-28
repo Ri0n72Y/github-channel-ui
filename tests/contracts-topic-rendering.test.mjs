@@ -39,13 +39,6 @@ const project = { full_name: 'member/project', name: 'project',
   owner: 'member', description: 'Project', html_url: 'https://github.com/member/project',
   stargazers_count: 1, language: 'TypeScript' }
 
-test('Search window exhaustion renders an explicit non-terminal warning', () => {
-  const html = render({ snapshot: meta, projects: [project], windowExhausted: true })
-  assert.match(html, /1000 条可访问上限/)
-  assert.match(html, /无法确认是否还有更多项目/)
-  assert.doesNotMatch(html, /当前可访问搜索范围没有符合配置/)
-})
-
 test('B1-1 incomplete GitHub Search renders retryable failure, never an empty result', () => {
   const html = render({ error: Object.assign(
     new Error('GitHub Topic Search 结果不完整，请重试读取'),

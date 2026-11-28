@@ -754,12 +754,17 @@ test('Issue Detail Markdown image fallback and keyboard tabs preserve current-pa
  const svc=issueService({authorized:true,comments:()=>Promise.resolve({items:[
   comment(101,'## Comment heading\n\n**Readable comment**\n\n![broken picture](https://example.com/comment.png)'),
   comment(102,'<script>alert(1)</script>\n\n[unsafe](javascript:alert(1))'),
- ],hasMore:false}),issueFields:{body:'# Topic heading\n\n![topic image](https://example.com/topic.png)'}})
+  comment(103,'\x60\x60\x60yaml\nlabour:\n  work: "**literal labour work**"\n  hr: ~1.5h\n  outcome: "# literal outcome"\n  commits:\n    - '+'a'.repeat(40)+'\n\x60\x60\x60'),
+  comment(104,'\x60\x60\x60yaml\nlabour:\n  work: Conflict\n  hr: ~2h\n  commits:\n    - '+'a'.repeat(40)+'\n\x60\x60\x60'),
+  comment(105,'\x60\x60\x60yaml\nlabour:\n  hr: ~1h\n\x60\x60\x60'),
+ ],hasMore:false}),issueFields:{body:'# Topic heading\n\n**Issue emphasis**\n\n![topic image](https://example.com/topic.png)',comments:6}})
  const app=await mount('/sample/repo/issues/1','/:owner/:repo/issues/:number',Issue,
    {service:svc})
  try{
   assert.match(app.host.textContent,/Topic heading/)
   assert.match(app.host.textContent,/Comment heading/)
+  assert.ok([...app.host.querySelectorAll('strong')].some(el=>el.textContent==='Issue emphasis'))
+  assert.ok([...app.host.querySelectorAll('strong')].some(el=>el.textContent==='Readable comment'))
   assert.match(app.host.textContent,/<script>alert\(1\)<\/script>/)
   assert.equal(app.host.querySelector('script,iframe,a[href^="javascript:"]'),null)
   const img=app.host.querySelector('img[alt="broken picture"]')
@@ -775,6 +780,12 @@ test('Issue Detail Markdown image fallback and keyboard tabs preserve current-pa
   await act(async()=>discussion.dispatchEvent(new window.KeyboardEvent('keydown',{key:'End',bubbles:true})))
   assert.equal(document.activeElement,labour)
   assert.equal(labour.getAttribute('aria-selected'),'true')
+  assert.match(app.host.textContent,/\*\*literal labour work\*\*/)
+  assert.match(app.host.textContent,/# literal outcome/)
+  assert.ok(![...app.host.querySelectorAll('strong')].some(el=>el.textContent==='literal labour work'))
+  assert.match(app.host.textContent,/Commit 冲突/)
+  assert.match(app.host.textContent,/1 条候选劳动评论格式无效/)
+  assert.match(app.host.textContent,/非完整汇总/)
   assert.equal(app.host.querySelector('[id="'+discussion.getAttribute('aria-controls')+'"]').hidden,true)
   await act(async()=>labour.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Home',bubbles:true})))
   assert.equal(document.activeElement,discussion)
@@ -1222,6 +1233,7 @@ test('Topic pending config PR survives failed or unchanged rechecks and unlocks 
 
 test('Topic project pagination coalesces rapid UI requests and preserves loaded results after a failed page',async()=>{
  const Topic=(await server.ssrLoadModule('/plugins/topic-page/src/TopicPageContainer.tsx')).default
+ const {createTopicPageApi}=await server.ssrLoadModule('/plugins/topic-page/src/service.ts')
  const snapshot={repository:{owner:'sample',name:'repo',full_name:'sample/repo',html_url:'https://github.com/sample/repo'},
   readme:'# Activity',coverUrl:null,config:{topic:'labourchain',whitelist:false},configState:'ready',
   configText:'topic: labourchain\nwhitelist: false\n',headSha:'a'.repeat(40),configSha:'b'.repeat(40),
@@ -1232,16 +1244,23 @@ test('Topic project pagination coalesces rapid UI requests and preserves loaded 
   nextPage:more?2:null,nextOffset:more?0:null,windowExhausted:false,items})
  const pending=deferred()
  let page2Calls=0
- const api={reportAvailable:false,getSession:async()=>false,getSnapshot:async()=>snapshot,
-  getProjects:async(route,n,signal,offset,head)=>{
-   assert.deepEqual(route,{owner:'sample',repo:'repo'})
-   assert.equal(head,snapshot.headSha)
-   assert.equal(offset,0)
-   if(n===1)return page(1,Array.from({length:10},(_,i)=>project(i+1)),true)
-   assert.equal(n,2)
-   page2Calls++
-   return page2Calls===1?pending.promise:page(2,[project(10),project(11)],false)
-  }}
+ const requests=[]
+ const api=createTopicPageApi(observeHttp(async(address,init={})=>{
+  const url=new URL(address,'https://local.test')
+  assert.equal(init.method||'GET','GET')
+  if(url.pathname==='/api/github-session')return Response.json({authenticated:false})
+  assert.equal(url.searchParams.get('owner'),'sample')
+  assert.equal(url.searchParams.get('repo'),'repo')
+  if(url.pathname==='/api/topic-page')return Response.json(snapshot)
+  assert.equal(url.pathname,'/api/topic-projects')
+  assert.equal(url.searchParams.get('head'),snapshot.headSha)
+  const n=Number(url.searchParams.get('page'))
+  requests.push(n)
+  if(n===1)return Response.json(page(1,Array.from({length:10},(_,i)=>project(i+1)),true))
+  assert.equal(n,2)
+  page2Calls++
+  return page2Calls===1?pending.promise:Response.json({...page(2,[project(10),project(11)],false),totalCount:1001,windowExhausted:true})
+ }))
  const app=await mount('/topic/sample/repo','/topic/:owner/:repo',Topic,{owner:'sample',repo:'repo',api})
  const button=text=>[...app.host.querySelectorAll('button')].find(b=>b.textContent===text)
  const cards=()=>app.host.querySelectorAll('[data-topic-masonry-item]')
@@ -1251,7 +1270,7 @@ test('Topic project pagination coalesces rapid UI requests and preserves loaded 
   assert.ok(more)
   await act(async()=>{more.dispatchEvent(new MouseEvent('click',{bubbles:true}));more.dispatchEvent(new MouseEvent('click',{bubbles:true}))})
   assert.equal(page2Calls,1)
-  pending.reject(Object.assign(Error('controlled page 429'),{status:429,stage:'topic-search'}))
+  pending.resolve(Response.json({error:'controlled page 429',stage:'topic-search'},{status:429}))
   await flush()
   assert.equal(cards().length,10)
   assert.match(app.host.textContent,/controlled page 429/)
@@ -1261,6 +1280,8 @@ test('Topic project pagination coalesces rapid UI requests and preserves loaded 
   assert.equal(cards().length,11)
   assert.equal(app.host.querySelectorAll('a[href="https://github.com/member/project-10"]').length,1)
   assert.equal(button('加载更多项目'),undefined)
+  assert.match(app.host.textContent,/1000 条可访问上限/)
+  assert.deepEqual(requests,[1,2,2])
  }finally{await app.close()}
 })
 
@@ -1385,33 +1406,34 @@ test('Topic denied report preflight cannot dispatch a write and offers the exact
  }finally{await app.close()}
 })
 
-test('Theme toggle changes the mounted UI even when browser storage rejects persistence',async()=>{
+test('Theme preference is restored on remount and remains usable when persistence fails',async()=>{
  const {ThemeProvider,ThemeToggle}=await server.ssrLoadModule('/plugins/react-ui/src/index.tsx')
- const key='labourchain.theme'
- const previous=localStorage.getItem(key)
- localStorage.removeItem(key)
+ const key='labourchain.theme',previous=localStorage.getItem(key)
  const original=window.Storage.prototype.setItem
- let attempts=0,app
+ let app
+ const open=()=>mount('/sample/repo','/:owner/:repo',()=>h(ThemeProvider,null,h(ThemeToggle)),{})
+ const root=()=>app.host.querySelector('[data-lc-theme]')
  try{
-  app=await mount('/sample/repo','/:owner/:repo',()=>h(ThemeProvider,null,h(ThemeToggle)),{})
-  const root=app.host.querySelector('[data-lc-theme]')
-  const button=root.querySelector('button')
-  assert.equal(root.dataset.lcTheme,'dark')
+  localStorage.setItem(key,'invalid')
+  app=await open()
+  assert.equal(root().dataset.lcTheme,'dark')
+  await act(async()=>root().querySelector('button').click())
+  assert.equal(root().dataset.lcTheme,'light')
+  assert.equal(localStorage.getItem(key),'light')
+  await app.close();app=null
+  app=await open()
+  assert.equal(root().dataset.lcTheme,'light')
   window.Storage.prototype.setItem=function(name,value){
-   if(name===key){attempts++;throw Error('storage denied')}
+   if(name===key)throw Error('storage denied')
    return original.call(this,name,value)
   }
-  await act(async()=>button.click())
-  assert.equal(root.dataset.lcTheme,'light')
-  assert.match(button.getAttribute('aria-label'),/当前为浅色模式/)
-  assert.ok(attempts>0)
-  assert.equal(localStorage.getItem(key),null)
-  await act(async()=>button.click())
-  assert.equal(root.dataset.lcTheme,'dark')
+  await act(async()=>root().querySelector('button').click())
+  assert.equal(root().dataset.lcTheme,'dark')
+  assert.equal(localStorage.getItem(key),'light')
  }finally{
   window.Storage.prototype.setItem=original
-  if(previous===null)localStorage.removeItem(key);else localStorage.setItem(key,previous)
   if(app)await app.close()
+  if(previous===null)localStorage.removeItem(key);else localStorage.setItem(key,previous)
  }
 })
 

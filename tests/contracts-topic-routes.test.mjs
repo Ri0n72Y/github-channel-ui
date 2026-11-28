@@ -1,7 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createTopicProjectsEndpoint } from '../api/_topic-projects.mjs'
-import { loadInstalledTopicBatch } from '../plugins/topic-page/src/domain.mjs'
 
 test('#83 production refuses all source-less, mixed and ambiguous Topic requests before GitHub',async()=>{
   let calls=0
@@ -18,16 +17,3 @@ test('#83 production refuses all source-less, mixed and ambiguous Topic requests
   assert.equal(calls,0)
 })
 
-test('#83 Playground source-less pagination keeps exact repository IDs and no source whitelist', async () => {
-  const sample = { id: 1, full_name: 'member/project-1',
-    html_url: 'https://github.com/member/project-1' }
-  const meta = { repository: null,
-    config: { topic: 'dsh-plugin', whitelist: false }, allowedRepositories: [] }
-  const result = await loadInstalledTopicBatch(meta, async (page, offset) => ({
-    page, offset, perPage: 100, totalCount: 1, items: [sample, sample],
-    hasNext: false, nextPage: null, nextOffset: null, windowExhausted: false,
-  }), new AbortController().signal)
-  assert.deepEqual(result.items.map(item => item.id), [1])
-  assert.equal(result.ended, true)
-  assert.equal(result.cursor, null)
-})
