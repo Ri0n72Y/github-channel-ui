@@ -135,9 +135,9 @@ test('#77 Config, Issue, Channel and Topic preserve read models and explicit OAu
   })
   const topics=services['topic-page'].createTopicPageApi(topic.request)
   const route={owner:'sample',repo:'repo'}
-  const snapshot=await topics.getSnapshot(route,signal())
-  assert.equal(snapshot.config.whitelist,false)
-  assert.deepEqual((await topics.getProjects(route,1,signal(),0,snapshot.headSha)).items,[])
+  const topicSnapshot=await topics.getSnapshot(route,signal())
+  assert.equal(topicSnapshot.config.whitelist,false)
+  assert.deepEqual((await topics.getProjects(route,1,signal(),0,topicSnapshot.headSha)).items,[])
   assert.equal(await topics.getSession(signal()),false)
   assert.equal(await topics.getReportTarget(route,signal()),'fake-proof')
   assert.equal(await topics.submitReport(route,{title:'T',body:'B'},'fake-proof',signal()),
