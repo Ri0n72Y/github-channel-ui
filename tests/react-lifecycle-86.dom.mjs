@@ -335,6 +335,8 @@ test('Config rejected saves preserve the draft; an acknowledged PR suppresses fu
   assert.match(app.host.textContent,/等待 GitHub 审核与合并/)
   assert.ok(app.host.querySelector('a[href="https://github.com/sample/repo/pull/88"]'))
   assert.equal(app.host.querySelector('button[type="submit"]'),null)
+  assert.equal([...app.host.querySelectorAll('button')].filter(b=>b.textContent==='重新读取').length,0)
+  assert.equal([...app.host.querySelectorAll('button')].filter(b=>b.textContent==='合并后重新检查 main').length,1)
   await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
   await flush()
   assert.match(app.host.textContent,/等待 GitHub 审核与合并/)
@@ -622,6 +624,7 @@ test('Member pending PR prioritizes the exact external GitHub link with accessib
   await act(async()=>app.host.querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})))
   await flush()
   assert.equal(writes,1)
+  assert.doesNotMatch(app.host.querySelector('section[role="status"]').textContent,/切换为 main/)
   const heading=app.host.querySelector('h2[tabindex="-1"]')
   assert.ok(heading)
   assert.match(heading.textContent,/等待管理员审核/)
@@ -699,6 +702,11 @@ test('Config local preview cannot redirect member write branch across pages',asy
     new Event('submit',{bubbles:true,cancelable:true})))
    await flush()
    assert.equal(memberWrites,1)
+   const result=registration.host.querySelector('section[role="status"]')
+   assert.match(result.textContent,/合并到 main 后.*生效/)
+   assert.match(result.textContent,/本机展示分支切换为 main/)
+   assert.ok(result.querySelector('a[href="/sample/repo/config"]'))
+   assert.equal(localStorage.getItem(key),'feature/docs')
    assert.deepEqual(submitted.map(x=>[x.owner,x.repo,x.branch]),[['sample','repo','main']])
    assert.ok(checks.every(c=>c.branch==='main'))
   }finally{await registration.close()}
@@ -1377,8 +1385,12 @@ test('Topic report controller blocks duplicate and unknown POSTs until explicit 
   await act(async()=>{submit();submit()})
   assert.equal(writes.length,1)
   assert.deepEqual(writes[0],{body:{owner:'sample',repo:'repo',title,body,confirmed:true,proof:'proof-1'},write:'1',credentials:'same-origin'})
+  for(const field of dialog().querySelectorAll('input,textarea')){
+   assert.equal(field.readOnly,true);assert.equal(field.disabled,false)
+  }
   pending.reject(new TypeError('connection lost after request'))
   await flush()
+  assert.equal(dialog().querySelector('textarea').readOnly,false)
   assert.equal(dialog().querySelector('input').value,title)
   assert.equal(dialog().querySelector('textarea').value,body)
   assert.ok(dialog().querySelector('button[type="submit"]').disabled)
@@ -1884,6 +1896,9 @@ test('RepoPanel publication preserves draft and write lock through delayed same-
   await act(async()=>{submit();submit()})
   assert.equal(posts.length,3)
   assert.equal(writeSignals[2].aborted,false)
+  for(const field of form().querySelectorAll('input,textarea')){
+   assert.equal(field.readOnly,true);assert.equal(field.disabled,false)
+  }
   const during=await recheck()
   assert.deepEqual(draft(),['Review','Keep this draft'])
   assert.equal(button('创建中…').disabled,true)
@@ -1897,6 +1912,7 @@ test('RepoPanel publication preserves draft and write lock through delayed same-
   await flush()
   assert.match(app.host.textContent,/发布结果尚未确认/)
   assert.equal(button('确认发布').disabled,true)
+  assert.equal(form().querySelector('textarea').readOnly,false)
   assert.deepEqual(draft(),['Review','Keep this draft'])
   assert.ok(app.host.querySelector('a[href="https://github.com/sample/repo/issues"]'))
   assert.equal(app.host.querySelector('a[href="https://github.com/other/repo/issues/7"]'),null)
@@ -1979,3 +1995,108 @@ test('RepoPanel denied same-target recheck cancels pending publication and rejec
  assert.deepEqual(posts,expectedPosts)
 }))
 
+
+
+test('dedicated publication invalidates authorization and pending writes on session change',async()=>{
+ localStorage.removeItem(publishKey)
+ const pending=deferred()
+ let authenticated=true,reads=0,signal
+ const api={
+  getRepositories:async()=>[{owner:'sample',name:'repo',full_name:'sample/repo'}],
+  getSession:async()=>{reads++;return authenticated},
+  createIssue:async(_repo,_title,_body,s)=>{signal=s;return pending.promise}
+ }
+ const page=await mount('/sample/repo/issues/new','/:owner/:repo/issues/new',CreateIssue,{api})
+ try{
+  await fillPublication(page,'Review','Preserve draft')
+  await act(async()=>formSubmit(page.host))
+  assert.ok(signal)
+  const before=reads
+  authenticated=false
+  await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
+  await flush()
+  assert.ok(reads>before)
+  assert.equal(signal.aborted,true)
+  assert.match(page.host.textContent,/发布结果尚未确认/)
+  assert.equal(page.host.querySelector('form'),null)
+  pending.resolve({number:73,html_url:'https://github.com/sample/repo/issues/73'})
+  await flush()
+  assert.doesNotMatch(page.host.textContent,/动态已发布/)
+  assert.deepEqual(JSON.parse(localStorage.getItem(publishKey)),{title:'Review',description:'Preserve draft'})
+ }finally{await page.close();localStorage.removeItem(publishKey)}
+})
+
+test('dedicated publication reports storage failures without discarding edits or confirmed success',async()=>{
+ localStorage.removeItem(publishKey)
+ const proto=Object.getPrototypeOf(localStorage)
+ const original={getItem:proto.getItem,setItem:proto.setItem,removeItem:proto.removeItem}
+ let failure='getItem'
+ for(const key of Object.keys(original))proto[key]=function(...args){
+  if(args[0]===publishKey&&key===failure)throw Error('controlled storage denial')
+  return original[key].apply(this,args)
+ }
+ let page
+ try{
+  const remote=publishNetwork(()=>createdIssue(74))
+  page=await remote.open()
+  assert.match(page.host.textContent,/无法读取本机草稿/)
+  failure='setItem'
+  await fillPublication(page,'Review','Keep in memory')
+  assert.match(page.host.textContent,/无法保存本机草稿/)
+  assert.equal(page.host.querySelector('#create-issue-body').value,'Keep in memory')
+  failure='removeItem'
+  await act(async()=>formSubmit(page.host));await flush()
+  assert.match(page.host.textContent,/动态已发布/)
+  assert.match(page.host.textContent,/无法清除本机草稿/)
+  assert.equal(remote.posts().length,1)
+ }finally{
+  Object.assign(proto,original)
+  await page?.close();localStorage.removeItem(publishKey)
+ }
+})
+
+
+test('publication rejects a late pre-logout permission read and rechecks on session change',async()=>{
+ const stale=deferred(),current=deferred()
+ let phase='old',posts=0
+ const api={
+  getRepositories:async()=>[{owner:'sample',name:'repo',full_name:'sample/repo'}],
+  getSession:()=>phase==='old'?stale.promise:phase==='logout'?current.promise:Promise.resolve(true),
+  createIssue:async()=>{posts++;throw Error('Unexpected write')}
+ }
+ const page=await mount('/sample/repo/issues/new','/:owner/:repo/issues/new',CreateIssue,{api})
+ try{
+  phase='logout'
+  await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
+  stale.resolve(true);await flush()
+  assert.equal(page.host.querySelector('form'),null)
+  current.resolve(false);await flush()
+  assert.match(page.host.textContent,/登录 GitHub 后才能发布动态/)
+  phase='login'
+  await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
+  await flush()
+  assert.ok(page.host.querySelector('form'))
+  assert.equal(posts,0)
+ }finally{await page.close()}
+})
+
+test('committed member result explains a non-main reading preference without changing it',async()=>{
+ const key='labourchain:display-branch:sample/repo',previous=localStorage.getItem(key)
+ let app
+ try{
+  localStorage.setItem(key,'feature/docs')
+  const j=await memberJourney(()=>memberSuccess('a'.repeat(40)))
+  app=j.app
+  await act(async()=>input(app.host.querySelector('input[required]'),'Alice'))
+  await act(async()=>formSubmit(app.host));await flush()
+  const result=app.host.querySelector('section[role="status"]')
+  assert.match(result.textContent,/成员资料已提交/)
+  assert.match(result.textContent,/本机展示分支切换为 main/)
+  assert.ok(result.querySelector('a[href="/sample/repo/config"]'))
+  assert.equal(localStorage.getItem(key),'feature/docs')
+  assert.equal(j.posts().length,1);j.verify()
+ }finally{
+  await app?.close()
+  if(previous===null)localStorage.removeItem(key);else localStorage.setItem(key,previous)
+ }
+})

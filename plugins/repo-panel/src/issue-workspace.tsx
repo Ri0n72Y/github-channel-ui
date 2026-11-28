@@ -75,10 +75,10 @@ export function IssueWorkspace({ repo, issues, available, checking, loggedIn, ap
     {unknown && <p role="alert">发布结果尚未确认，请先在 GitHub 核查目标仓库，禁止直接重复提交。 · <a href={'https://github.com/'+repo.owner+'/'+repo.name+'/issues'} target="_blank" rel="noopener noreferrer">在 GitHub 核查</a></p>}
     {creating && <form className={styles.form} onSubmit={event => void submitIssue(event)}>
       <h3>发布动态 · {repo.full_name}</h3>
-      <label>标题 <input required maxLength={256} value={title}
-        onChange={e => setTitle(e.target.value)} /></label>
-      <label>正文 <textarea rows={6} maxLength={20000} value={description}
-        onChange={e => setDescription(e.target.value)} /></label>
+      <label>标题 <input required maxLength={256} value={title} readOnly={pending}
+        onChange={e => { if (!pending) setTitle(e.target.value) }} /></label>
+      <label>正文 <textarea rows={6} maxLength={20000} value={description} readOnly={pending}
+        onChange={e => { if (!pending) setDescription(e.target.value) }} /></label>
       <button type="submit" disabled={pending || unknown || !canWrite || !title.trim()}>
         {pending ? '创建中…' : '确认发布'}
       </button>

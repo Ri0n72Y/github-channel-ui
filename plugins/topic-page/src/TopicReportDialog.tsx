@@ -55,12 +55,12 @@ export default function TopicReportDialog(props: TopicReportDialogProps) {
       <h2 id="topic-report-heading">向当前仓库提交错误报告</h2>
       <form onSubmit={props.onSubmit}>
         <label>标题
-          <input required maxLength={256} value={props.title}
-            onChange={e => props.onTitleChange(e.target.value)}/>
+          <input required maxLength={256} value={props.title} readOnly={props.pending}
+            onChange={e => { if (!props.pending) props.onTitleChange(e.target.value) }}/>
         </label>
         <label>正文
-          <textarea required rows={8} maxLength={20000} value={props.body}
-            onChange={e => props.onBodyChange(e.target.value)}/>
+          <textarea required rows={8} maxLength={20000} value={props.body} readOnly={props.pending}
+            onChange={e => { if (!props.pending) props.onBodyChange(e.target.value) }}/>
         </label>
         {props.message && <p role="alert" className={styles.errorText}>{props.message}</p>}
         {props.checking && <p role="status" className={styles.reportWarning}>
