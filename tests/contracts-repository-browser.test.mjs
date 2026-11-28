@@ -81,7 +81,7 @@ test('Repo Panel filters outdated Issue loads after route selection and disposal
   assert.equal(store.getSnapshot().issues[0].number,2)
   store.dispose()
 })
-test('Repo Panel Issue creation requires explicit confirm and reports uncertain writes',async()=>{
+test('Repo Panel HTTP creation sends exact content once and reports uncertain writes',async()=>{
   const calls=[]
   const request=async(url,init)=>{
     calls.push({url:String(url),init})
@@ -96,10 +96,15 @@ test('Repo Panel Issue creation requires explicit confirm and reports uncertain 
   assert.equal(calls[0].init.method,'POST')
   assert.equal(calls[0].init.headers['X-LabourChain-Write'],'1')
   assert.equal(calls[0].init.credentials,'same-origin')
+  assert.equal(calls.length,1)
+  assert.equal(calls[0].url,'/api/github-issue-create')
+  assert.deepEqual(JSON.parse(calls[0].init.body),{owner:'sample',repo:'repo',title:'Title',body:'Body'})
+  let attempts=0
   await assert.rejects(createRepoIssuesApi(async()=>{
+    attempts++
     throw Error('broken connection')
-  }).createIssue(repo,'Title','Body',signal()),/创建结果未知/)
-  assert.doesNotMatch(source,/await fetch\(/)
+  }).createIssue(repo,'Title','Body',signal()),error=>error.status===502&&/创建结果未知/.test(error.message))
+  assert.equal(attempts,1)
 })
 
 
