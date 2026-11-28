@@ -40,6 +40,7 @@ test('light CI selects explicit, non-overlapping business scenarios without hidd
     'tests/repo-home.test.mjs', 'tests/issue-api.test.mjs', 'tests/issue-view.test.mjs',
     'tests/topic-p1-83.test.mjs', 'tests/topic-read-budget.test.mjs', 'tests/topic-pagination.test.mjs',
     'tests/topic-report.test.mjs', 'tests/react-lifecycle-86.dom.mjs',
+    'tests/functional-apis.test.mjs', 'tests/shared-theme.test.mjs',
     'tests/installation-token-422.test.mjs', 'tests/issue-domain.test.mjs',
     'tests/api-routing.test.mjs',
   ]) assert.ok(selected.includes(required), 'missing business protection: ' + required)

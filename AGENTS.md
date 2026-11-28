@@ -10,6 +10,14 @@ This repository provides reusable React/Cordis client plugins, pure domain modul
 - Do not publish packages, embed credentials, or make production settings changes in source migration PRs.
 - License: AGPL-3.0-only for original code. Preserve authorship, original Git history and third-party notices. Deployment of modified network services may trigger Corresponding Source obligations; review them before distribution or use.
 
+## 测试维护
+
+- 以现行产品契约和实际行为为测试依据。修改或删除功能时，同步更新、合并或删除对应旧测试；新增回归前先检查现有覆盖。
+- 业务计算、数据契约、授权、真实写入防重、未知结果、并发、分页、缓存、路由和生命周期保护不得因精简而丢失。用可控 mock/fixture 验证，不对真实 GitHub 写入。
+- 优先调用公共 API、渲染组件或触发实际 DOM 事件。避免固定 CSS 数值、选择器、属性排列、变量名和内部函数调用顺序的源码断言。仅对稳定架构、安全或构建配置契约保留必要的静态检查；不得用 JSDOM 或 CSS 字符串冒充真实浏览器布局验收。
+- 视觉、响应式、触控尺寸及焦点可见性按 [测试与验收说明](docs/testing.md) 进行真实浏览器检查。测试数量不设固定指标。合并或删除测试须说明覆盖归属及未验证风险。
+- 测试维护候选须完成 build、完整 Node 回归与两套 DOM 回归；记录实际命令、精确 SHA 和退出码。只报告真实运行结果。
+
 ## CI 配额与自动化约束（双仓协作）
 
 - Coder 先在**本地完成相关静态检查和测试验证**，记录实际结果；禁止以连续 Push、空提交或碎片提交远端 CI 试错。

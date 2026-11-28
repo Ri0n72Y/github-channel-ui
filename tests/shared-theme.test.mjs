@@ -56,10 +56,6 @@ test('#69 Storage read/write failures fail safely; caller can keep in-memory sta
   assert.doesNotThrow(() => theme.persistTheme('light', unavailable))
   assert.equal(readCount, 1)
   assert.equal(writeCount, 1)
-  const src = source('plugins/react-ui/src/index.tsx')
-  assert.match(src, /setTheme\(next\)/)
-  assert.match(src, /persistTheme\(next\)/)
-  assert.ok(src.indexOf('setTheme(next)') < src.indexOf('persistTheme(next)'))
 })
 
 const paths = ['/', '/sample/repo', '/sample/repo/members',
@@ -93,51 +89,27 @@ test('#69 one Host renders keyboard theme control on all routes including NotFou
   }
 })
 
-test('#69 only Host holds theme state; route, fixture and plugin lifecycles stay untouched', () => {
-  const app = source('plugins/react-ui/src/index.tsx')
-  const runtime = source('apps/playground/src/runtime.tsx')
-  const repo = source('plugins/repo-home/src/RepoHomePage.tsx')
-  const main = source('apps/playground/src/main.tsx')
-  assert.match(app, /useState<ThemeMode>\(readStoredTheme\)/)
-  assert.match(app, /data-lc-theme=\{theme\}/)
-  assert.match(app, /useRoutes\(/)
-  assert.match(app, /useSyncExternalStore\(/)
-  assert.doesNotMatch(app, /window\.location|new Context\(|createRoot\(/)
-  assert.doesNotMatch(runtime,/URLSearchParams|Fixture/)
-  assert.match(repo, /data-lc-theme=\{theme\}/)
-  assert.doesNotMatch(runtime, /labourchain\.theme|persistTheme/)
-  assert.doesNotMatch(repo, /labourchain\.theme|persistTheme/)
-  assert.match(main, /createRoot\(/)
-  assert.match(main, /<App ui=\{ui\}/)
+test('shared theme defines the same semantic token interface for dark and light', () => {
+  const tokens = source('plugins/react-ui/src/theme.css').replace(/\/\*[\s\S]*?\*\//g, '')
+  const required = ['canvas', 'surface', 'surface-raised', 'surface-input', 'stroke',
+    'stroke-strong', 'text', 'text-secondary', 'text-muted', 'primary', 'primary-hover',
+    'on-primary', 'link', 'focus', 'accent-soft', 'accent-ink', 'error', 'success', 'warning']
+  const declarations = mode => {
+    const rule = [...tokens.matchAll(/\[data-lc-theme\s*=\s*["'](dark|light)["']\]\s*\{([^{}]*)\}/g)]
+      .filter(match => match[1] === mode)
+    assert.equal(rule.length, 1, mode + ' palette')
+    return new Map([...rule[0][2].matchAll(/(--lc-[\w-]+)\s*:\s*([^;{}]+);/g)]
+      .map(match => [match[1], match[2].trim()]))
+  }
+  const dark = declarations('dark'), light = declarations('light')
+  assert.deepEqual([...dark.keys()].sort(), [...light.keys()].sort())
+  for (const name of required) {
+    assert.ok(dark.get('--lc-' + name), name + ' missing in Dark')
+    assert.ok(light.get('--lc-' + name), name + ' missing in Light')
+  }
 })
 
-test('#69 semantic palettes are centralized and shared UI uses CSS Modules', () => {
-  const tokens = source('plugins/react-ui/src/theme.css')
-  const app = source('plugins/react-ui/src/App.module.css')
-  const account = source('plugins/react-ui/src/SessionMenu.module.css')
-  const repo = source('plugins/repo-home/src/RepoHome.module.css')
-  const dark = tokens.split('[data-lc-theme="dark"]')[1].split('[data-lc-theme="light"]')[0]
-  const light = tokens.split('[data-lc-theme="light"]')[1]
-  const names = ['canvas', 'surface', 'surface-raised', 'surface-input', 'stroke',
-    'stroke-strong', 'text', 'text-secondary', 'text-muted', 'primary',
-    'primary-hover', 'on-primary', 'link', 'focus', 'accent-soft', 'accent-ink',
-    'error', 'success', 'warning']
-  for (const name of names) {
-    assert.ok(dark.includes('--lc-' + name + ':'), name + ' missing in Dark')
-    assert.ok(light.includes('--lc-' + name + ':'), name + ' missing in Light')
-  }
-  assert.match(dark, /--lc-primary: #5368e9;/)
-  assert.match(dark, /--lc-on-primary: #fff;/)
-  assert.match(light, /--lc-primary: #d3e985;/)
-  assert.match(light, /--lc-on-primary: #283327;/)
-  assert.match(light, /--lc-link: #4a661b;/)
-  assert.match(app, /\.themeButton:focus-visible/)
-  assert.match(account, /var\(--lc-on-primary\)/)
-  assert.match(account, /var\(--lc-primary\)/)
-  assert.match(account, /\.account :is\(a,button\):focus-visible/)
-  assert.match(app, /var\(--lc-focus\)/)
-  assert.match(app, /\.themeButton\s*\{[^}]*\bmin-height\s*:\s*44px\s*;/)
-  assert.doesNotMatch(repo, /--lc-primary:/)
-  assert.doesNotMatch(repo, /\.homePage\[data-lc-theme="dark"\]/)
-  assert.doesNotMatch(repo, /\.homePage\[data-lc-theme="light"\]/)
+test('reusable UI does not instantiate another application runtime', () => {
+  const app = source('plugins/react-ui/src/index.tsx')
+  assert.doesNotMatch(app, /\bnew\s+Context\s*\(|\bcreateRoot\s*\(/)
 })

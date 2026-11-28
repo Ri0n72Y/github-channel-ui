@@ -282,15 +282,7 @@ test('#83 compact cards have one repository link, no empty media and truthful pr
   assert.equal((pictured.match(/href="https:\/\/github\.com\/member\/p1"/g)||[]).length,1)
 })
 
-test('#83 project description wraps naturally to five lines at every width without truncating its data',()=>{
-  const css=readFileSync(resolve(root,'plugins/topic-page/src/topic-page.module.css'),'utf8')
-  const rules=[...css.matchAll(/\.projectDescription\s*\{([^{}]*)\}/g)]
-  assert.equal(rules.length,1,'one shared rule; no mobile override')
-  const style=rules[0][1]
-  for(const declaration of ['white-space:normal','display:-webkit-box','-webkit-box-orient:vertical',
-    '-webkit-line-clamp:5','overflow:hidden','overflow-wrap:anywhere','font-size:13px','line-height:1.4'])
-    assert.ok(style.includes(declaration),declaration)
-  assert.doesNotMatch(style,/(?:^|[;\s])(?:height|min-height|max-height):/)
+test('Topic project cards preserve complete description and accessible repository link',()=>{
   const project={id:1,full_name:'member/p1',name:'p1',owner:'member',
     html_url:'https://github.com/member/p1',language:'TypeScript',stargazers_count:1}
   for(const description of ['Short','中文项目简介自然换行'.repeat(30),'UnbrokenEnglishWord'.repeat(30)]){

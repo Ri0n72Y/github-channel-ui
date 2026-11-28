@@ -2,7 +2,6 @@ import test, { before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { JSDOM } from 'jsdom'
 import React, { act } from 'react'
-import { readFileSync } from 'node:fs'
 
 
 import { createServer } from 'vite'
@@ -680,6 +679,59 @@ test('#96 root RepoPanel: URL target is required, anonymous read works, OAuth wr
 })
 
 
+test('Member validation opens the invalid field, links its error and preserves edits without a write',async()=>{
+ let writes=0
+ const api={
+  getCapability:async()=>({user:{login:'operator',id:1},mode:'pr',branch:'main'}),
+  register:async()=>{writes++;throw Error('invalid form must not write')},
+ }
+ const app=await mount('/sample/repo/members/register','/:owner/:repo/members/register',Member,{api})
+ try{
+  const form=app.host.querySelector('form')
+  const name=form.querySelector('input[required]')
+  const avatar=form.querySelector('input[type="url"]')
+  const details=avatar.closest('details')
+  const submit=()=>act(async()=>form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})))
+  const errorFor=field=>{
+   assert.equal(field.getAttribute('aria-invalid'),'true')
+   const error=document.getElementById(field.getAttribute('aria-describedby'))
+   assert.ok(error&&error.textContent.trim(),'invalid field exposes its associated error')
+   return error.textContent
+  }
+  assert.equal(details.open,false)
+  await submit()
+  assert.equal(document.activeElement,name)
+  assert.match(errorFor(name),/姓名/)
+  await act(async()=>input(name,'Alice'))
+  await act(async()=>input(avatar,'http://example.com/old.png'))
+  await submit()
+  assert.equal(details.open,true)
+  assert.equal(document.activeElement,avatar)
+  assert.match(errorFor(avatar),/HTTPS/)
+  await act(async()=>input(avatar,'http://example.com/new.png'))
+  assert.match(errorFor(avatar),/HTTPS/)
+  await act(async()=>input(avatar,'https://example.com/new.png'))
+  assert.equal(avatar.getAttribute('aria-invalid'),'false')
+  assert.equal(avatar.hasAttribute('aria-describedby'),false)
+  const links=[...form.querySelectorAll('fieldset input[type="url"]')]
+  assert.equal(links.length,3)
+  const last=links.at(-1)
+  const label=last.closest('label').parentElement.querySelector('input:not([type="url"])')
+  assert.ok(label)
+  await act(async()=>input(label,'Website'))
+  await act(async()=>input(last,'javascript:alert(1)'))
+  details.open=false
+  await submit()
+  assert.equal(details.open,true)
+  assert.equal(document.activeElement,last)
+  assert.match(errorFor(last),/HTTPS/)
+  await act(async()=>input(last,'https://example.com'))
+  assert.equal(last.getAttribute('aria-invalid'),'false')
+  assert.equal(name.value,'Alice')
+  assert.equal(writes,0)
+ }finally{await app.close()}
+})
+
 test('#99 Member pending PR prioritizes the exact external GitHub link with accessible focus',async()=>{
  localStorage.removeItem('labourchain:display-branch:sample/repo')
  let writes=0
@@ -959,18 +1011,6 @@ test('#99 D2: concise RepoHome retains one members entry, genuine identities and
   const createIssue=app.host.querySelector('a[href="/sample/repo/issues/new"]')
   assert.ok(createIssue)
   assert.equal(createIssue.parentElement,feedHead,'Issue CTA must be a direct sectionHead link')
-  const css=readFileSync(new URL('../plugins/repo-home/src/RepoHome.module.css',import.meta.url),'utf8')
-  const targetRule=css.match(/\.homePage \.sectionHead > a\s*\{([^}]*)\}/)?.[1] ?? ''
-  for (const contract of [/display:\s*inline-flex/,/min-height:\s*44px/,
-    /min-width:\s*44px/,/max-width:\s*100%/,/overflow-wrap:\s*anywhere/]) {
-    assert.match(targetRule,contract,'sectionHead links must keep accessible hit-area styling')
-  }
-  const gridRule=css.match(/\.homePage \.teamPanel\[data-team-state='ready'\]\s*\{([^}]*)\}/)?.[1] ?? ''
-  assert.match(gridRule,/grid-template-columns:auto minmax\(0,1fr\) auto/)
-  assert.doesNotMatch(gridRule,/(?:height:|overflow:|transform:|contain:)/)
-  assert.match(css,/\.homePage \.teamPanel\[data-team-state='ready'\] \{grid-template-columns:minmax\(0,1fr\)/)
-  assert.match(css,/\.homePage \.strip \{min-width:0;padding:6px\}/)
-  assert.match(css,/\.homePage \.issueBody > div > :is\(div,ul,ol,blockquote\) \{max-width:85ch\}/)
   const strip=app.host.querySelector('[aria-label="团队成员"]')
   assert.ok(strip)
   assert.match(strip.textContent,/Alice.*Maintainer.*Bob.*Reviewer/)
@@ -1703,6 +1743,88 @@ test('#115 case-insensitive resource route emits canonical OAuth return target',
  }finally{await app.close();store.dispose()}
 })
 
+
+test('Theme toggle changes the mounted UI even when browser storage rejects persistence',async()=>{
+ const {ThemeProvider,ThemeToggle}=await server.ssrLoadModule('/plugins/react-ui/src/index.tsx')
+ const key='labourchain.theme'
+ const previous=localStorage.getItem(key)
+ localStorage.removeItem(key)
+ const original=window.Storage.prototype.setItem
+ let attempts=0,app
+ try{
+  app=await mount('/sample/repo','/:owner/:repo',()=>h(ThemeProvider,null,h(ThemeToggle)),{})
+  const root=app.host.querySelector('[data-lc-theme]')
+  const button=root.querySelector('button')
+  assert.equal(root.dataset.lcTheme,'dark')
+  window.Storage.prototype.setItem=function(name,value){
+   if(name===key){attempts++;throw Error('storage denied')}
+   return original.call(this,name,value)
+  }
+  await act(async()=>button.click())
+  assert.equal(root.dataset.lcTheme,'light')
+  assert.match(button.getAttribute('aria-label'),/当前为浅色模式/)
+  assert.ok(attempts>0)
+  assert.equal(localStorage.getItem(key),null)
+  await act(async()=>button.click())
+  assert.equal(root.dataset.lcTheme,'dark')
+ }finally{
+  window.Storage.prototype.setItem=original
+  if(previous===null)localStorage.removeItem(key);else localStorage.setItem(key,previous)
+  if(app)await app.close()
+ }
+})
+
+test('Session control retries a failed read and emits session invalidation only after confirmed logout',async()=>{
+ const SessionMenu=(await server.ssrLoadModule('/plugins/react-ui/src/SessionMenu.tsx')).default
+ let readReady=false,logoutReady=false,reads=0,writes=0,changes=0,app
+ const changed=()=>{changes++}
+ window.addEventListener('labourchain:session-change',changed)
+ const request=async(path,init)=>{
+  if(path==='/api/github-session'){
+   reads++
+   return readReady
+    ? Response.json({authenticated:true,user:{login:'fixture-user',avatarUrl:null}})
+    : Response.json({error:'unavailable'},{status:503})
+  }
+  assert.equal(path,'/api/github-logout')
+  assert.equal(init.method,'POST')
+  assert.equal(init.credentials,'same-origin')
+  assert.equal(init.headers['X-LabourChain-Write'],'1')
+  writes++
+  return logoutReady
+   ? Response.json({authenticated:false})
+   : Response.json({error:'unavailable'},{status:503})
+ }
+ try{
+  app=await mount('/sample/repo','/:owner/:repo',SessionMenu,{request})
+  assert.match(app.host.querySelector('[role="alert"]').textContent,/登录状态加载失败/)
+  const before=reads
+  readReady=true
+  await act(async()=>app.host.querySelector('[role="alert"] button').click())
+  await flush()
+  assert.ok(reads>before)
+  const trigger=app.host.querySelector('button[aria-expanded]')
+  assert.ok(trigger)
+  await act(async()=>trigger.click())
+  const menu=app.host.querySelector('[aria-label="GitHub 账户操作"]')
+  assert.equal(menu.getAttribute('role'),'group')
+  await act(async()=>menu.querySelector('button').click())
+  await flush()
+  assert.equal(writes,1)
+  assert.equal(changes,0)
+  assert.match(app.host.querySelector('[role="alert"]').textContent,/退出登录失败/)
+  logoutReady=true
+  await act(async()=>menu.querySelector('button').click())
+  await flush()
+  assert.equal(writes,2)
+  assert.equal(changes,1)
+  assert.equal(app.host.querySelector('[aria-expanded]'),null)
+  assert.match(app.host.querySelector('a').textContent,/使用 GitHub 登录/)
+ }finally{
+  window.removeEventListener('labourchain:session-change',changed)
+  if(app)await app.close()
+ }
+})
 
 test('#20 account disclosure requires explicit activation; Escape and outside close without new requests',async()=>{
  const SessionMenu=(await server.ssrLoadModule('/plugins/react-ui/src/SessionMenu.tsx')).default

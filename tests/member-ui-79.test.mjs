@@ -94,23 +94,6 @@ test('#79 capability uses exact owner/repo/branch and revokes stale or logged-ou
   assert.doesNotMatch(hook,/this\.fetcher|new .*Service/)
 })
 
-test('#79 reusable Theme and Session controls retain 44px touch targets and keyboard focus', () => {
-  const app = read('plugins/react-ui/src/App.module.css')
-  const account = read('plugins/react-ui/src/SessionMenu.module.css')
-  const host = read('plugins/react-ui/src/index.tsx')
-  const session = read('plugins/react-ui/src/SessionMenu.tsx')
-  assert.match(app, /\.themeButton\s*\{[^}]*min-width:\s*44px/)
-  assert.match(app, /\.themeButton\s*\{[^}]*min-height:\s*44px/)
-  assert.match(app, /\.themeButton:focus-visible/)
-  assert.match(host, /className=\{styles\.themeButton\}/)
-  assert.match(session, /className=\{styles\.login\}/)
-  assert.match(session, /className=\{styles\.retry\}/)
-  assert.match(session, /className=\{styles\.trigger\}/)
-  assert.match(account, /\.login\s*\{[^}]*min-height:\s*44px/)
-  assert.match(account, /\.login\s*\{[^}]*padding:\s*0 16px/)
-  assert.match(account, /\.login,\.retry,\.trigger,\.menu button\{[^}]*min-height:44px/)
-  assert.match(account, /\.account :is\(a,button\):focus-visible/)
-})
 test('#79 Playground Session logout revokes the same Repo capability without blocking public team',async()=>{
   const query = new URLSearchParams({
     repoFixture:'1',sessionFixture:'1',sessionCase:'authenticated',fixtureTeam:'missing',
