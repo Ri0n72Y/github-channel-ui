@@ -1,3 +1,4 @@
+import {observeHttp} from './helpers/observe-http.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createRepoConfigHandler } from '../api/_repo-config.mjs'
@@ -61,7 +62,7 @@ function mockFetcher(options = {}) {
   let createdLabelsCount = 0
   let removedLabelsCount = 0
   let completedPutCount = 0
-  const fetcher = async (url, init = {}) => {
+  const fetcher = observeHttp(async (url, init = {}) => {
     const parsed = new URL(url)
     const path = decodeURIComponent(parsed.pathname)
     const method = (init.method || 'GET').toUpperCase()
@@ -83,7 +84,7 @@ function mockFetcher(options = {}) {
       return respond(503, { message: 'failed to verify maintenance branch commit' })
     }
     if (path === '/user' || path.startsWith('/user/installations/') ||
-        path === '/app/installations/17' || path === BASE + '/branches/main' ||
+        path === '/app/installations/17' ||
         path === BASE + '/rules/branches/main') {
       const value = actorEntries(options)[path]
       if (path==='/user' || path.startsWith('/user/installations/')) {
@@ -171,11 +172,12 @@ function mockFetcher(options = {}) {
       removedLabelsCount++
       return respond(200, currentIssue.labels)
     }
-    return respond(404, { message: 'Unexpected ' + method + ' ' + path })
-  }
+    throw Error('Unexpected ' + method + ' ' + path)
+  })
   http.use(fetcher)
   return { fetcher, calls, getIssue: () => currentIssue,
-    getLabels: () => labels, getMainContent: () => mainContent }
+    getLabels: () => labels, getMainContent: () => mainContent,
+    getMainHead: () => mainHead, getBranch: name => branches.get(name) }
 }
 
 const writes = calls => calls.filter(call=>call.method!=='GET' && !call.path.endsWith('/access_tokens'))
@@ -206,31 +208,66 @@ test('repo-config rejects a caller-selected branch', async () => {
   assert.equal(data.state, 'invalid_target')
 })
 
-test('protected Config update uses OAuth user identity, maintenance branch and a PR', async () => {
-  const mock = mockFetcher()
-  const payload = {
-    owner: OWNER, repo: REPO, action: 'save_config', branch: 'main',
-    content: NEXT_CONFIG, expectedHeadSha: HEAD, expectedFileSha: FILE_SHA,
-  }
-  const handler = createRepoConfigHandler({
-    fetcher: mock.fetcher,
-  })
-  const response = await handler.fetch(http.post('/api/repo-config',payload))
-  const data = await response.json()
-  assert.equal(response.status, 200)
-  assert.equal(data.state, 'awaiting_pr_merge')
-  assert.equal(data.prUrl, 'https://github.com/octocat/demo/pull/88')
-  assert.equal(data.branch.startsWith('labourchain/config-'), true)
-  assert.ok(mock.calls.some(call => call.method === 'POST' && call.path === BASE + '/git/refs' &&
-    call.authorization === 'Bearer user-oauth-token'))
-  assert.ok(mock.calls.some(call => call.method === 'PUT' &&
-    call.path === BASE + '/contents/labourchain.config.yaml' &&
-    call.authorization === 'Bearer user-oauth-token'))
-  assert.ok(mock.calls.some(call => call.method === 'POST' && call.path === BASE + '/pulls' &&
-    call.authorization === 'Bearer user-oauth-token'))
-  http.assertApp(mock.calls.find(call => call.path === '/app/installations/17').authorization)
-  assert.ok(!mock.calls.some(call => call.authorization === 'Bearer app-install-read-token'))
-  assert.equal(mock.getMainContent(), CONFIG)
+test('Config saves exactly the reviewed bytes to unprotected main and verifies the committed version', async () => {
+  const mock=mockFetcher({protected:false})
+  const handler=createRepoConfigHandler({fetcher:mock.fetcher})
+  const response=await handler.fetch(http.post('/api/repo-config',{
+    owner:OWNER,repo:REPO,action:'save_config',branch:'main',content:NEXT_CONFIG,
+    expectedHeadSha:HEAD,expectedFileSha:FILE_SHA,
+  }))
+  assert.equal(response.status,200)
+  assert.deepEqual(await response.json(),{state:'sync_pending',commitSha:COMMIT_SHA,
+    fileSha:NEW_FILE_SHA,headSha:COMMIT_SHA,requestedBy:'fixture-operator'})
+  assert.equal(mock.getMainContent(),NEXT_CONFIG)
+  assert.equal(mock.getMainHead(),COMMIT_SHA)
+  assert.equal(writes(mock.calls).length,1)
+  const [put]=writes(mock.calls)
+  assert.equal(put.method,'PUT')
+  assert.equal(put.path,BASE+'/contents/labourchain.config.yaml')
+  const body=JSON.parse(put.body)
+  assert.equal(body.branch,'main')
+  assert.equal(body.sha,FILE_SHA)
+  assert.equal(Buffer.from(body.content,'base64').toString('utf8'),NEXT_CONFIG)
+  assert.match(body.message,/@fixture-operator/)
+  const after=mock.calls.slice(mock.calls.indexOf(put)+1)
+  assert.ok(after.some(call=>call.method==='GET'&&call.path===BASE+'/branches/main'))
+  assert.ok(after.some(call=>call.method==='GET'&&call.path===put.path))
+})
+
+test('Config protected main receives only a reviewed PR with the exact maintenance branch and content', async () => {
+  const mock=mockFetcher()
+  const handler=createRepoConfigHandler({fetcher:mock.fetcher})
+  const response=await handler.fetch(http.post('/api/repo-config',{
+    owner:OWNER,repo:REPO,action:'save_config',branch:'main',content:NEXT_CONFIG,
+    expectedHeadSha:HEAD,expectedFileSha:FILE_SHA,
+  }))
+  const data=await response.json()
+  assert.equal(response.status,200)
+  assert.equal(data.state,'awaiting_pr_merge')
+  assert.equal(data.prUrl,'https://github.com/octocat/demo/pull/88')
+  assert.equal(data.commitSha,COMMIT_SHA)
+  assert.equal(data.fileSha,NEW_FILE_SHA)
+  assert.match(data.branch,/^labourchain\/config-/)
+  const [ref,put,pr,...extra]=writes(mock.calls)
+  assert.deepEqual(extra,[])
+  assert.deepEqual([ref.method,ref.path],['POST',BASE+'/git/refs'])
+  assert.deepEqual(JSON.parse(ref.body),{ref:'refs/heads/'+data.branch,sha:HEAD})
+  assert.deepEqual([put.method,put.path],['PUT',BASE+'/contents/labourchain.config.yaml'])
+  const update=JSON.parse(put.body)
+  assert.equal(update.branch,data.branch)
+  assert.equal(update.sha,FILE_SHA)
+  assert.equal(Buffer.from(update.content,'base64').toString('utf8'),NEXT_CONFIG)
+  assert.deepEqual([pr.method,pr.path],['POST',BASE+'/pulls'])
+  const opened=JSON.parse(pr.body)
+  assert.equal(opened.head,data.branch)
+  assert.equal(opened.base,'main')
+  assert.equal(opened.draft,false)
+  assert.match(opened.body,/@fixture-operator/)
+  assert.equal(mock.getMainContent(),CONFIG)
+  assert.equal(mock.getMainHead(),HEAD)
+  assert.deepEqual(mock.getBranch(data.branch),{content:NEXT_CONFIG,fileSha:NEW_FILE_SHA,head:COMMIT_SHA})
+  const verification=mock.calls.slice(mock.calls.indexOf(put)+1,mock.calls.indexOf(pr))
+  assert.ok(verification.some(call=>call.method==='GET'&&call.path===BASE+'/branches/'+data.branch))
 })
 
 async function syncPreviewId(mock) {

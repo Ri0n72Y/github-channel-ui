@@ -1,3 +1,4 @@
+import {observeHttp} from './helpers/observe-http.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { generateKeyPairSync, randomBytes } from 'node:crypto'
@@ -24,7 +25,7 @@ const result = (status, body, headers = {}) => new Response(
 
 function fakeGitHub({ install = true, membership = true, rate = false } = {}) {
   const calls = []
-  const fetcher = async (url, options) => {
+  const fetcher = observeHttp(async (url, options) => {
     const u = new URL(url)
     const path = u.pathname
     const method = options?.method || 'GET'
@@ -70,7 +71,7 @@ function fakeGitHub({ install = true, membership = true, rate = false } = {}) {
     }
     if (path === '/user') return result(200, { id: 9, login: 'worker' })
     throw new Error('Unexpected GitHub request: ' + method + ' ' + u.href)
-  }
+  })
   return { calls, fetcher }
 }
 

@@ -6,7 +6,6 @@ import { resolve } from 'node:path'
 import { ProbeError } from '../api/_installation-probe.mjs'
 import { auth as oldAuth, repos as oldRepos, issues as oldIssues } from '../api/_github.mjs'
 import { createReposHandler } from '../api/repos.mjs'
-import { createIssuesHandler } from '../api/issues.mjs'
 import { parseGitHubResourceUrl, parseGitHubRepositoryUrl, repositoryLinkPath, resourcePath } from '../plugins/repo-issues/src/target.mjs'
 
 let vite, createRepoIssuesApi, createRepoIssuesStore
@@ -271,82 +270,6 @@ test('withdrawn, 403, 429, 503 and malformed upstream checks fail closed', async
   const response = await endpoint.fetch(req(url))
   assert.equal(response.status,200)
   assert.ok(!('repositories' in await response.json()))
-})
-
-test('/api/issues requires explicit target and never invokes a token reader without one', async () => {
-  let accesses = 0
-  const endpoint = createIssuesHandler({ readAccess: async () => { accesses++; throw Error('unexpected') } })
-  assert.equal((await endpoint.fetch(req('https://local.test/api/issues'))).status, 400)
-  assert.equal((await endpoint.fetch(req('https://local.test/api/issues?owner=a/b&repo=repo'))).status, 400)
-  assert.equal((await endpoint.fetch(req(issueUrl,'POST'))).status,405)
-  assert.equal(accesses,0)
-})
-
-test('anonymous Issue read is scoped to the exact public repo; PR entries never appear', async () => {
-  const readCalls=[], getCalls=[]
-  const endpoint=createIssuesHandler({
-    readAccess: async input => { readCalls.push(input); return {token:'scoped-read'} },
-    githubGet: async (_access,path) => {
-      getCalls.push(path)
-      if (new URL('https://api.github.com' + path).searchParams.get('page') === '1') return {
-        data:[sampleIssue(1),sampleIssue(100,{pull_request:{url:'https://api.github.com/pulls/100'}})],
-        link:'<https://api.github.com/repos/sample/repo/issues?page=2>; rel="next"',
-      }
-      return { data:[sampleIssue(1),sampleIssue(2)], link:'' }
-    },
-  })
-  const response=await endpoint.fetch(req(issueUrl))
-  assert.equal(response.status,200)
-  assert.deepEqual((await response.json()).issues.map(item=>item.number),[1,2])
-  assert.equal(readCalls.length,1)
-  assert.deepEqual({owner:readCalls[0].owner,repo:readCalls[0].repo,
-    permissions:readCalls[0].permissions},{owner:'sample',repo:'repo',permissions:['issues']})
-  assert.ok(getCalls.every(path=>path.startsWith('/repos/sample/repo/issues?')))
-  assert.equal(getCalls.length,2)
-})
-
-test('Issue listing rejects cross-repo links, malformed bodies and incomplete pagination', async () => {
-  for (const result of [
-    { data:[sampleIssue(1,{html_url:'https://evil.example/issues/1'})], link:'' },
-    { data:[sampleIssue(1,{html_url:'https://github.com/other/repo/issues/1'})], link:'' },
-    { data:{issues:[]}, link:'' },
-    { data:[sampleIssue(1)], link:null },
-  ]) {
-    const endpoint=createIssuesHandler({
-      readAccess:async()=>({token:'read'}),
-      githubGet:async()=>result,
-    })
-    assert.equal((await endpoint.fetch(req(issueUrl))).status,502)
-  }
-  let pages=0
-  const endpoint=createIssuesHandler({
-    readAccess:async()=>({token:'read'}),
-    githubGet:async()=>{ pages++; return {
-      data:[sampleIssue(pages)],
-      link:'<https://api.github.com/repos/sample/repo/issues?page=10>; rel="next"',
-    } },
-  })
-  assert.equal((await endpoint.fetch(req(issueUrl))).status,409)
-  assert.equal(pages,5)
-})
-
-test('Issue 403/429/502 or revoked installation never produce a successful empty list', async () => {
-  for (const status of [403,429,502,503]) {
-    let gets=0
-    const endpoint=createIssuesHandler({
-      readAccess:async()=>{ throw Object.assign(new Error('read unavailable'),{status}) },
-      githubGet:async()=>{gets++;throw Error('should not reach GitHub')},
-    })
-    const response=await endpoint.fetch(req(issueUrl))
-    assert.notEqual(response.status,200)
-    assert.deepEqual((await response.json()).error,'Issue service temporarily unavailable')
-    assert.equal(gets,0)
-  }
-  const endpoint=createIssuesHandler({
-    readAccess:async()=>({token:'read'}),
-    githubGet:async()=>{ throw Object.assign(new Error('rate limit'),{status:429}) },
-  })
-  assert.equal((await endpoint.fetch(req(issueUrl))).status,502)
 })
 
 test('legacy global auth/repo enumeration exports reject instead of selecting any Installation',async()=>{

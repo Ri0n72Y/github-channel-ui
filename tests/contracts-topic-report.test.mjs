@@ -1,3 +1,4 @@
+import {observeHttp} from './helpers/observe-http.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { randomBytes, generateKeyPairSync } from 'node:crypto'
@@ -18,11 +19,12 @@ function setup(opts = {}) {
   let now = 1_800_000_000_000
   let appInstalled = opts.appInstalled !== false
   let appIssuesPermission = opts.appIssuesPermission ?? 'write'
-  const fetcher = async (url, init = {}) => {
-    const path = new URL(url).pathname
+  const fetcher = observeHttp(async (url, init = {}) => {
+    const location = new URL(url)
+    const path = location.pathname
     const authorization = init.headers?.Authorization
     const method = init.method || 'GET'
-    calls.push({ path, method, authorization, body: init.body || null,
+    calls.push({ origin: location.origin, path, method, authorization, body: init.body || null,
       cookie: init.headers?.cookie })
     const metadata = {
       id: 23, full_name: opts.fullName || 'sample/repo',
@@ -96,7 +98,7 @@ function setup(opts = {}) {
       })
     }
     throw Error('Unexpected GitHub path ' + path)
-  }
+  })
   const sessionReader = request => {
     const cookie = request.headers.get('cookie') || ''
     if (cookie.includes('session=alice')) return { token: 'user-alice' }
@@ -190,17 +192,27 @@ test('#31 OAuth target proof binds route, expiry and the current user session', 
   assert.equal(s.calls.filter(c => c.method === 'POST').length, 0)
 })
 
-test('#31 OAuth rejects private repos, disabled Issues and absent user write permission', async () => {
-  for (const opts of [{ private: true }, { hasIssues: false },
-    { canWrite: false }, { permissionsMissing: true },
-    { fullName: 'other/repository' }]) {
-    const s = setup(opts)
-    const pre = await s.preflight()
-    assert.ok([403, 410, 502].includes(pre.response.status))
-    assert.equal(s.calls.filter(c => c.method === 'POST').length, 0)
+test('Topic report preflight distinguishes unsupported Issues, missing permission and mismatched repository identity', async () => {
+  const cases=[
+    [{private:true},403],
+    [{hasIssues:false},410],
+    [{canWrite:false},403],
+    [{permissionsMissing:true},403],
+    [{fullName:'other/repository'},502],
+  ]
+  for(const [options,status] of cases){
+    const fixture=setup(options)
+    const result=await fixture.preflight()
+    assert.equal(result.response.status,status,JSON.stringify(options))
+    assert.equal(result.data.state,'rejected')
+    assert.equal(Object.hasOwn(result.data,'proof'),false)
+    assert.equal(fixture.calls.filter(call=>call.method!=='GET').length,0)
+    assert.ok(fixture.calls.every(call=>call.origin==='https://api.github.com'))
+    assert.ok(fixture.calls.filter(call=>call.path.startsWith('/repos/')).every(call=>
+      call.path===ghRepo||call.path===ghRepo+'/installation'))
+    if(options.private||options.fullName)assert.deepEqual(fixture.calls.map(call=>call.path),[ghRepo])
   }
 })
-
 test('#31 repo/user permission HTTP failures are distinct from create failure', async () => {
   for (const status of [401,403,404,410,422,429,503]) {
     const s = setup({ repoStatus: status })
@@ -225,17 +237,28 @@ test('#31 OAuth rejects secrets, excessive size and arbitrary URLs without forwa
   assert.equal(s.calls.filter(c => c.method === 'POST').length, 0)
 })
 
-test('#31 user-token GitHub create statuses are explicit; 503 is unknown but 422 is rejected', async () => {
-  for (const status of [401,403,404,410,422,429,503]) {
-    const s = setup({ writeStatus: status,
-      writeHeaders: status === 429 ? { 'retry-after': '60' } : {} })
-    const { data } = await s.preflight()
-    const res = await s.submit(data.proof)
-    const body = await res.json()
-    assert.equal(res.status, status >= 500 ? 502 : status)
-    assert.equal(body.outcomeUnknown, status >= 500)
-    if (status === 429) assert.equal(body.retryAfter, '60')
-    assert.equal(s.calls.filter(c => c.method === 'POST').length, 1)
+test('Topic report preserves write outcome semantics and never automatically repeats a rejected or uncertain create',async()=>{
+  for(const [upstream,status,unknown] of [[401,401,false],[403,403,false],[404,404,false],
+    [410,410,false],[422,422,false],[429,429,false],[503,502,true]]){
+    const fixture=setup({writeStatus:upstream,writeHeaders:upstream===429?{'retry-after':'60'}:{}})
+    const prepared=await fixture.preflight()
+    assert.equal(prepared.response.status,200)
+    assert.equal(prepared.data.state,'ready')
+    const before=fixture.calls.length
+    const response=await fixture.submit(prepared.data.proof)
+    const body=await response.json()
+    assert.equal(response.status,status)
+    assert.equal(body.outcomeUnknown,unknown)
+    if(status===429)assert.equal(body.retryAfter,'60')
+    assert.equal(Object.hasOwn(body,'issue'),false)
+    const written=fixture.calls.slice(before)
+    assert.ok(written.every(call=>call.origin==='https://api.github.com'))
+    const posts=written.filter(call=>call.method!=='GET')
+    assert.equal(posts.length,1)
+    assert.equal(posts[0].method,'POST')
+    assert.equal(posts[0].path,ghRepo+'/issues')
+    assert.deepEqual(JSON.parse(posts[0].body),{title:'TopicPage report',body:'Error stage: readme\nHTTP: 502'})
+    assert.equal(posts[0].cookie,undefined)
   }
 })
 

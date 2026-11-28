@@ -1,3 +1,4 @@
+import {observeHttp} from './helpers/observe-http.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createTopicProjectsEndpoint } from '../api/_topic-projects.mjs'
@@ -80,7 +81,7 @@ function configMock({protectedBranch=false,appWrite=true,appPrWrite=true,
   const base=ROOT
   const savedByBranch=new Map()
   let pendingPR=null
-  const fetcher=async(url,init={})=>{
+  const fetcher=observeHttp(async(url,init={})=>{
     const path=new URL(url).pathname,method=init.method||'GET'
     const req={path,method,body:init.body?JSON.parse(init.body):null,
       auth:init.headers?.Authorization}
@@ -152,7 +153,7 @@ function configMock({protectedBranch=false,appWrite=true,appPrWrite=true,
       return reply(201,pendingPR)
     }
     throw Error('unexpected '+method+' '+path)
-  }
+  })
   http.use(fetcher)
   return {fetcher,calls}
 }

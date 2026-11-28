@@ -1,3 +1,4 @@
+import {observeHttp} from './helpers/observe-http.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { generateKeyPairSync, randomBytes } from 'node:crypto'
@@ -16,7 +17,7 @@ const install = owner => ({ id: 77, account: { login: owner }, suspended_at: nul
 
 function fakeGitHub({ probe = 'ok', member = 'ok', privateRepo = false } = {}) {
   const calls = []
-  const fetcher = async (url, opts = {}) => {
+  const fetcher = observeHttp(async (url, opts = {}) => {
     const u = new URL(url), path = u.pathname, method = opts.method || 'GET'
     assert.equal(u.origin, 'https://api.github.com')
     calls.push({ path, method, auth: opts.headers?.Authorization, body: opts.body })
@@ -43,7 +44,7 @@ function fakeGitHub({ probe = 'ok', member = 'ok', privateRepo = false } = {}) {
         html_url: 'https://github.com/sample/repo/issues/42' })
     }
     throw Error('Unexpected GitHub API request: ' + method + ' ' + path)
-  }
+  })
   return { fetcher, calls,
     postCount: () => calls.filter(x => x.method === 'POST' && /\/issues$/.test(x.path)).length }
 }

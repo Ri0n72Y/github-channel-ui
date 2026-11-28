@@ -1,3 +1,4 @@
+import {observeHttp} from './helpers/observe-http.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { generateKeyPairSync, randomBytes } from 'node:crypto'
@@ -28,7 +29,7 @@ const response = (status, data, extra = {}) => new Response(JSON.stringify(data)
 function makeGitHubMock(options = {}) {
   const calls = [], writes = []
   let conflicted = false
-  const fetcher = async (url, init = {}) => {
+  const fetcher = observeHttp(async (url, init = {}) => {
     const u = new URL(url)
     assert.equal(u.host, 'api.github.com', 'all upstream GitHub calls are absolute API endpoints')
     const path = u.pathname, method = init.method || 'GET'
@@ -80,7 +81,7 @@ function makeGitHubMock(options = {}) {
     if (method === 'POST' && path === '/repos/octocat/hello/pulls') return response(201,
       { html_url: 'https://github.com/octocat/hello/pull/17' })
     throw Error('Unexpected request: ' + method + ' ' + url)
-  }
+  })
   return { fetcher, calls, writes }
 }
 async function mocked(options, action) {

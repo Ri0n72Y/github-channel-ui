@@ -1,3 +1,4 @@
+import {observeHttp} from './helpers/observe-http.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readRepoConfigPreview } from '../api/_repo-config-preview.mjs'
@@ -19,7 +20,7 @@ function mockRead(options = {}) {
     content: Buffer.from(configText, 'utf8').toString('base64') }
   const labelPages = options.labelPages || [[{ name: 'status:todo' }, { name: 'foo:unused' }]]
   const issuePages = options.issuePages || [[issue(1, ['status:obsolete', 'foo:unused', 'foobar:legacy'])]]
-  const fetcher=async(address,init={})=>{
+  const fetcher=observeHttp(async(address,init={})=>{
     const url=new URL(address),pathname=url.pathname
     calls.push(pathname+url.search)
     if(url.origin!=='https://api.github.com')throw Error('Unexpected external host: '+url.origin)
@@ -65,7 +66,7 @@ function mockRead(options = {}) {
         '<https://api.github.com/next>; rel="next"':''}})
     }
     throw Error('Unexpected read path '+url.pathname)
-  }
+  })
   http.use(fetcher)
   return { calls }
 }

@@ -1,3 +1,4 @@
+import {observeHttp} from './helpers/observe-http.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { generateKeyPairSync, verify } from 'node:crypto'
@@ -19,7 +20,7 @@ const respond = (status, data, headers = {}) => new Response(data == null ? null
 })
 function mock(entries) {
   const calls = []
-  const fetcher = async (url, options) => {
+  const fetcher = observeHttp(async (url, options) => {
     const path = new URL(url).pathname
     calls.push({ path, auth: options.headers.Authorization, redirect: options.redirect })
     assert.equal(new URL(url).origin, 'https://api.github.com')
@@ -27,7 +28,7 @@ function mock(entries) {
     if (!(path in entries)) throw Error('Unexpected GitHub path: ' + path)
     const value = entries[path]
     return typeof value === 'function' ? value() : value
-  }
+  })
   return { calls, fetcher }
 }
 

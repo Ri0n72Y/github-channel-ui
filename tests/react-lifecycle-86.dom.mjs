@@ -207,149 +207,247 @@ test('Issue page: two same-tick load-more events are single-flight and IDs dedup
   assert.equal(app.host.querySelector('[aria-label="读取状态"]').querySelectorAll('[role="status"]').length,0)
  }finally{await app.close()}
 })
-test('Config: dirty draft survives session reads, refresh requires confirmation and slow refresh blocks save',async()=>{
- const source=configFixture(new URLSearchParams({configCase:'changes'}))
- const lag=deferred()
- let gets=0, saves=0, blockNext=false
- const api={
-  ...source,
-  get:(...args)=>{gets++;if(blockNext){blockNext=false;return lag.promise}return source.get(...args)},
-  save:(...args)=>{saves++;return source.save(...args)},
- }
- const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
-   {api,owner:'sample',repo:'repo'})
+
+// Test the mounted production plugin and real browser service together.
+// Substitute only HTTP; inspect every actual request outside the transport catch.
+async function configJourney({read,write}) {
+ const {createRepoConfigApi}=await server.ssrLoadModule('/plugins/repo-config/src/service.ts')
+ const requests=[]
+ const api=createRepoConfigApi(async(address,init={})=>{
+  const url=new URL(address,'https://local.test')
+  const entry={path:url.pathname,query:Object.fromEntries(url.searchParams),method:init.method||'GET',
+   signal:init.signal,credentials:init.credentials,body:init.body?JSON.parse(init.body):undefined,
+   write:init.headers?.['X-LabourChain-Write']}
+  requests.push(entry)
+  if(entry.path!=='/api/repo-config')throw Error('Unexpected HTTP path')
+  return entry.method==='GET'?read(entry):write(entry)
+ })
+ const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,{api,owner:'sample',repo:'repo'})
+ return {app,requests,posts:()=>requests.filter(x=>x.method==='POST'),
+  verify:()=>{for(const request of requests){
+   assert.equal(request.path,'/api/repo-config')
+   assert.equal(request.credentials,'same-origin')
+   if(request.method==='GET')assert.deepEqual(request.query,{owner:'sample',repo:'repo'})
+   else {assert.equal(request.method,'POST');assert.equal(request.write,'1')
+    assert.equal(request.body.owner,'sample');assert.equal(request.body.repo,'repo');assert.equal(request.body.branch,'main')}
+  }}}
+}
+const formSubmit=host=>host.querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))
+const buttonWith=(host,text)=>[...host.querySelectorAll('button')].find(b=>b.textContent.includes(text))
+
+test('Config preserves a dirty draft across permission reads, rejects stale writes, and discards only after a successful confirmed refresh',async()=>{
+ let snapshot=configSnapshot(),nextRead=null
+ const j=await configJourney({read:()=>nextRead?nextRead():Response.json(snapshot),
+  write:()=>{throw Error('Unexpected write')}})
+ const {app}=j
+ const initial=snapshot.configText,draft=initial+'\n# local work'
+ const confirm=window.confirm
  try{
-  const area=app.host.querySelector('textarea')
-  assert.ok(area,'editor loaded')
-  const edited=area.value.replace('namespaces:', 'namespaces:\n# local draft')
-  await act(async()=>input(area,edited))
-  assert.equal(app.host.querySelector('textarea').value,edited)
+  await act(async()=>input(app.host.querySelector('textarea'),draft))
+  assert.equal(app.host.querySelector('button[type="submit"]').disabled,false)
   await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
   await flush()
-  assert.equal(app.host.querySelector('textarea').value,edited)
-  window.confirm=()=>false
-  const refresh=[...app.host.querySelectorAll('button')].find(b=>b.textContent==='重新读取')
-  assert.ok(refresh)
-  await act(async()=>refresh.click())
-  assert.equal(app.host.querySelector('textarea').value,edited)
-  window.confirm=()=>true
-  blockNext=true
-  await act(async()=>refresh.click())
-  await flush()
-  assert.ok([...app.host.querySelectorAll('button')].filter(b=>b.type==='submit').every(b=>b.disabled))
-  assert.equal(saves,0)
-  lag.resolve(await source.get('sample','repo',new AbortController().signal))
-  await flush()
-  assert.notEqual(app.host.querySelector('textarea').value,edited)
- }finally{await app.close()}
-})
-
-test('Config: HTTP 403/409 leave the editor usable and do not automatically retry',async()=>{
- let attempts=0
- const original=configFixture(new URLSearchParams({configCase:'changes'}))
- const api={...original,save:async()=>{attempts++;const error=Error('GitHub '+(attempts===1?'403':'409'))
-   error.status=attempts===1?403:409
-   throw error
- }}
- const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
-   {api,owner:'sample',repo:'repo'})
- try{
-  await act(async()=>input(app.host.querySelector('textarea'),
-    app.host.querySelector('textarea').value+'\n# local change'))
-  let submit=[...app.host.querySelectorAll('button')].find(b=>b.type==='submit')
-  assert.ok(submit&&!submit.disabled)
-  await act(async()=>submit.click())
-  assert.match(app.host.textContent,/GitHub 403/)
-  assert.ok(!app.host.textContent.includes('正在提交'))
-  assert.equal(attempts,1)
-  submit=[...app.host.querySelectorAll('button')].find(b=>b.type==='submit')
-  await act(async()=>submit.click())
-  assert.match(app.host.textContent,/GitHub 409/)
-  assert.equal(attempts,2)
- }finally{await app.close()}
-})
-test('Config: maintenance PR keeps the draft awaiting merge and disallows another write',async()=>{
- let writes=0
- const original=configFixture(new URLSearchParams({configCase:'changes'}))
- const api={...original,save:async()=>{writes++;return {state:'awaiting_pr_merge',prUrl:'https://github.com/sample/repo/pull/88'}}}
- const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
-   {api,owner:'sample',repo:'repo'})
- try{
-  await act(async()=>input(app.host.querySelector('textarea'),
-    app.host.querySelector('textarea').value+'\n# pending change'))
-  const submit=[...app.host.querySelectorAll('button')].find(b=>b.type==='submit')
-  await act(async()=>submit.click())
-  assert.equal(writes,1)
-  assert.match(app.host.textContent,/等待 GitHub 审核与合并/)
-  assert.match(app.host.innerHTML,/github.com\/sample\/repo\/pull\/88/)
-  assert.equal(app.host.querySelector('button[type="submit"]'),null)
- }finally{await app.close()}
-})
-
-test('Config: remote HEAD change preserves dirty content but blocks stale writes',async()=>{
- const original=configFixture(new URLSearchParams({configCase:'changes'}))
- let revision=0,attempts=0
- const api={...original,get:async(...args)=>{
-  const value=await original.get(...args)
-  return {...value,headSha:revision?'new-head-sha':value.headSha}
- },save:async()=>{attempts++;return {state:'ready'}}}
- const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
-  {api,owner:'sample',repo:'repo'})
- try{
-  const draft=app.host.querySelector('textarea').value+'\n# local edited'
-  await act(async()=>input(app.host.querySelector('textarea'),draft))
-  revision=1
+  assert.equal(app.host.querySelector('textarea').value,draft)
+  assert.equal(app.host.querySelector('button[type="submit"]').disabled,false)
+  snapshot={...snapshot,headSha:'d'.repeat(40)}
   await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
   await flush()
   assert.equal(app.host.querySelector('textarea').value,draft)
   assert.match(app.host.textContent,/GitHub 配置版本已变化/)
-  assert.ok(app.host.querySelector('button[type="submit"]').disabled)
-  assert.equal(attempts,0)
- } finally {await app.close()}
-})
-test('Member: route unmount aborts in-flight submission, with no background replay',async()=>{
- const pending=deferred()
- let signal, calls=0
- const api={getCapability:async()=>({user:{login:'operator'},mode:'direct',branch:'main'}),
- register:(_owner,_repo,_branch,_member,currentSignal)=>{calls++;signal=currentSignal;return pending.promise}}
- const app=await mount('/sample/repo/members/register','/:owner/:repo/members/register',Member,{api})
- try{
-  await act(async()=>input(app.host.querySelector('input[required]'),'Alice'))
-  await act(async()=>app.host.querySelector('form').dispatchEvent(
-    new Event('submit',{bubbles:true,cancelable:true})))
-  assert.equal(calls,1)
- }finally{await app.close()}
- assert.equal(signal.aborted,true)
- pending.resolve({status:'committed',url:'https://github.com/sample/repo/commit/1'})
- await flush()
- assert.equal(calls,1)
+  assert.equal(app.host.querySelector('button[type="submit"]').disabled,true)
+  await act(async()=>formSubmit(app.host))
+  const reads=j.requests.length
+  window.confirm=()=>false
+  await act(async()=>buttonWith(app.host,'重新读取').click())
+  assert.equal(j.requests.length,reads)
+  assert.equal(app.host.querySelector('textarea').value,draft)
+  window.confirm=()=>true
+  const delay=deferred()
+  nextRead=()=>delay.promise
+  await act(async()=>buttonWith(app.host,'重新读取').click())
+  await flush()
+  assert.ok(!app.host.querySelector('button[type="submit"]')||app.host.querySelector('button[type="submit"]').disabled)
+  delay.resolve(Response.json({error:'GitHub temporarily unavailable'},{status:503}))
+  await flush()
+  assert.match(app.host.textContent,/GitHub temporarily unavailable/)
+  assert.equal(app.host.querySelector('textarea').value,draft)
+  assert.equal(app.host.querySelector('button[type="submit"]'),null)
+  nextRead=null
+  await act(async()=>buttonWith(app.host,'重新读取 GitHub 配置').click())
+  await flush()
+  assert.equal(app.host.querySelector('textarea').value,initial)
+  assert.equal(j.posts().length,0)
+  j.verify()
+ }finally{window.confirm=confirm;await app.close()}
 })
 
-test('Config: session change during write releases busy, preserves unknown outcome warning',async()=>{
- const pending=deferred()
- let sends=0
- const source=configFixture(new URLSearchParams({configCase:'changes'}))
- const api={...source,save:()=>{sends++;return pending.promise}}
- const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
-   {api,owner:'sample',repo:'repo'})
+test('Config rejected saves preserve the draft; an acknowledged PR suppresses further writes until main contains that content',async()=>{
+ let snapshot=configSnapshot(),attempt=0
+ const j=await configJourney({read:()=>Response.json(snapshot),write:()=>{
+  attempt++
+  if(attempt===1)return Response.json({error:'Permission denied'},{status:403})
+  if(attempt===2)return Response.json({error:'Conflict'},{status:409})
+  return Response.json({state:'awaiting_pr_merge',prUrl:'https://github.com/sample/repo/pull/88'})
+ }})
+ const {app}=j
  try{
-  const area=app.host.querySelector('textarea')
-  await act(async()=>input(area,area.value+'\n# pending write'))
-  const submit=app.host.querySelector('button[type="submit"]')
-  assert.ok(submit&&!submit.disabled)
-  await act(async()=>submit.click())
-  assert.equal(sends,1)
-  assert.match(app.host.textContent,/正在提交/)
+  const draft=snapshot.configText+'\n# reviewed change'
+  await act(async()=>input(app.host.querySelector('textarea'),draft))
+  for(const message of [/Permission denied/,/Conflict/]){
+   assert.equal(app.host.querySelector('button[type="submit"]').disabled,false)
+   await act(async()=>formSubmit(app.host))
+   assert.match(app.host.textContent,message)
+   assert.equal(app.host.querySelector('textarea').value,draft)
+   assert.doesNotMatch(app.host.textContent,/写入结果未知/)
+  }
+  assert.equal(j.posts().length,2)
+  await act(async()=>formSubmit(app.host))
+  assert.match(app.host.textContent,/等待 GitHub 审核与合并/)
+  assert.ok(app.host.querySelector('a[href="https://github.com/sample/repo/pull/88"]'))
+  assert.equal(app.host.querySelector('button[type="submit"]'),null)
   await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
   await flush()
-  assert.doesNotMatch(app.host.textContent,/正在提交…/)
-  assert.match(app.host.textContent,/GitHub 写入结果未知/)
-  assert.ok(app.host.querySelector('button[type="submit"]').disabled)
-  assert.equal(sends,1)
-  pending.resolve({state:'ready'})
+  assert.match(app.host.textContent,/等待 GitHub 审核与合并/)
+  assert.equal(app.host.querySelector('button[type="submit"]'),null)
+  snapshot={...snapshot,headSha:'e'.repeat(40),fileSha:'f'.repeat(40),configText:draft}
+  await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
   await flush()
-  assert.equal(sends,1)
- } finally {await app.close()}
+  assert.doesNotMatch(app.host.textContent,/等待 GitHub 审核与合并/)
+  assert.equal(app.host.querySelector('textarea').value,draft)
+  assert.equal(app.host.querySelector('button[type="submit"]').disabled,true)
+  assert.deepEqual(j.posts().map(x=>x.body),Array(3).fill({
+   action:'save_config',owner:'sample',repo:'repo',branch:'main',content:draft,
+   expectedHeadSha:'a'.repeat(40),expectedFileSha:'b'.repeat(40)
+  }))
+  j.verify()
+ }finally{await app.close()}
+})
+
+test('Config session change aborts an in-flight HTTP save; late success cannot remove the unknown-result lock',async()=>{
+ const snapshot=configSnapshot(),pending=deferred()
+ const j=await configJourney({read:()=>Response.json(snapshot),write:()=>pending.promise})
+ const {app}=j
+ try{
+  const draft=snapshot.configText+'\n# pending change'
+  await act(async()=>input(app.host.querySelector('textarea'),draft))
+  await act(async()=>formSubmit(app.host))
+  assert.equal(j.posts().length,1)
+  assert.equal(j.posts()[0].signal.aborted,false)
+  await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
+  await flush()
+  assert.equal(j.posts()[0].signal.aborted,true)
+  assert.match(app.host.textContent,/GitHub 写入结果未知/)
+  pending.resolve(Response.json({state:'sync_pending',commitSha:'d'.repeat(40),fileSha:'e'.repeat(40)}))
+  await flush()
+  assert.match(app.host.textContent,/GitHub 写入结果未知/)
+  assert.equal(app.host.querySelector('textarea').value,draft)
+  assert.equal(app.host.querySelector('button[type="submit"]').disabled,true)
+  await act(async()=>formSubmit(app.host))
+  assert.equal(j.posts().length,1)
+  j.verify()
+ }finally{await app.close()}
+})
+
+async function memberJourney(write){
+ const {createRepoHomeApi}=await server.ssrLoadModule('/plugins/repo-home/src/service.ts')
+ const requests=[]
+ const api=createRepoHomeApi(async(address,init={})=>{
+  const url=new URL(address,'https://local.test')
+  const entry={path:url.pathname,query:Object.fromEntries(url.searchParams),method:init.method||'GET',
+   signal:init.signal,body:init.body?JSON.parse(init.body):undefined,credentials:init.credentials,
+   write:init.headers?.['X-LabourChain-Write']}
+  requests.push(entry)
+  if(entry.path==='/api/repo-member-permission'&&entry.method==='GET')return Response.json({
+   user:{login:'operator',id:12},branch:'main',protected:false,mode:'commit'})
+  if(entry.path==='/api/repo-member-register'&&entry.method==='POST')return write(entry)
+  throw Error('Unexpected member HTTP request')
+ })
+ const app=await mount('/sample/repo/members/register','/:owner/:repo/members/register',Member,{api})
+ return {app,requests,posts:()=>requests.filter(x=>x.method==='POST'),verify:()=>{
+  for(const request of requests){
+   assert.equal(request.credentials,'same-origin')
+   if(request.method==='GET'){assert.equal(request.path,'/api/repo-member-permission')
+    assert.deepEqual(request.query,{owner:'sample',repo:'repo',branch:'main'})}
+   else{assert.equal(request.method,'POST');assert.equal(request.path,'/api/repo-member-register')
+    assert.equal(request.write,'1');assert.deepEqual(request.body,{owner:'sample',repo:'repo',branch:'main',member:{name:'Alice'}})}
+  }
+ }}
+}
+const memberSuccess=sha=>Response.json({status:'committed',url:'https://github.com/sample/repo/commit/'+sha,sha,requestedBy:'operator'})
+
+test('leaving member registration aborts the real HTTP submission and does not replay it',async()=>{
+ const pending=deferred(),j=await memberJourney(()=>pending.promise)
+ try{
+  await act(async()=>input(j.app.host.querySelector('input[required]'),'Alice'))
+  await act(async()=>formSubmit(j.app.host))
+  assert.equal(j.posts().length,1)
+ }finally{await j.app.close()}
+ assert.equal(j.posts()[0].signal.aborted,true)
+ pending.resolve(memberSuccess('a'.repeat(40)))
+ await flush()
+ assert.equal(j.posts().length,1)
+ j.verify()
+})
+
+test('member session change invalidates pending HTTP write, preserves the draft and requires a checked retry',async()=>{
+ const pending=deferred()
+ let attempts=0
+ const j=await memberJourney(()=>++attempts===1?pending.promise:memberSuccess('b'.repeat(40)))
+ const {app}=j,confirm=window.confirm
+ try{
+  await act(async()=>input(app.host.querySelector('input[required]'),'Alice'))
+  await act(async()=>formSubmit(app.host))
+  assert.equal(j.posts().length,1)
+  const before=j.requests.length
+  await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
+  await flush()
+  assert.ok(j.requests.length>before)
+  assert.equal(j.posts()[0].signal.aborted,true)
+  assert.equal(app.host.querySelector('input[required]').value,'Alice')
+  assert.match(app.host.textContent,/提交结果未知/)
+  await act(async()=>formSubmit(app.host))
+  assert.equal(j.posts().length,1)
+  window.confirm=()=>false
+  await act(async()=>buttonWith(app.host,'解除提交锁定').click())
+  assert.equal(app.host.querySelector('button[type="submit"]').disabled,true)
+  window.confirm=()=>true
+  await act(async()=>buttonWith(app.host,'解除提交锁定').click())
+  await flush()
+  assert.equal(app.host.querySelector('button[type="submit"]').disabled,false)
+  await act(async()=>formSubmit(app.host))
+  assert.equal(j.posts().length,2)
+  assert.ok(app.host.querySelector('a[href="https://github.com/sample/repo/commit/'+ 'b'.repeat(40)+'"]'))
+  pending.resolve(memberSuccess('a'.repeat(40)))
+  await flush()
+  assert.ok(!app.host.querySelector('a[href="https://github.com/sample/repo/commit/'+ 'a'.repeat(40)+'"]'))
+  assert.equal(j.posts().length,2)
+  j.verify()
+ }finally{window.confirm=confirm;await app.close()}
+})
+
+test('member unknown write blocks duplicates; explicit permission rejection after checked retry preserves an editable draft',async()=>{
+ let attempts=0
+ const j=await memberJourney(()=>{if(++attempts===1)throw new TypeError('Network interrupted')
+  return Response.json({error:'Permission denied'},{status:403})})
+ const {app}=j,confirm=window.confirm
+ try{
+  await act(async()=>input(app.host.querySelector('input[required]'),'Alice'))
+  await act(async()=>formSubmit(app.host))
+  assert.equal(j.posts().length,1)
+  assert.match(app.host.textContent,/提交结果未知/)
+  await act(async()=>formSubmit(app.host))
+  assert.equal(j.posts().length,1)
+  window.confirm=()=>true
+  await act(async()=>buttonWith(app.host,'解除提交锁定').click())
+  await flush()
+  await act(async()=>formSubmit(app.host))
+  assert.equal(j.posts().length,2)
+  assert.match(app.host.textContent,/Permission denied/)
+  assert.doesNotMatch(app.host.textContent,/提交结果未知/)
+  assert.equal(app.host.querySelector('input[required]').value,'Alice')
+  assert.equal(app.host.querySelector('button[type="submit"]').disabled,false)
+  j.verify()
+ }finally{window.confirm=confirm;await app.close()}
 })
 
 test('Repo: stale A response after B navigation never leaks A data into B links',async()=>{
@@ -371,71 +469,6 @@ test('Repo: stale A response after B navigation never leaks A data into B links'
   assert.doesNotMatch(app.host.textContent,/Alpha stale/)
   assert.match(app.host.textContent,/Beta confirmed/)
   assert.ok([...app.host.querySelectorAll('a')].some(a=>a.getAttribute('href')?.includes('/sample/beta/issues/2')))
- } finally {await app.close()}
-})
-test('Member session-aborted POST stays locked after new capability until explicit check', async()=>{
- const first=deferred()
- let writes=0,capabilityReads=0,firstSignal
- const api={getCapability:async()=>{capabilityReads++;return {user:{login:'operator'},mode:'direct',branch:'main'}},
-  register:(_owner,_repo,_branch,_member,signal)=>{writes++;if(writes===1)firstSignal=signal;return writes===1?first.promise:Promise.resolve({
-   status:'committed',url:'https://github.com/sample/repo/commit/new'})}}
- const app=await mount('/sample/repo/members/register','/:owner/:repo/members/register',Member,{api})
- try{
-  await act(async()=>input(app.host.querySelector('input[required]'),'Alice'))
-  await act(async()=>app.host.querySelector('form').dispatchEvent(
-   new Event('submit',{bubbles:true,cancelable:true})))
-  assert.equal(writes,1)
-  assert.match(app.host.textContent,/正在提交/)
-  await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
-  await flush()
-  assert.ok(capabilityReads>=2)
-  assert.equal(firstSignal.aborted,true)
-  assert.doesNotMatch(app.host.textContent,/正在提交…/)
-  assert.match(app.host.textContent,/提交结果未知，GitHub 可能已经接收请求/)
-  assert.ok(app.host.querySelector('button[type="submit"]').disabled)
-  await act(async()=>app.host.querySelector('form').dispatchEvent(
-   new Event('submit',{bubbles:true,cancelable:true})))
-  assert.equal(writes,1)
-  const unlock=[...app.host.querySelectorAll('button')].find(b=>b.textContent.includes('解除提交锁定'))
-  assert.ok(unlock)
-  window.confirm=()=>false
-  await act(async()=>unlock.click())
-  assert.ok(app.host.querySelector('button[type="submit"]').disabled)
-  window.confirm=()=>true
-  await act(async()=>unlock.click())
-  await flush()
-  assert.equal(app.host.querySelector('button[type="submit"]').disabled,false)
-  await act(async()=>app.host.querySelector('form').dispatchEvent(
-   new Event('submit',{bubbles:true,cancelable:true})))
-  assert.equal(writes,2)
-  first.resolve({status:'committed',url:'https://github.com/sample/repo/commit/old'})
-  await flush()
-  assert.equal(writes,2)
- } finally {window.confirm=()=>true;await app.close()}
-})
-test('Member transport failure locks POST; 403 explicitly rejected remains retryable',async()=>{
- let writes=0
- const api={getCapability:async()=>({user:{login:'operator'},mode:'direct',branch:'main'}),
-  register:async()=>{writes++;if(writes===1)throw new TypeError('Network request failed')
-   const e=Error('GitHub 403'); e.status=403; throw e}}
- const app=await mount('/sample/repo/members/register','/:owner/:repo/members/register',Member,{api})
- try{
-  await act(async()=>input(app.host.querySelector('input[required]'),'Alice'))
-  await act(async()=>app.host.querySelector('form').dispatchEvent(
-   new Event('submit',{bubbles:true,cancelable:true})))
-  assert.equal(writes,1)
-  assert.match(app.host.textContent,/提交结果未知/)
-  assert.ok(app.host.querySelector('button[type="submit"]').disabled)
-  await act(async()=>app.host.querySelector('form').dispatchEvent(
-   new Event('submit',{bubbles:true,cancelable:true})))
-  assert.equal(writes,1)
-  const unlock=[...app.host.querySelectorAll('button')].find(b=>b.textContent.includes('解除提交锁定'))
-  await act(async()=>unlock.click())
-  await flush()
-  await act(async()=>app.host.querySelector('form').dispatchEvent(
-   new Event('submit',{bubbles:true,cancelable:true})))
-  assert.equal(writes,2)
-  assert.doesNotMatch(app.host.textContent,/提交结果未知/)
  } finally {await app.close()}
 })
 test('Config uncertain Save or Label Sync locks both HTTP writes until an explicit checked refresh',async()=>{
@@ -514,36 +547,6 @@ test('Config uncertain Save or Label Sync locks both HTTP writes until an explic
  }
 })
 
-test('failed refresh leaves old Config HEAD unauthorized and draft copyable until valid GET',async()=>{
- const source=configFixture(new URLSearchParams({configCase:'changes'}))
- let failNext=false,writes=0
- const api={...source,get:async(...args)=>{
-    if(failNext){failNext=false;throw Error('controlled GitHub 503')}
-    return source.get(...args)
-  },save:async()=>{writes++;return {state:'ready'}}}
- const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
-  {api,owner:'sample',repo:'repo'})
- try{
-  const draft=app.host.querySelector('textarea').value+'\n# local unsaved'
-  await act(async()=>input(app.host.querySelector('textarea'),draft))
-  failNext=true
-  const refresh=[...app.host.querySelectorAll('button')].find(b=>b.textContent==='重新读取')
-  assert.ok(refresh)
-  await act(async()=>refresh.click())
-  await flush()
-  assert.match(app.host.textContent,/controlled GitHub 503/)
-  assert.equal(app.host.querySelector('textarea').value,draft)
-  assert.equal(app.host.querySelector('button[type="submit"]'),null)
-  assert.equal(writes,0)
-  const retry=[...app.host.querySelectorAll('button')].find(b=>b.textContent.includes('重新读取 GitHub 配置'))
-  assert.ok(retry)
-  await act(async()=>retry.click())
-  await flush()
-  assert.doesNotMatch(app.host.textContent,/controlled GitHub 503/)
-  assert.notEqual(app.host.querySelector('textarea').value,draft)
-  assert.equal(writes,0)
- } finally {await app.close()}
-})
 test('root RepoPanel: URL target is required, anonymous read works, OAuth write remains disabled',async()=>{
  const calls={lookups:[],reads:[],writes:0,session:0}
  const repo={owner:'sample',name:'repo',full_name:'sample/repo'}

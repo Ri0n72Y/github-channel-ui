@@ -1,3 +1,4 @@
+import {observeHttp} from './observe-http.mjs'
 import {createHash} from 'node:crypto'
 export const HEAD='b'.repeat(40),ROOT_TREE='c'.repeat(40),PROJECT_TREE='d'.repeat(40)
 export const blobSha=value=>{const bytes=Buffer.from(value);return createHash('sha1').update('blob '+bytes.length+'\0').update(bytes).digest('hex')}
@@ -13,7 +14,7 @@ export function topicReadFixture({owner='sample',repo='repo',head=HEAD,config='t
   const blob=(path,value)=>({path,type:'blob',mode:'100644',size:Buffer.byteLength(value),sha:blobSha(value)})
   const entries=Object.entries(files).map(([path,value])=>blob(path,value))
   if(projects!==null)entries.push({path:'projects',type:'tree',mode:'040000',sha:PROJECT_TREE})
-  const fetcher=async(url,init={})=>{
+  const fetcher=observeHttp(async(url,init={})=>{
     const u=new URL(url),path=u.pathname
     calls.push({host:u.hostname,path,search:u.search,auth:init.headers?.Authorization,method:init.method||'GET'})
     const altered=await intercept(u,init)
@@ -36,6 +37,6 @@ export function topicReadFixture({owner='sample',repo='repo',head=HEAD,config='t
       return result instanceof Response?result:json(result)
     }
     throw Error('Unexpected GitHub GET '+path)
-  }
+  })
   return {fetcher,calls,root}
 }

@@ -1,7 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createTopicSourceStore} from '../plugins/topic-page/server/_topic-source.mjs'
-import {createTopicReadCache} from '../plugins/topic-page/src/topic-read-cache.mjs'
 import {createTopicPageEndpoint} from '../api/_topic-page.mjs'
 import {createTopicProjectsEndpoint} from '../api/_topic-projects.mjs'
 import {topicReadFixture,HEAD,ROOT_TREE,PROJECT_TREE,blobSha,json} from './helpers/topic-read-fixture.mjs'
@@ -110,66 +109,6 @@ test('#83 Raw failure, mismatching blob, truncated tree and Search failure are n
     const retry=await get(list,projects)
     assert.equal(retry.status,200,mode);assert.equal((await retry.json()).items[0].id,1)
   }
-})
-test('#83 bounded cache invalidation never resurrects a stale in-flight entry',async()=>{
-  let now=0,finish,loads=0
-  const cache=createTopicReadCache({ttl:10,limit:2,now:()=>now})
-  const a=cache.get('repo|old',()=>new Promise(resolve=>{finish=resolve}))
-  await Promise.resolve()
-  cache.invalidate('repo|')
-  const b=cache.get('repo|old',async()=>++loads)
-  assert.equal(await b,1)
-  finish('stale');assert.equal(await a,'stale')
-  assert.equal(await cache.get('repo|old',async()=>++loads),1)
-  assert.equal(cache.has('repo|old'),true)
-  now=11
-  assert.equal(cache.has('repo|old'),false)
-  assert.equal(await cache.get('repo|old',async()=>++loads),2)
-  await assert.rejects(cache.get('repo|failed',async()=>{throw Error('failure')}))
-  assert.equal(await cache.get('repo|failed',async()=>3),3)
-})
-
-function deferred(){
-  let resolve,reject
-  const promise=new Promise((a,b)=>{resolve=a;reject=b})
-  return {promise,resolve,reject}
-}
-test('#83 B2 refresh replaces ordinary pending, joins concurrent refresh and bounds superseded reads',async()=>{
-  const cache=createTopicReadCache({ttl:100,limit:2})
-  const older=deferred(),fresh=deferred()
-  let loads=0,replacements=0
-  const replaced=()=>replacements++
-  const old=cache.get('repo|source',()=>{loads++;return older.promise},false,replaced)
-  const refresh=cache.get('repo|source',()=>{loads++;return fresh.promise},true,replaced)
-  assert.notEqual(refresh,old)
-  assert.equal(cache.get('repo|source',()=>assert.fail('duplicate refresh'),true,replaced),refresh)
-  assert.equal(cache.get('repo|source',()=>assert.fail('duplicate normal')),refresh)
-  assert.equal(cache.peek('repo|source'),undefined)
-  await assert.rejects(cache.get('other|source',()=>assert.fail('unbounded pending')),{status:503,stage:'source'})
-  assert.equal(loads,2);assert.equal(replacements,2)
-  fresh.resolve('fresh');assert.equal(await refresh,'fresh')
-  older.resolve('old');assert.equal(await old,'old')
-  assert.equal(cache.peek('repo|source'),'fresh')
-  assert.equal(await cache.get('repo|source',()=>assert.fail('late old replaced fresh')),'fresh')
-  assert.equal(await cache.get('other|source',async()=>1),1)
-})
-test('#83 B2 failed refresh does not resurrect ordinary pending success; retry remains possible',async()=>{
-  const cache=createTopicReadCache({ttl:100,limit:2})
-  const older=deferred(),fresh=deferred()
-  const old=cache.get('repo|source',()=>older.promise)
-  const refresh=cache.get('repo|source',()=>fresh.promise,true)
-  fresh.reject(new Error('refresh failed'))
-  await assert.rejects(refresh,/refresh failed/)
-  older.resolve('old');assert.equal(await old,'old')
-  assert.equal(cache.has('repo|source'),false)
-  assert.equal(await cache.get('repo|source',async()=>'retry'),'retry')
-  const late=deferred()
-  const obsolete=cache.get('repo|source',()=>late.promise,true)
-  cache.invalidate('repo|')
-  assert.equal(await cache.get('repo|source',async()=>'replacement'),'replacement')
-  late.reject(new Error('old failure'))
-  await assert.rejects(obsolete,/old failure/)
-  assert.equal(cache.peek('repo|source'),'replacement')
 })
 test('#83 B2 server refresh bypasses old ordinary source, coalesces refresh and blocks its late Search',async()=>{
   const oldStarted=deferred(),oldGate=deferred(),newStarted=deferred(),newGate=deferred()

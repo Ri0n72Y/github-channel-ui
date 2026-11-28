@@ -1,3 +1,4 @@
+import {observeHttp} from './helpers/observe-http.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { generateKeyPairSync } from 'node:crypto'
@@ -29,7 +30,7 @@ const reply = (status, data, headers = {}) =>
 
 function fakeGitHub(options = {}) {
   const calls = []
-  const fetcher = async (url, init = {}) => {
+  const fetcher = observeHttp(async (url, init = {}) => {
     const path = new URL(url).pathname
     const method = init.method || 'GET'
     assert.equal(new URL(url).origin, 'https://api.github.com')
@@ -73,7 +74,7 @@ function fakeGitHub(options = {}) {
     if (path === '/repos/Ri0n72Y/hackathon-platform/issues' && method === 'GET')
       return reply(200, [{ id: 2, number: 2, title: 'A normal Issue', state: 'open' }])
     throw Error('Unexpected mocked GitHub call ' + method + ' ' + path)
-  }
+  })
   return { fetcher, calls }
 }
 
