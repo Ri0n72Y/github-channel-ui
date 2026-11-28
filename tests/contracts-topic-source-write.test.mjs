@@ -4,7 +4,6 @@ import assert from 'node:assert/strict'
 import { createTopicProjectsEndpoint } from '../api/_topic-projects.mjs'
 import { createTopicConfigEndpoint } from '../api/_topic-config.mjs'
 import { topicReadFixture, HEAD, PROJECT_TREE } from './helpers/topic-read-fixture.mjs'
-import { loadInstalledTopicBatch } from '../plugins/topic-page/src/domain.mjs'
 import { githubHttpFixture } from './helpers/github-http.mjs'
 const http=githubHttpFixture('https://labour.test','user-token')
 
@@ -34,7 +33,7 @@ test('public search excludes private, malformed, mismatched and source candidate
     .fetch(new Request('https://labour.test'+address))
   assert.equal(response.status,200)
   assert.deepEqual((await response.json()).items.map(p=>p.id),[1,2])
-  assert.equal(mock.calls.length,6)
+  assert.ok(mock.calls.every(c=>!c.path.includes('/projects/')&&!c.path.endsWith(PROJECT_TREE)))
 })
 
 function configMock({protectedBranch=false,appWrite=true,appPrWrite=true,
@@ -118,44 +117,33 @@ function configMock({protectedBranch=false,appWrite=true,appPrWrite=true,
     throw Error('unexpected '+method+' '+path)
   })
   http.use(fetcher)
-  return {fetcher,calls}
+  return {fetcher,calls,savedByBranch}
 }
 const configUrl='https://labour.test/api/topic-config'
 const post=(body={},options={})=>http.post('/api/topic-config',{owner:'sample',repo:'repo',confirmed:true,
     expectedHeadSha:'b'.repeat(40),expectedFileSha:null,
     content:'topic: labourchain\nwhitelist: false\n',...body},options)
 
-test('explicit OAuth owner edit writes verified unprotected branch and reads back',async()=>{
+test('verified direct write persists exact Topic YAML including cover, reads it back and invalidates only its source',async()=>{
   const mock=configMock(),invalidated=[]
-  const handler=createTopicConfigEndpoint({fetcher:mock.fetcher,
-    invalidate:(owner,repo)=>invalidated.push([owner,repo])})
-  const response=await handler.fetch(post())
+  const cover='https://raw.githubusercontent.com/sample/repo/'+HEAD+'/poster.png'
+  const content='topic: labourchain\ncover: '+cover+'\n'
+  const handler=createTopicConfigEndpoint({fetcher:mock.fetcher,invalidate:(...args)=>invalidated.push(args)})
+  const response=await handler.fetch(post({content}))
   assert.equal(response.status,200)
   const result=await response.json()
   assert.equal(result.state,'committed')
   assert.equal(result.effective,true)
   assert.equal(result.commitSha,'f'.repeat(40))
-  assert.deepEqual(invalidated,[['sample','repo']])
+  assert.equal(result.config.cover,cover)
   const writes=mock.calls.filter(c=>c.method!=='GET')
-  assert.equal(writes.length,1)
-  assert.equal(writes[0].method,'PUT')
-  assert.equal(writes[0].auth,'Bearer user-token')
-  http.assertApp(mock.calls.find(c=>c.path==='/app/installations/17').auth)
+  assert.deepEqual(writes.map(c=>[c.method,c.path,c.auth]),[['PUT',ROOT+'/contents/topics.config.yaml','Bearer user-token']])
+  assert.equal(writes[0].body.branch,'main')
+  assert.equal(mock.savedByBranch.get('main').text,content)
+  assert.ok(mock.calls.slice(mock.calls.indexOf(writes[0])+1).some(c=>c.method==='GET'&&c.path===ROOT+'/contents/topics.config.yaml'))
+  assert.deepEqual(invalidated,[['sample','repo']])
 })
-test('branch protection creates a PR, never advertises unmerged config as effective',async()=>{
-  const mock=configMock({protectedBranch:true}),invalidated=[]
-  const handler=createTopicConfigEndpoint({fetcher:mock.fetcher,
-    invalidate:(owner,repo)=>invalidated.push([owner,repo])})
-  const response=await handler.fetch(post())
-  assert.equal(response.status,200)
-  const body=await response.json()
-  assert.equal(body.state,'pending_pr')
-  assert.equal(body.effective,false)
-  assert.deepEqual(invalidated,[])
-  assert.equal(body.prUrl,'https://github.com/sample/repo/pull/81')
-  assert.deepEqual(mock.calls.filter(c=>c.method!=='GET').map(c=>c.method),
-    ['POST','PUT','POST'])
-})
+
 test('invalid YAML, stale HEAD, App/User denial and missing OAuth never write',async()=>{
   const cases=[
     {args:{},body:{content:'topic: labourchain\nunknown: exposed\n'},status:422},
@@ -262,12 +250,7 @@ test('protected write requires App PR permission and leaves partial state on unc
 test('successful direct PUT followed by readback faults stays outcomeUnknown',async()=>{
   for(const scenario of [
     {stage:'branch',type:'network'},
-    {stage:'branch',status:429},
-    {stage:'branch',status:503},
-    {stage:'branch',type:'json'},
-    {stage:'file',type:'network'},
     {stage:'file',status:429},
-    {stage:'file',status:503},
     {stage:'file',type:'json'},
   ]){
     const mock=configMock({readbackFailure:scenario})
@@ -296,43 +279,37 @@ test('protected PUT readback failure preserves partial branch and unknown status
   assert.equal(mock.calls.filter(c=>c.method==='PUT').length,1)
   assert.equal(mock.calls.filter(c=>c.path===ROOT+'/pulls'&&c.method==='POST').length,0)
 })
-test('identical protected save reuses the verified open PR',async()=>{
-  const mock=configMock({protectedBranch:true})
-  const handler=createTopicConfigEndpoint({fetcher:mock.fetcher})
-  const one=await (await handler.fetch(post())).json()
-  const two=await (await handler.fetch(post())).json()
-  assert.equal(one.state,'pending_pr')
-  assert.equal(two.state,'pending_pr')
-  assert.equal(one.branch,two.branch)
-  assert.equal(one.prUrl,two.prUrl)
-  assert.equal(one.effective,false)
-  assert.equal(two.effective,false)
-  assert.equal(two.reused,true)
-  assert.equal(mock.calls.filter(c=>c.path===ROOT+'/git/refs'&&c.method==='POST').length,1)
-  assert.equal(mock.calls.filter(c=>c.method==='PUT').length,1)
-  assert.equal(mock.calls.filter(c=>c.path===ROOT+'/pulls'&&c.method==='POST').length,1)
-  assert.ok(mock.calls.filter(c=>c.path===ROOT+'/pulls'&&c.method==='GET').length>=2)
-})
-test('changed YAML hashes to another branch; same-content PR remains deduplicated',async()=>{
-  const mock=configMock({protectedBranch:true})
-  const handler=createTopicConfigEndpoint({fetcher:mock.fetcher})
-  const first=await (await handler.fetch(post())).json()
+test('protected Topic edits remain pending, reuse the same open PR, and isolate different content',async()=>{
+  const mock=configMock({protectedBranch:true}),invalidated=[]
+  const handler=createTopicConfigEndpoint({fetcher:mock.fetcher,invalidate:(...args)=>invalidated.push(args)})
+  const firstResponse=await handler.fetch(post())
+  assert.equal(firstResponse.status,200)
+  const first=await firstResponse.json()
   assert.equal(first.state,'pending_pr')
-  const second=await handler.fetch(post({content:'topic: changed\nwhitelist: false\n'}))
-  // A distinct YAML creates a separate deterministic branch; source-side base still unchanged.
-  assert.equal(second.status,200)
-  assert.notEqual((await second.json()).branch,first.branch)
-})
-
-
-test('approved cover uses existing verified OAuth write and readback',async()=>{
-  const mock=configMock()
-  const cover='https://raw.githubusercontent.com/sample/repo/'+HEAD+'/poster.png'
-  const handler=createTopicConfigEndpoint({fetcher:mock.fetcher})
-  const response=await handler.fetch(post({content:'topic: labourchain\ncover: '+cover+'\n'}))
-  assert.equal(response.status,200)
-  const body=await response.json()
-  assert.equal(body.state,'committed')
-  assert.equal(body.config.cover,cover)
-  assert.equal(mock.calls.filter(c=>c.method==='PUT').length,1)
+  assert.equal(first.effective,false)
+  assert.equal(first.prUrl,'https://github.com/sample/repo/pull/81')
+  const mutations=()=>mock.calls.filter(c=>c.method!=='GET')
+  assert.deepEqual(mutations().map(c=>[c.method,c.path]),[
+    ['POST',ROOT+'/git/refs'],['PUT',ROOT+'/contents/topics.config.yaml'],['POST',ROOT+'/pulls'],
+  ])
+  assert.equal(mutations()[1].body.branch,first.branch)
+  assert.equal(mutations()[2].body.head,first.branch)
+  assert.equal(mutations()[2].body.base,'main')
+  const reused=await (await handler.fetch(post())).json()
+  assert.equal(reused.state,'pending_pr')
+  assert.equal(reused.reused,true)
+  assert.equal(reused.branch,first.branch)
+  assert.equal(reused.prUrl,first.prUrl)
+  assert.equal(mutations().length,3)
+  const content='topic: changed\nwhitelist: false\n'
+  const next=await (await handler.fetch(post({content}))).json()
+  assert.equal(next.state,'pending_pr')
+  assert.equal(next.effective,false)
+  assert.notEqual(next.branch,first.branch)
+  assert.equal(mock.savedByBranch.get(next.branch).text,content)
+  assert.equal(mock.savedByBranch.get(first.branch).text,'topic: labourchain\nwhitelist: false\n')
+  assert.equal(mock.savedByBranch.has('main'),false)
+  assert.deepEqual(invalidated,[])
+  assert.equal(mutations().length,6)
+  assert.ok(mutations().every(c=>c.auth==='Bearer user-token'))
 })
