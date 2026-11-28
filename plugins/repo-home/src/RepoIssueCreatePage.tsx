@@ -3,7 +3,7 @@ import { RepositoryLink as Link } from '../../repo-issues/src/RepositoryLink'
 import RepoAccessNotice from '../../github-access/src/RepoAccessNotice'
 import { useRepoAccess } from '../../github-access/src/useRepoAccess'
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { repoIssuesApi, type Repo, type RepoIssuesApi } from '../../repo-issues/src/api'
+import { repoIssuesApi, trustedCreatedIssueUrl, type Repo, type RepoIssuesApi } from '../../repo-issues/src/api'
 import { parseGitHubRepositoryUrl } from '../../repo-issues/src/target.mjs'
 import { uncertainWriteResult } from '../../shared/src/browser-http'
 import styles from './RepoIssueCreatePage.module.css'
@@ -11,21 +11,7 @@ import styles from './RepoIssueCreatePage.module.css'
 type ScopedIssueApi = Pick<RepoIssuesApi, 'getRepositories' | 'getSession' | 'createIssue'>
 type Status = 'checking' | 'anonymous' | 'ready' | 'error'
 
-/** Reject cross-repository, protocol, redirect, and non-Issue links after a possibly successful write. */
-export function trustedCreatedIssueUrl(url: string, number: number, repo: Repo): string | null {
-  try {
-    const target = new URL(url)
-    if (target.origin !== 'https://github.com' || target.username || target.password ||
-        target.search || target.hash || target.port ||
-        !Number.isSafeInteger(number) || number < 1) return null
-    const parts = target.pathname.split('/')
-    if (parts.length !== 5 || parts[0] !== '' ||
-        parts[1].toLowerCase() !== repo.owner.toLowerCase() ||
-        parts[2].toLowerCase() !== repo.name.toLowerCase() ||
-        parts[3] !== 'issues' || parts[4] !== String(number)) return null
-    return target.href
-  } catch { return null }
-}
+export { trustedCreatedIssueUrl } from '../../repo-issues/src/api'
 
 /** Repo ownership is fixed by the route; no global Issue creator or Installation enumeration. */
 export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }: {

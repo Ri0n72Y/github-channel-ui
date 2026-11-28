@@ -29,8 +29,8 @@ export function githubHttpFixture(origin, token) {
     }
   })
   function use(fetcher){globalThis.fetch=fetcher;return fetcher}
-  function post(path,body,{loggedIn=true,requestOrigin=origin}={}){
-    const cookie=sessionCookie(token,3600,key).split(';')[0]
+  function post(path,body,{loggedIn=true,requestOrigin=origin,expiresIn=3600}={}){
+    const cookie=sessionCookie(token,expiresIn,key).split(';')[0]
     assert.ok(cookie.startsWith(SESSION_COOKIE+'='))
     return new Request(origin+path,{method:'POST',headers:{
       origin:requestOrigin,'content-type':'application/json','x-labourchain-write':'1',

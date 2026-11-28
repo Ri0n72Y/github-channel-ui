@@ -1,7 +1,11 @@
 import { loginHref } from '../../github-access/src/access'
 import { resourcePath } from '../../repo-issues/src/target.mjs'
 import { RepositoryLink as Link } from '../../repo-issues/src/RepositoryLink'
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
+import { useWriteGate } from '../../shared/src/useWriteGate'
+import { uncertainWriteResult } from '../../shared/src/browser-http'
+import { subscribeSessionChanged } from '../../shared/src/session-change'
+import { trustedCreatedIssueUrl } from '../../repo-issues/src/api'
 import type { Issue, Repo, RepoIssuesApi } from '../../repo-issues/src/api'
 import styles from './IssueWorkspace.module.css'
 
@@ -14,34 +18,41 @@ export function IssueWorkspace({ repo, issues, loggedIn, api }: {
   const [creating, setCreating] = useState(false)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
-  const [pending, setPending] = useState(false)
+  const {gate,pending,unknown}=useWriteGate()
+  useEffect(()=>subscribeSessionChanged(()=>gate.invalidate()),[gate])
   const [notice, setNotice] = useState<Notice | null>(null)
 
   async function submitIssue(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (pending || !loggedIn || !title.trim() || title.length > 256 ||
+    if (pending || unknown || !loggedIn || !title.trim() || title.length > 256 ||
         description.length > 20000 ||
         !window.confirm('确认以你的 GitHub 身份创建此 Issue？')) return
-    setPending(true)
+    const attempt=gate.begin()
+    if(!attempt)return
     setNotice(null)
     try {
       const issue = await api.createIssue(repo, title.trim(), description,
-        new AbortController().signal)
+        attempt.signal)
+      if(!gate.isCurrent(attempt))return
+      const url=trustedCreatedIssueUrl(issue.html_url,issue.number,repo)
+      if(!url){gate.markUnknown(attempt);setNotice({text:'GitHub 返回的发布链接无法确认',error:true});return}
       setNotice({ text: 'Issue #' + issue.number + ' 创建成功。请手动刷新列表。',
-        url: issue.html_url })
+        url })
       setCreating(false)
       setTitle('')
       setDescription('')
     } catch (error) {
+      if(!gate.isCurrent(attempt))return
+      if(uncertainWriteResult(error))gate.markUnknown(attempt)
       setNotice({ text: error instanceof Error ? error.message : String(error), error: true,
         relogin: Boolean((error as { relogin?: boolean })?.relogin) })
-    } finally { setPending(false) }
+    } finally { gate.finish(attempt) }
   }
 
   return <section className={styles.workspace}>
     <header className={styles.toolbar}>
       <h2>开放中的讨论 ({issues.length})</h2>
-      <button type="button" disabled={!loggedIn || pending}
+      <button type="button" disabled={!loggedIn || pending || unknown}
         onClick={() => setCreating(value => !value)}>
         {creating ? '取消创建' : '发布动态'}
       </button>
@@ -51,13 +62,14 @@ export function IssueWorkspace({ repo, issues, loggedIn, api }: {
       {notice.url && <> · <a href={notice.url} target="_blank" rel="noreferrer">在 GitHub 查看</a></>}
       {notice.relogin && <> · <a href={loginHref(resourcePath(repo.owner,repo.name,'issues')||'/')}>重新登录</a></>}
     </p>}
+    {unknown && <p role="alert">发布结果尚未确认，请先在 GitHub 核查目标仓库，禁止直接重复提交。 · <a href={'https://github.com/'+repo.owner+'/'+repo.name+'/issues'} target="_blank" rel="noopener noreferrer">在 GitHub 核查</a></p>}
     {creating && <form className={styles.form} onSubmit={event => void submitIssue(event)}>
       <h3>发布动态 · {repo.full_name}</h3>
       <label>标题 <input required maxLength={256} value={title}
         onChange={e => setTitle(e.target.value)} /></label>
       <label>正文 <textarea rows={6} maxLength={20000} value={description}
         onChange={e => setDescription(e.target.value)} /></label>
-      <button type="submit" disabled={pending || !title.trim()}>
+      <button type="submit" disabled={pending || unknown || !loggedIn || !title.trim()}>
         {pending ? '创建中…' : '确认发布'}
       </button>
     </form>}

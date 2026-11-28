@@ -427,7 +427,8 @@ test('Config uncertain Save or Label Sync locks both HTTP writes until an explic
  const {createRepoConfigApi}=await server.ssrLoadModule('/plugins/repo-config/src/service.ts')
  for(const action of ['save_config','sync_labels']){
   const snapshot=configSnapshot()
-  const posts=[],reads=[],unexpected=[]
+  const posts=[],reads=[],unexpected=[],signals=[]
+  const pendingWrite=deferred()
   const api=createRepoConfigApi(async(address,init={})=>{
    const url=new URL(address,'https://local.test')
    if(url.pathname!=='/api/repo-config'){
@@ -440,9 +441,10 @@ test('Config uncertain Save or Label Sync locks both HTTP writes until an explic
    if(init.method!=='POST'){
     unexpected.push(init.method);throw Error('Unexpected Config method')
    }
+   signals.push(init.signal)
    posts.push({body:JSON.parse(init.body),write:init.headers['X-LabourChain-Write'],credentials:init.credentials})
    if(posts.length===1){
-    if(action==='save_config')throw new TypeError('Connection reset after request')
+    if(action==='save_config')return pendingWrite.promise
     return Response.json({state:'ready'}) // HTTP success without the required sync result
    }
    return action==='save_config'
@@ -467,6 +469,14 @@ test('Config uncertain Save or Label Sync locks both HTTP writes until an explic
     ? {action,owner:'sample',repo:'repo',branch:'main',content:draft,expectedHeadSha:snapshot.headSha,expectedFileSha:snapshot.fileSha}
     : {action,owner:'sample',repo:'repo',branch:'main',previewId:snapshot.snapshotId,confirmRemovals:true}
    assert.deepEqual(posts,[{body:expected,write:'1',credentials:'same-origin'}])
+   if(action==='save_config'){
+    assert.equal(signals[0].aborted,false)
+    await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
+    await flush()
+    assert.equal(signals[0].aborted,true)
+    pendingWrite.resolve(Response.json({state:'sync_pending',commitSha:'d'.repeat(40),fileSha:'e'.repeat(40)}))
+    await flush()
+   }
    assert.match(app.host.textContent,/写入结果未知/)
    assert.ok(save().disabled)
    assert.ok(sync().disabled)
@@ -1769,4 +1779,56 @@ test('anonymous publication never sends a write and login returns to the scoped 
   assert.equal(new URL(login.href).searchParams.get('return_to'),'/sample/repo/issues/new')
   assert.deepEqual(remote.posts(),[])
  }finally{await page.close()}
+})
+
+test('RepoPanel confirmed publication permits retry after definite rejection but locks an uncertain write',async()=>{
+ const posts=[],pending=deferred()
+ let mode='rejected'
+ const api=createRepoIssuesApi(observeHttp(async(address,init={})=>{
+  const url=new URL(address,'https://local.test'),method=init.method||'GET'
+  if(url.pathname==='/api/github-session'&&method==='GET')return Response.json({authenticated:true})
+  if(url.pathname==='/api/issues'&&method==='GET'){
+   assert.deepEqual(Object.fromEntries(url.searchParams),{owner:'sample',repo:'repo'})
+   return Response.json({issues:[{number:1,title:'Existing issue',comments:0,html_url:'https://github.com/sample/repo/issues/1'}]})
+  }
+  if(url.pathname==='/api/github-issue-create'&&method==='POST'){
+   assert.equal(init.headers['X-LabourChain-Write'],'1')
+   assert.equal(init.credentials,'same-origin')
+   posts.push(JSON.parse(init.body))
+   if(mode==='rejected')return Response.json({error:'Validation failed'},{status:422})
+   return pending.promise
+  }
+  throw Error('Unexpected RepoPanel request: '+address)
+ }))
+ const store=makeRepoStore(api),app=await mount('/sample/repo/issues','/:owner/:repo/issues',RepoPanel,{store})
+ const confirm=window.confirm
+ const button=text=>[...app.host.querySelectorAll('button')].find(b=>b.textContent===text)
+ const submit=()=>app.host.querySelector('section form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))
+ try{
+  assert.match(app.host.textContent,/Existing issue/)
+  await act(async()=>button('发布动态').click())
+  const form=app.host.querySelector('section form')
+  await act(async()=>{input(form.querySelector('input'),'Review');input(form.querySelector('textarea'),'Keep this draft')})
+  window.confirm=()=>false
+  await act(async()=>submit())
+  assert.deepEqual(posts,[])
+  window.confirm=()=>true
+  await act(async()=>submit());await flush()
+  assert.match(app.host.textContent,/Validation failed/)
+  assert.equal(button('确认发布').disabled,false)
+  assert.equal(form.querySelector('textarea').value,'Keep this draft')
+  mode='unknown'
+  await act(async()=>{submit();submit()})
+  assert.equal(posts.length,2)
+  pending.resolve(Response.json({issue:{number:7,html_url:'https://github.com/other/repo/issues/7'}},{status:201}))
+  await flush()
+  assert.match(app.host.textContent,/发布结果尚未确认/)
+  assert.equal(button('确认发布').disabled,true)
+  assert.equal(form.querySelector('input').value,'Review')
+  assert.equal(form.querySelector('textarea').value,'Keep this draft')
+  assert.ok(app.host.querySelector('a[href="https://github.com/sample/repo/issues"]'))
+  assert.equal(app.host.querySelector('a[href="https://github.com/other/repo/issues/7"]'),null)
+  await act(async()=>submit())
+  assert.deepEqual(posts,Array(2).fill({owner:'sample',repo:'repo',title:'Review',body:'Keep this draft'}))
+ }finally{window.confirm=confirm;await app.close();store.dispose()}
 })

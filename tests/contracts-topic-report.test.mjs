@@ -4,10 +4,12 @@ import assert from 'node:assert/strict'
 import { randomBytes, generateKeyPairSync } from 'node:crypto'
 import { createTopicReportEndpoint } from '../api/_topic-report.mjs'
 import { resolveInstalledRepository } from '../api/_installation-probe.mjs'
+import { githubHttpFixture } from './helpers/github-http.mjs'
 
 const SITE = 'https://topic.test'
 const api = SITE + '/api/topic-report'
 const ghRepo = '/repos/sample/repo'
+const http = githubHttpFixture(SITE,'user-alice')
 const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
 const appEnv = {
   GITHUB_APP_ID: '123456',
@@ -37,6 +39,7 @@ function setup(opts = {}) {
     }
     if (path === ghRepo + '/installation') {
       assert.match(authorization, /^Bearer ey/, 'App JWT only for installation verification')
+      if(opts.realSession)http.assertApp(authorization)
       assert.equal(method, 'GET')
       if (opts.installationNetworkFailure) throw Error('App installation network failure')
       if (opts.installationStatus) return Response.json({}, { status: opts.installationStatus })
@@ -45,6 +48,7 @@ function setup(opts = {}) {
     }
     if (path === '/app/installations/17') {
       assert.match(authorization, /^Bearer ey/, 'only App JWT may inspect installation grants')
+      if(opts.realSession)http.assertApp(authorization)
       assert.equal(method, 'GET')
       if (opts.appPermissionNetworkFailure) throw Error('App permission read timeout')
       if (opts.appPermissionStatus) return Response.json({}, { status: opts.appPermissionStatus })
@@ -105,14 +109,15 @@ function setup(opts = {}) {
     if (cookie.includes('session=bob')) return { token: 'user-bob' }
     return null
   }
-  const endpoint = createTopicReportEndpoint({ fetcher,
+  const endpoint = opts.realSession ? createTopicReportEndpoint({fetcher}) : createTopicReportEndpoint({ fetcher,
     sessionReader, configReader: () => config, clock: () => now,
     installationResolver: args => resolveInstalledRepository({ ...args, env: appEnv }),
   })
+  const cookieFor=()=>http.post('/api/topic-report',{}).headers.get('cookie')
   const preflight = async (person = 'alice', owner = 'sample', repo = 'repo') => {
     const response = await endpoint.fetch(new Request(
       api + '?owner=' + owner + '&repo=' + repo,
-      { headers: { cookie: 'session=' + person } }))
+      { headers: { cookie: opts.realSession?cookieFor():'session=' + person } }))
     return { response, data: await response.json() }
   }
   const submit = async (proof, changes = {}, headers = {}) => {
@@ -121,7 +126,7 @@ function setup(opts = {}) {
     return endpoint.fetch(new Request(api, { method: 'POST', headers: {
       origin: SITE, 'content-type': 'application/json',
       'x-labourchain-write': '1', 'sec-fetch-site': 'same-origin',
-      referer: SITE + '/topic/sample/repo', cookie: 'session=alice', ...headers,
+      referer: SITE + '/topic/sample/repo', cookie: opts.realSession?cookieFor():'session=alice', ...headers,
     }, body: JSON.stringify(payload) }))
   }
   return { endpoint, calls, preflight, submit, setNow: value => { now = value },
@@ -143,12 +148,19 @@ function checkWrite(s){
 }
 
 test('a verified report creates exactly one Issue as the current actor and revalidates the current repository grants',async()=>{
- const s=setup()
+ const s=setup({realSession:true})
  const pre=await s.preflight()
  assert.equal(pre.response.status,200)
  assert.equal(pre.data.state,'ready')
  assert.equal(pre.data.target,'sample/repo')
  assert.deepEqual(postCalls(s),[])
+ const before=s.calls.length
+ const invalidCookies=['', 'session=alice', '__Host-lc-session=invalid', http.post('/api/topic-report',{}, {expiresIn:0.5}).headers.get('cookie')]
+ for(const cookie of invalidCookies){
+  assert.equal((await s.endpoint.fetch(new Request(api+'?owner=sample&repo=repo',{headers:{cookie}}))).status,401)
+  assert.equal((await s.submit(pre.data.proof,{}, {cookie})).status,401)
+ }
+ assert.equal(s.calls.length,before)
  const response=await s.submit(pre.data.proof)
  assert.equal(response.status,201)
  assert.deepEqual(await response.json(),{state:'created',issue:{number:45,html_url:'https://github.com/sample/repo/issues/45'}})
