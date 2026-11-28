@@ -46,16 +46,6 @@ test('Search window exhaustion renders an explicit non-terminal warning', () => 
   assert.doesNotMatch(html, /当前可访问搜索范围没有符合配置/)
 })
 
-test('unverified report permission keeps submit disabled with manual GitHub handoff', () => {
-  const html = render({ canReport: true,
-    report: { open: true, title: 'Draft', body: 'Details',
-      message: '', pending: false, url: '' } })
-  assert.match(html, /当前不能确认写入权限/)
-  assert.match(html, /重新登录 GitHub/)
-  assert.match(html, /disabled=""/)
-  assert.match(html, /href="https:\/\/github.com\/sample\/repo\/issues\/new"/)
-})
-
 test('B1-1 incomplete GitHub Search renders retryable failure, never an empty result', () => {
   const html = render({ error: Object.assign(
     new Error('GitHub Topic Search 结果不完整，请重试读取'),

@@ -6,6 +6,7 @@ import React, { act } from 'react'
 
 import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
+import { configSnapshot } from './helpers/config-wire-fixture.mjs'
 
 const h = React.createElement
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {url:'https://local.test'})
@@ -206,31 +207,6 @@ test('Issue page: two same-tick load-more events are single-flight and IDs dedup
   assert.equal(app.host.querySelector('[aria-label="读取状态"]').querySelectorAll('[role="status"]').length,0)
  }finally{await app.close()}
 })
-test('Member: session invalidation releases pending without replaying a possibly committed POST',async()=>{
- const pending=deferred()
- let writes=0
- const api={
-  getCapability:async()=>({user:{login:'operator'},mode:'direct',branch:'main'}),
-  register:()=>{writes++;return pending.promise},
- }
- const app=await mount('/sample/repo/members/register','/:owner/:repo/members/register',Member,{api})
- try{
-  const name=app.host.querySelector('input[required]')
-  assert.ok(name)
-  await act(async()=>input(name,'Alice'))
-  const form=app.host.querySelector('form')
-  await act(async()=>form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})))
-  assert.match(app.host.textContent,/正在提交/)
-  await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
-  await flush()
-  assert.doesNotMatch(app.host.textContent,/正在提交…/)
-  assert.match(app.host.textContent,/可能已经接收请求/)
-  assert.equal(writes,1)
-  pending.resolve({status:'committed',url:'https://github.com/sample/repo/commit/1'})
-  await flush()
-  assert.equal(writes,1)
- }finally{await app.close()}
-})
 test('Config: dirty draft survives session reads, refresh requires confirmation and slow refresh blocks save',async()=>{
  const source=configFixture(new URLSearchParams({configCase:'changes'}))
  const lag=deferred()
@@ -397,32 +373,11 @@ test('Repo: stale A response after B navigation never leaks A data into B links'
   assert.ok([...app.host.querySelectorAll('a')].some(a=>a.getAttribute('href')?.includes('/sample/beta/issues/2')))
  } finally {await app.close()}
 })
-test('Config: unmount aborts active GitHub write without hidden retry',async()=>{
- const pending=deferred()
- let signal, calls=0
- const source=configFixture(new URLSearchParams({configCase:'changes'}))
- const api={...source,save:(_o,_r,_yaml,_head,_file,currentSignal)=>{
-  calls++;signal=currentSignal;return pending.promise
- }}
- const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
-  {api,owner:'sample',repo:'repo'})
- await act(async()=>input(app.host.querySelector('textarea'),
-  app.host.querySelector('textarea').value+'\n# async write'))
- await act(async()=>app.host.querySelector('button[type="submit"]').click())
- assert.equal(calls,1)
- await app.close()
- assert.equal(signal.aborted,true)
- pending.resolve({state:'ready'})
- await flush()
- assert.equal(calls,1)
-})
-
-
 test('Member session-aborted POST stays locked after new capability until explicit check', async()=>{
  const first=deferred()
- let writes=0,capabilityReads=0
+ let writes=0,capabilityReads=0,firstSignal
  const api={getCapability:async()=>{capabilityReads++;return {user:{login:'operator'},mode:'direct',branch:'main'}},
-  register:()=>{writes++;return writes===1?first.promise:Promise.resolve({
+  register:(_owner,_repo,_branch,_member,signal)=>{writes++;if(writes===1)firstSignal=signal;return writes===1?first.promise:Promise.resolve({
    status:'committed',url:'https://github.com/sample/repo/commit/new'})}}
  const app=await mount('/sample/repo/members/register','/:owner/:repo/members/register',Member,{api})
  try{
@@ -430,10 +385,13 @@ test('Member session-aborted POST stays locked after new capability until explic
   await act(async()=>app.host.querySelector('form').dispatchEvent(
    new Event('submit',{bubbles:true,cancelable:true})))
   assert.equal(writes,1)
+  assert.match(app.host.textContent,/正在提交/)
   await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
   await flush()
   assert.ok(capabilityReads>=2)
-  assert.match(app.host.textContent,/提交结果未知/)
+  assert.equal(firstSignal.aborted,true)
+  assert.doesNotMatch(app.host.textContent,/正在提交…/)
+  assert.match(app.host.textContent,/提交结果未知，GitHub 可能已经接收请求/)
   assert.ok(app.host.querySelector('button[type="submit"]').disabled)
   await act(async()=>app.host.querySelector('form').dispatchEvent(
    new Event('submit',{bubbles:true,cancelable:true})))
@@ -480,68 +438,82 @@ test('Member transport failure locks POST; 403 explicitly rejected remains retry
   assert.doesNotMatch(app.host.textContent,/提交结果未知/)
  } finally {await app.close()}
 })
-test('Config save transport failure blocks both writes through subsequent session GET',async()=>{
- let writes=0,reads=0
- const source=configFixture(new URLSearchParams({configCase:'changes'}))
- const api={...source,get:async(...args)=>{reads++;return source.get(...args)},
-  save:async(...args)=>{writes++;if(writes===1)throw new TypeError('Connection reset')
-   return source.save(...args)}}
- const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
-  {api,owner:'sample',repo:'repo'})
- try{
-  const yaml=app.host.querySelector('textarea').value+'\n# new change'
-  await act(async()=>input(app.host.querySelector('textarea'),yaml))
-  await act(async()=>app.host.querySelector('button[type="submit"]').click())
-  assert.equal(writes,1)
-  assert.match(app.host.textContent,/写入结果未知/)
-  assert.ok(app.host.querySelector('button[type="submit"]').disabled)
-  await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
-  await flush()
-  assert.ok(reads>=2)
-  assert.equal(app.host.querySelector('textarea').value,yaml)
-  assert.ok(app.host.querySelector('button[type="submit"]').disabled)
-  await act(async()=>app.host.querySelector('button[type="submit"]').click())
-  assert.equal(writes,1)
-  const unlock=[...app.host.querySelectorAll('button')].find(b=>b.textContent.includes('解除锁定并重新读取'))
-  assert.ok(unlock)
-  await act(async()=>unlock.click())
-  await flush()
-  assert.ok(!app.host.querySelector('button[type="submit"]').disabled)
-  await act(async()=>app.host.querySelector('button[type="submit"]').click())
-  assert.equal(writes,2)
- } finally {await app.close()}
+test('Config uncertain Save or Label Sync locks both HTTP writes until an explicit checked refresh',async()=>{
+ const {createRepoConfigApi}=await server.ssrLoadModule('/plugins/repo-config/src/service.ts')
+ for(const action of ['save_config','sync_labels']){
+  const snapshot=configSnapshot()
+  const posts=[],reads=[],unexpected=[]
+  const api=createRepoConfigApi(async(address,init={})=>{
+   const url=new URL(address,'https://local.test')
+   if(url.pathname!=='/api/repo-config'){
+    unexpected.push(String(address));throw Error('Unexpected Config request')
+   }
+   if((init.method||'GET')==='GET'){
+    reads.push([url.searchParams.get('owner'),url.searchParams.get('repo')])
+    return Response.json(snapshot)
+   }
+   if(init.method!=='POST'){
+    unexpected.push(init.method);throw Error('Unexpected Config method')
+   }
+   posts.push({body:JSON.parse(init.body),write:init.headers['X-LabourChain-Write'],credentials:init.credentials})
+   if(posts.length===1){
+    if(action==='save_config')throw new TypeError('Connection reset after request')
+    return Response.json({state:'ready'}) // HTTP success without the required sync result
+   }
+   return action==='save_config'
+     ? Response.json({state:'sync_pending',commitSha:'d'.repeat(40),fileSha:'e'.repeat(40)})
+     : Response.json({state:'ready',createdLabels:['status:review'],removedAssociations:1})
+  })
+  const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,{api,owner:'sample',repo:'repo'})
+  const save=()=>app.host.querySelector('button[type="submit"]')
+  const sync=()=>[...app.host.querySelectorAll('button')].find(x=>x.textContent.includes('确认并执行 Label 同步'))
+  const checkbox=()=>app.host.querySelector('input[type="checkbox"]')
+  const unlock=()=>[...app.host.querySelectorAll('button')].find(x=>x.textContent.includes('解除锁定并重新读取'))
+  const originalConfirm=window.confirm
+  try{
+   const draft=snapshot.configText+'\n# local change'
+   // The selected operation must really be enabled before the uncertain write.
+   if(action==='save_config')await act(async()=>input(app.host.querySelector('textarea'),draft))
+   else await act(async()=>checkbox().click())
+   const submit=action==='save_config'?save:sync
+   assert.ok(submit()&&!submit().disabled)
+   await act(async()=>submit().click())
+   const expected=action==='save_config'
+    ? {action,owner:'sample',repo:'repo',branch:'main',content:draft,expectedHeadSha:snapshot.headSha,expectedFileSha:snapshot.fileSha}
+    : {action,owner:'sample',repo:'repo',branch:'main',previewId:snapshot.snapshotId,confirmRemovals:true}
+   assert.deepEqual(posts,[{body:expected,write:'1',credentials:'same-origin'}])
+   assert.match(app.host.textContent,/写入结果未知/)
+   assert.ok(save().disabled)
+   assert.ok(sync().disabled)
+   await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
+   await flush()
+   assert.ok(reads.length>=2)
+   if(action==='save_config')assert.equal(app.host.querySelector('textarea').value,draft)
+   assert.ok(save().disabled)
+   assert.ok(sync().disabled)
+   await act(async()=>{save().click();sync().click()})
+   assert.equal(posts.length,1)
+   window.confirm=()=>false
+   await act(async()=>unlock().click())
+   assert.ok(submit().disabled)
+   assert.equal(posts.length,1)
+   window.confirm=()=>true
+   await act(async()=>unlock().click())
+   await flush()
+   if(action==='save_config'&&app.host.querySelector('textarea').value!==draft)
+     await act(async()=>input(app.host.querySelector('textarea'),draft))
+   if(action==='sync_labels'&&!checkbox().checked)await act(async()=>checkbox().click())
+   assert.ok(!submit().disabled)
+   await act(async()=>submit().click())
+   assert.deepEqual(posts,[{body:expected,write:'1',credentials:'same-origin'},
+    {body:expected,write:'1',credentials:'same-origin'}])
+   assert.ok(reads.length>=3)
+   assert.ok(reads.every(target=>target[0]==='sample'&&target[1]==='repo'))
+   assert.deepEqual(unexpected,[])
+  }finally{window.confirm=originalConfirm;await app.close()}
+ }
 })
-test('Config sync transport failure prevents second write until confirmed unlock',async()=>{
- let calls=0
- const source=configFixture(new URLSearchParams({configCase:'changes'}))
- const api={...source,sync:async(...args)=>{calls++;if(calls===1)throw new TypeError('Connection closed')
-   return source.sync(...args)}}
- const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
-  {api,owner:'sample',repo:'repo'})
- try{
-  await act(async()=>app.host.querySelector('input[type="checkbox"]').click())
-  const sync=[...app.host.querySelectorAll('button')].find(b=>b.textContent.includes('确认并执行 Label 同步'))
-  assert.ok(sync&&!sync.disabled)
-  await act(async()=>sync.click())
-  assert.equal(calls,1)
-  assert.match(app.host.textContent,/写入结果未知/)
-  assert.ok(sync.disabled)
-  await act(async()=>sync.click())
-  assert.equal(calls,1)
-  await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
-  await flush()
-  const newSync=[...app.host.querySelectorAll('button')].find(b=>b.textContent.includes('确认并执行 Label 同步'))
-  assert.ok(newSync.disabled)
-  const unlock=[...app.host.querySelectorAll('button')].find(b=>b.textContent.includes('解除锁定并重新读取'))
-  await act(async()=>unlock.click())
-  await flush()
-  await act(async()=>app.host.querySelector('input[type="checkbox"]').click())
-  const retry=[...app.host.querySelectorAll('button')].find(b=>b.textContent.includes('确认并执行 Label 同步'))
-  assert.ok(!retry.disabled)
-  await act(async()=>retry.click())
-  assert.equal(calls,2)
- } finally {await app.close()}
-})
+
 test('failed refresh leaves old Config HEAD unauthorized and draft copyable until valid GET',async()=>{
  const source=configFixture(new URLSearchParams({configCase:'changes'}))
  let failNext=false,writes=0
@@ -572,64 +544,6 @@ test('failed refresh leaves old Config HEAD unauthorized and draft copyable unti
   assert.equal(writes,0)
  } finally {await app.close()}
 })
-test('malformed 200 Config Save cannot create a second maintenance PR',async()=>{
- const {createRepoConfigApi}=await server.ssrLoadModule('/plugins/repo-config/src/service.ts')
- const fixture=configFixture(new URLSearchParams({configCase:'changes'}))
- for(const bad of [{state:'awaiting_pr_merge'},{state:'unexpected'}]){
-  let posts=0
-  const wire=createRepoConfigApi(async()=>{posts++;return new Response(JSON.stringify(bad),{
-   status:200,headers:{'Content-Type':'application/json'}})})
-  const api={...fixture,save:(...args)=>wire.save(...args)}
-  const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
-   {api,owner:'sample',repo:'repo'})
-  try{
-   const area=app.host.querySelector('#repo-config-source')
-   await act(async()=>input(area,area.value+'\n# changed B1'))
-   let submit=app.host.querySelector('button[type="submit"]')
-   assert.ok(submit&&!submit.disabled)
-   await act(async()=>submit.click())
-   assert.equal(posts,1)
-   assert.match(app.host.textContent,/GitHub 写入结果未知/)
-   submit=app.host.querySelector('button[type="submit"]')
-   assert.ok(submit.disabled)
-   await act(async()=>submit.click())
-   assert.equal(posts,1)
-   await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
-   await flush()
-   assert.equal(app.host.querySelector('button[type="submit"]').disabled,true)
-   await act(async()=>app.host.querySelector('button[type="submit"]').click())
-   assert.equal(posts,1)
-  }finally{await app.close()}
- }
-})
-test('malformed 200 Config Sync blocks retry after capability refresh',async()=>{
- const {createRepoConfigApi}=await server.ssrLoadModule('/plugins/repo-config/src/service.ts')
- const fixture=configFixture(new URLSearchParams({configCase:'changes'}))
- let posts=0
- const wire=createRepoConfigApi(async()=>{posts++;return new Response(
-  JSON.stringify({state:'unexpected'}),{status:200,
-   headers:{'Content-Type':'application/json'}})})
- const api={...fixture,sync:(...args)=>wire.sync(...args)}
- const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
-  {api,owner:'sample',repo:'repo'})
- try{
-  await act(async()=>app.host.querySelector('input[type="checkbox"]').click())
-  let button=[...app.host.querySelectorAll('button')].find(b=>b.textContent.includes('确认并执行 Label 同步'))
-  assert.ok(button&&!button.disabled)
-  await act(async()=>button.click())
-  assert.equal(posts,1)
-  assert.match(app.host.textContent,/GitHub 写入结果未知/)
-  assert.equal(button.disabled,true)
-  await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
-  await flush()
-  button=[...app.host.querySelectorAll('button')].find(b=>b.textContent.includes('确认并执行 Label 同步'))
-  assert.ok(button.disabled)
-  await act(async()=>button.click())
-  assert.equal(posts,1)
- }finally{await app.close()}
-})
-
-
 test('root RepoPanel: URL target is required, anonymous read works, OAuth write remains disabled',async()=>{
  const calls={lookups:[],reads:[],writes:0,session:0}
  const repo={owner:'sample',name:'repo',full_name:'sample/repo'}
@@ -1155,6 +1069,7 @@ test('quote total length, empty reply and unauthorized state prevent writes',asy
   const app=await issueMount(svc)
   try{
    if(!authorized){
+    assert.match(app.host.textContent,/长长长/)
     assert.equal(replyArea(app),null)
     assert.equal(quoteButtons(app).length,0)
     assert.equal(replySend(app),null)
@@ -1883,17 +1798,25 @@ test('Member management permission cannot survive logout or a late old capabilit
 
 test('Topic report controller blocks duplicate and unknown POSTs until explicit recheck',async()=>{
  const Topic=(await server.ssrLoadModule('/plugins/topic-page/src/TopicPageContainer.tsx')).default
+ const {createTopicPageApi}=await server.ssrLoadModule('/plugins/topic-page/src/service.ts')
  const pending=deferred()
- const writes=[]
+ const writes=[],preflights=[],unexpected=[]
  let proofs=0
- const api={reportAvailable:true,getSession:async()=>true,
-  getSnapshot:async()=>{throw Object.assign(Error('controlled source 503'),{status:503,stage:'source'})},
-  getReportTarget:async route=>{assert.deepEqual(route,{owner:'sample',repo:'repo'});return 'proof-'+(++proofs)},
-  submitReport:async(route,report,proof)=>{
-   writes.push({route,report,proof})
+ const api=createTopicPageApi(async(address,init={})=>{
+  const url=new URL(address,'https://local.test')
+  if(url.pathname==='/api/github-session')return Response.json({authenticated:true})
+  if(url.pathname==='/api/topic-page')return Response.json({error:'controlled source 503',stage:'source'},{status:503})
+  if(url.pathname==='/api/topic-report'&&(init.method||'GET')==='GET'){
+   preflights.push([url.searchParams.get('owner'),url.searchParams.get('repo')])
+   return Response.json({state:'ready',proof:'proof-'+(++proofs)})
+  }
+  if(url.pathname==='/api/topic-report'&&init.method==='POST'){
+   writes.push({body:JSON.parse(init.body),write:init.headers['X-LabourChain-Write'],credentials:init.credentials})
    if(writes.length===1)return pending.promise
-   return 'https://github.com/sample/repo/issues/71'
-  }}
+   return Response.json({state:'created',issue:{number:71,html_url:'https://github.com/sample/repo/issues/71'}},{status:201})
+  }
+  unexpected.push([String(address),init.method]);throw Error('Unexpected Topic request')
+ })
  const app=await mount('/topic/sample/repo','/topic/:owner/:repo',Topic,{owner:'sample',repo:'repo',api})
  const dialog=()=>app.host.querySelector('[role="dialog"]')
  const button=text=>[...app.host.querySelectorAll('button')].find(b=>b.textContent===text)
@@ -1906,8 +1829,8 @@ test('Topic report controller blocks duplicate and unknown POSTs until explicit 
   assert.ok(!dialog().querySelector('button[type="submit"]').disabled)
   await act(async()=>{submit();submit()})
   assert.equal(writes.length,1)
-  assert.deepEqual(writes[0],{route:{owner:'sample',repo:'repo'},report:{title,body},proof:'proof-1'})
-  pending.reject(Object.assign(Error('transport unknown'),{status:502,outcomeUnknown:true}))
+  assert.deepEqual(writes[0],{body:{owner:'sample',repo:'repo',title,body,confirmed:true,proof:'proof-1'},write:'1',credentials:'same-origin'})
+  pending.reject(new TypeError('connection lost after request'))
   await flush()
   assert.equal(dialog().querySelector('input').value,title)
   assert.equal(dialog().querySelector('textarea').value,body)
@@ -1921,9 +1844,41 @@ test('Topic report controller blocks duplicate and unknown POSTs until explicit 
   assert.ok(!dialog().querySelector('button[type="submit"]').disabled)
   await act(async()=>submit());await flush()
   assert.equal(writes.length,2)
-  assert.deepEqual(writes[1],{...writes[0],proof:'proof-2'})
+  assert.deepEqual(writes[1],{...writes[0],body:{...writes[0].body,proof:'proof-2'}})
+  assert.deepEqual(preflights,[['sample','repo'],['sample','repo']])
+  assert.deepEqual(unexpected,[])
   assert.equal(dialog(),null)
   assert.ok(app.host.querySelector('a[href="https://github.com/sample/repo/issues/71"]'))
+ }finally{await app.close()}
+})
+
+test('Topic denied report preflight cannot dispatch a write and offers the exact GitHub fallback',async()=>{
+ const Topic=(await server.ssrLoadModule('/plugins/topic-page/src/TopicPageContainer.tsx')).default
+ const {createTopicPageApi}=await server.ssrLoadModule('/plugins/topic-page/src/service.ts')
+ const requests=[]
+ const api=createTopicPageApi(async(address,init={})=>{
+  const url=new URL(address,'https://local.test')
+  requests.push({path:url.pathname,query:url.search,method:init.method||'GET'})
+  if(url.pathname==='/api/github-session')return Response.json({authenticated:true})
+  if(url.pathname==='/api/topic-page')return Response.json({error:'source unavailable',stage:'source'},{status:503})
+  if(url.pathname==='/api/topic-report'&&(init.method||'GET')==='GET')
+   return Response.json({error:'permission denied'},{status:403})
+  throw Error('Unexpected request')
+ })
+ const app=await mount('/topic/sample/repo','/topic/:owner/:repo',Topic,{owner:'sample',repo:'repo',api})
+ try{
+  const opener=[...app.host.querySelectorAll('button')].find(x=>x.textContent==='编辑问题报告')
+  assert.ok(opener)
+  await act(async()=>opener.click());await flush()
+  const dialog=app.host.querySelector('[role="dialog"]')
+  assert.match(dialog.textContent,/当前不能确认写入权限/)
+  assert.match(dialog.textContent,/permission denied/)
+  assert.ok(dialog.querySelector('button[type="submit"]').disabled)
+  assert.ok(dialog.querySelector('a[href="https://github.com/sample/repo/issues/new"]'))
+  await act(async()=>dialog.querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})))
+  assert.deepEqual(requests.filter(x=>x.path==='/api/topic-report'),
+   [{path:'/api/topic-report',query:'?owner=sample&repo=repo',method:'GET'}])
+  assert.ok(requests.every(x=>x.method==='GET'&&['/api/github-session','/api/topic-page','/api/topic-report'].includes(x.path)))
  }finally{await app.close()}
 })
 
@@ -2177,31 +2132,42 @@ test('permalink stays verifiable and refresh success/failure are distinct',async
  }
 })
 
-test('anonymous Issue route permits reading but never provides an editable write form',async()=>{
- const svc=issueService({comments:()=>Promise.resolve({items:[comment(1,'Public comment')],hasMore:false})})
- const app=await issueMount(svc)
- try{
-  assert.match(app.host.textContent,/Public comment/)
-  assert.match(app.host.textContent,/登录后即可发表评论/)
-  assert.equal(app.host.querySelector('form[aria-label="参与讨论"] textarea'),null)
-  assert.equal(app.host.querySelector('button[aria-label^="引用回复 "]'),null)
- }finally{await app.close()}
-})
-
-test('the shared Markdown renderer produces accessible headings and never creates executable markup',async()=>{
+test('shared Markdown renders supported syntax and rejects executable markup and unsafe media',async()=>{
  const {SafeMarkdown}=await server.ssrLoadModule('/plugins/shared/src/SafeMarkdown.tsx')
- const body=Array.from({length:6},(_,i)=>'#'.repeat(i+1)+' Heading '+(i+1)).join('\n\n')+
-   '\n\n[Safe](https://example.org)\n\n[bad](javascript:alert(1))\n\n<script>window.bad=true</script>\n\n![bad](data:image/png;base64,AA)'
+ const body=[
+  ...Array.from({length:6},(_,i)=>'#'.repeat(i+1)+' Heading '+(i+1)),
+  '**real emphasis** [Safe](https://example.org)',
+  '> exact quotation','- first entry\n- second entry',
+  '\x60\x60\x60js\nconst example = "<script>"\n\x60\x60\x60',
+  '![poster](https://example.com/poster.png)','@[video](https://example.com/watch)',
+  '<script>window.bad=true</script>','<iframe src="https://evil.invalid"></iframe>',
+  '[bad](javascript:alert(1))','![bad](data:image/png;base64,AA)',
+  '![plain HTTP](http://example.com/x.png)','[credentials](https://user:pass@example.com)',
+  'FINAL BODY MARKER',
+ ].join('\n\n')
  const app=await mount('/','/',SafeMarkdown,{body})
  try{
   for(let level=1;level<=6;level++){
-   const element=app.host.querySelector('[role="heading"][aria-level="'+level+'"],h'+level)
-   assert.ok(element);assert.equal(element.textContent,'Heading '+level)
+   const heading=app.host.querySelector('[role="heading"][aria-level="'+level+'"],h'+level)
+   assert.ok(heading);assert.equal(heading.textContent,'Heading '+level)
   }
-  const safeLink=[...app.host.querySelectorAll('a')].find(a=>a.textContent==='Safe')
-  assert.ok(safeLink)
-  assert.equal(safeLink.href,'https://example.org/')
-  assert.ok(safeLink.relList.contains('noopener'))
-  assert.equal(app.host.querySelector('script,iframe,object,embed,[href^="javascript:"],[src^="data:"]'),null)
+  const links=[...app.host.querySelectorAll('a')]
+  const safe=links.find(a=>a.textContent==='Safe')
+  assert.ok(safe);assert.equal(safe.href,'https://example.org/')
+  assert.ok(safe.relList.contains('noopener'))
+  assert.equal(app.host.querySelector('strong').textContent,'real emphasis')
+  assert.equal(app.host.querySelector('blockquote').textContent,'exact quotation')
+  assert.deepEqual([...app.host.querySelectorAll('li')].map(li=>li.textContent),['first entry','second entry'])
+  assert.equal(app.host.querySelector('pre code').textContent,'const example = "<script>"')
+  const img=app.host.querySelector('img[alt="poster"]')
+  assert.ok(img);assert.equal(img.src,'https://example.com/poster.png')
+  assert.equal(img.getAttribute('referrerpolicy'),'no-referrer')
+  assert.equal(links.find(a=>a.textContent==='打开视频').href,'https://example.com/watch')
+  assert.match(app.host.textContent,/<script>window.bad=true<\/script>/)
+  assert.match(app.host.textContent,/图片链接不可用：bad/)
+  assert.match(app.host.textContent,/图片链接不可用：plain HTTP/)
+  assert.match(app.host.textContent,/FINAL BODY MARKER/)
+  assert.equal(app.host.querySelectorAll('img').length,1)
+  assert.equal(app.host.querySelector('script,iframe,object,embed,[href^="javascript:"],[src^="data:"],[href*="user:pass@"],[src^="http:"]'),null)
  }finally{await app.close()}
 })

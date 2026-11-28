@@ -11,8 +11,10 @@
 | HTTP 读取与写入契约 | 真 Request/Response、生产 Handler、授权与解析；外部 GitHub HTTP 替身。Config/Topic 写入不再注入 writeContext 或 Installation 假结果。Config preview 与 Channel 读取不再绕过真实授权和 HTTP 解析 |
 | 浏览器 service 契约 | 真实 service 调用、HTTP 参数、响应校验、状态/错误转换、缓存和取消；模拟浏览器 HTTP 而非服务返回值 |
 | 用户行为、Cordis 注册及 Host 组合 | 生产插件注册/卸载、实际 React 组件、真实路由；独立组件只验证自己拥有的状态；可控 service port 用于时序状态，代表性的 Channel 读取执行真实 browser service 到 HTTP。真实 GitHub 兼容性不由替身证明 |
-| 渲染契约 | 仅保留独立的内容安全、可信 URL、错误/不完整状态、可访问语义等可观察输出；不以 SSR 字符串证明交互或 CSS 布局 |
+| 渲染契约 | Markdown 语法与安全在实际共享渲染器的 DOM 验证；Issue 组合只保留正文/讨论与劳动文本语义的差异及独立状态反馈。报告权限通过真实注册路由、browser service 与受控 HTTP 验证，禁止把任意 disabled 属性当作写入保护。 |
 | 工程检查 | 正式 API/SPA 映射、Function 上限、已批准 CI 配置、真实插件隔离；不固化历史测试文件或复制 Actions 调度算法 |
+
+Config Save/Sync 结果未知、Config 跨仓库切换、Topic 报告权限与防重使用真实 browser service 和真实注册路由，只在 HTTP 边界控制响应、失败及迟到结果；检查实际请求体、目标、取消和禁止副作用。重复的控制器替身场景删除；独立 wire 解析错误类别仍在 service 层保护。
 
 重构保持 Private 使用的顶层 `tests/*.test.mjs` 和 `tests/react-lifecycle-86.dom.mjs` 兼容；不新增框架，不改生产模块。保留两套现有 DOM 入口是 Hosted 兼容性与独立 Playground 组合的选择。历史审查过程在 PR #122 的记录中保留，当前文件只维护现行契约。
 

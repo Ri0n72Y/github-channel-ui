@@ -69,37 +69,20 @@ before(async () => {
 })
 after(async () => { await server?.close() })
 
-test('central discussion renders complete shared Markdown and preserves labour text semantics',async()=>{
-  const shared=(await server.ssrLoadModule('/plugins/shared/src/SafeMarkdown.tsx')).SafeMarkdown
-  const compatible=(await server.ssrLoadModule('/plugins/repo-home/src/SafeMarkdown.tsx')).SafeMarkdown
+test('Issue body and discussion render Markdown but labour work and outcome remain literal text',()=>{
   const payload=structuredClone(model)
-  const body=['# Topic heading','**real emphasis** [reference](https://github.com/sample/repo)',
-    '> exact quotation','- first entry','- second entry','```js','const example = "<script>"','```',
-    '![poster](https://example.com/poster.png)','@[video](https://example.com/watch)',
-    '<script>alert(1)</script>','<iframe src="https://evil.invalid"></iframe>',
-    '[bad scheme](javascript:alert(1))','![bad image](data:image/png;base64,AA)',
-    '![plain HTTP](http://example.com/x.png)','[credentials](https://user:pass@example.com)',
-    'FINAL BODY MARKER'].join('\n\n')
-  payload.issue.body=body
-  payload.issue.discussion.comments=[
-    {...model.issue.discussion.comments[0],body:'## First comment\n\n**comment emphasis**\n\n![comment image](https://example.com/comment.png)'},
-    {...model.issue.discussion.comments[0],id:8,author:'second-speaker',body:'SECOND COMMENT END'},
-  ]
+  payload.issue.body='# Issue heading\n\n**Issue emphasis**'
+  payload.issue.discussion.comments[0].body='**Comment emphasis**'
   payload.issue.labour.records[0].work='**literal labour work**'
   payload.issue.labour.records[0].outcome='# literal outcome'
   const html=renderToStaticMarkup(createElement(View,{model:payload,actions}))
-  for(const pattern of [/role="heading" aria-level="1"[^>]*>Topic heading/,
-    /<strong>real emphasis<\/strong>/,/<blockquote>/,/<ul>/,/<pre><code>/,
-    /src="https:\/\/example\.com\/poster\.png"/,/src="https:\/\/example\.com\/comment\.png"/,
-    /referrerPolicy="no-referrer"/i,/打开视频/,/&lt;script&gt;alert\(1\)&lt;\/script&gt;/,
-    /图片链接不可用：bad image/,/图片链接不可用：plain HTTP/,
-    /FINAL BODY MARKER/,/<strong>comment emphasis<\/strong>/,
-    /\*\*literal labour work\*\*/,/# literal outcome/]) assert.match(html,pattern)
-  assert.doesNotMatch(html,/<(?:script|iframe|object|embed)\b|(?:href|src)="(?:javascript:|data:|file:|blob:|http:\/\/example\.com\/x\.png|https:\/\/user:pass@)/i)
-  assert.equal((html.match(/<img\b/g)||[]).length,2)
-  assert.ok(html.includes('aria-hidden="true">S</span>'))
-  assert.match(html,/<textarea\b[^>]*maxLength="20000"/i)
+  assert.match(html,/<strong>Issue emphasis<\/strong>/)
+  assert.match(html,/<strong>Comment emphasis<\/strong>/)
+  assert.match(html,/\*\*literal labour work\*\*/)
+  assert.match(html,/# literal outcome/)
+  assert.doesNotMatch(html,/<strong>literal labour work<\/strong>/)
 })
+
 test('incomplete discussion and conflicted labour remain explicit; labour fields stay available',()=>{
   const payload=structuredClone(model)
   payload.issue.body='   '

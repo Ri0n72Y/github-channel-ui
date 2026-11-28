@@ -4,6 +4,7 @@ import { JSDOM } from 'jsdom'
 import React, { act } from 'react'
 import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
+import { configSnapshot } from './helpers/config-wire-fixture.mjs'
 import { MemoryRouter, matchRoutes, useNavigate } from 'react-router'
 import { PLAYGROUND_PLUGINS } from '../apps/playground/src/playground-paths.mjs'
 
@@ -195,20 +196,25 @@ test('Channel registered route cancels the old repository and ignores late succe
 })
 test('Config registered route isolates draft and late write result between repositories',async()=>{
   const {createRepoConfigPlugin}=await vite.ssrLoadModule('/plugins/repo-config/src/index.tsx')
-  const {createRepoConfigFixtureService}=await vite.ssrLoadModule('/apps/playground/src/config-fixture.ts')
-  const fixture=createRepoConfigFixtureService(new URLSearchParams())
+  const {createRepoConfigApi}=await vite.ssrLoadModule('/plugins/repo-config/src/service.ts')
   const writes=[]
   let resolveWrite
   const pending=new Promise(resolve=>{resolveWrite=resolve})
   const betaText='namespaces:\n  status: [beta]\n'
-  const api={...fixture,async get(owner,repo,signal){
-    assert.equal(owner,'sample')
-    const snapshot=await fixture.get(owner,repo,signal)
-    return repo==='beta'?{...snapshot,configText:betaText}:snapshot
-  },save(owner,repo,content,head,file,signal){
-    writes.push({owner,repo,content,signal})
-    return pending
-  }}
+  const reads=[],unexpected=[]
+  const api=createRepoConfigApi(async(address,init={})=>{
+    const url=new URL(address,'https://local.test')
+    if(url.pathname==='/api/repo-config'&&(init.method||'GET')==='GET'){
+      const owner=url.searchParams.get('owner'),repo=url.searchParams.get('repo')
+      reads.push([owner,repo])
+      return Response.json(repo==='beta'?configSnapshot(betaText):configSnapshot())
+    }
+    if(url.pathname==='/api/repo-config'&&init.method==='POST'){
+      writes.push({body:JSON.parse(init.body),signal:init.signal,write:init.headers['X-LabourChain-Write']})
+      return pending
+    }
+    unexpected.push([String(address),init.method]);throw Error('Unexpected request')
+  })
   const runtime=await pluginRuntime(createRepoConfigPlugin(api))
   const Controls=navigationControls('/sample/beta/config')
   let view
@@ -225,16 +231,19 @@ test('Config registered route isolates draft and late write result between repos
     assert.ok(submit&&!submit.disabled)
     await act(async()=>submit.click())
     assert.equal(writes.length,1)
-    assert.deepEqual([writes[0].owner,writes[0].repo,writes[0].content],['sample','alpha',draft])
+    assert.deepEqual(writes[0].body,{action:'save_config',owner:'sample',repo:'alpha',branch:'main',content:draft,expectedHeadSha:'a'.repeat(40),expectedFileSha:'b'.repeat(40)})
+    assert.equal(writes[0].write,'1')
     await act(async()=>view.host.querySelector('#target-nav').click())
     await expectLoaded(view.host,/配置没有未提交的本地修改/,'beta editor')
     assert.equal(writes[0].signal.aborted,true)
     assert.equal(view.host.querySelector('textarea').value,betaText)
-    await act(async()=>resolveWrite({state:'awaiting_pr_merge',prUrl:'https://github.com/sample/alpha/pull/88'}))
+    await act(async()=>resolveWrite(Response.json({state:'awaiting_pr_merge',prUrl:'https://github.com/sample/alpha/pull/88'})))
     assert.equal(view.host.querySelector('textarea').value,betaText)
     assert.equal(view.host.querySelector('a[href="https://github.com/sample/alpha/pull/88"]'),null)
     assert.doesNotMatch(view.host.textContent,/等待 GitHub 审核与合并/)
     assert.equal(writes.length,1)
+    assert.deepEqual(reads,[['sample','alpha'],['sample','beta']])
+    assert.deepEqual(unexpected,[])
   }finally{await view?.close();await runtime.dispose()}
 })
 test('Topic registered source route clears old draft and aborts previous metadata on repository change',async()=>{

@@ -18,7 +18,7 @@ const route = { owner: 'sample', repo: 'repo' }
 const report = { title: 'Fixture report', body: 'Read failed' }
 const signal = () => new AbortController().signal
 
-test('#31 user report frontend preflight and one explicit POST use only current Topic route', async () => {
+test('Report service sends exact HTTP proof and confirmed creation request', async () => {
   const calls = []
   const fetcher = async (url, init = {}) => {
     calls.push({ url: String(url), init })
@@ -39,7 +39,9 @@ test('#31 user report frontend preflight and one explicit POST use only current 
   assert.equal(proof, 'test-proof')
   const url = await api.submitReport(route, report, proof, signal())
   assert.equal(url, 'https://github.com/sample/repo/issues/71')
-  assert.equal(calls.filter(call => call.init.method === 'POST').length, 1)
+  assert.deepEqual(calls.map(call=>[call.url,call.init.method||'GET']),[
+    ['/api/github-session','GET'],['/api/topic-report?owner=sample&repo=repo','GET'],['/api/topic-report','POST'],
+  ])
   const post = calls.find(call => call.init.method === 'POST')
   assert.equal(post.init.headers['X-LabourChain-Write'], '1')
   assert.equal(post.init.credentials, 'same-origin')
@@ -82,13 +84,3 @@ test('#31 frontend marks network timeout and unknown server result; never silent
   }
 })
 
-test('#31 frontend report preparation failure does not trigger write', async () => {
-  let writes = 0
-  const api = createTopicPageApi(async (_url, init) => {
-    if (init.method === 'POST') writes++
-    return Response.json({ state: 'rejected',
-      error: 'GitHub 授权失效' }, { status: 401 })
-  })
-  await assert.rejects(api.getReportTarget(route, signal()), { status: 401 })
-  assert.equal(writes, 0)
-})
