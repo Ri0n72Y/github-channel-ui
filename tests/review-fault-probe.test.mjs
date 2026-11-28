@@ -31,8 +31,10 @@ test('review fault probes reject the specific regression rather than a broken ru
    'tests/domain-issue-reader.test.mjs','a canceled route does not fetch comments','getIssue'],
  ]
  const baseline=new Set()
+ const childEnv={...process.env}
+ delete childEnv.NODE_TEST_CONTEXT
  const run=(entry,name)=>spawnSync(process.execPath,['--test','--test-reporter=tap','--test-name-pattern='+name,entry],
-  {cwd:work,encoding:'utf8',timeout:45000,maxBuffer:8*1024*1024})
+  {cwd:work,env:childEnv,encoding:'utf8',timeout:45000,maxBuffer:8*1024*1024})
  try{
   for(const path of ['api','apps','plugins','tests','package.json','tsconfig.json'])
    cpSync(join(root,path),join(work,path),{recursive:true})
