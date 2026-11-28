@@ -64,6 +64,7 @@ function mockFetcher(options = {}) {
   let completedPutCount = 0
   const fetcher = observeHttp(async (url, init = {}) => {
     const parsed = new URL(url)
+    assert.equal(parsed.origin,'https://api.github.com')
     const path = decodeURIComponent(parsed.pathname)
     const method = (init.method || 'GET').toUpperCase()
     const authorization = init.headers?.Authorization
@@ -183,14 +184,16 @@ function mockFetcher(options = {}) {
 const writes = calls => calls.filter(call=>call.method!=='GET' && !call.path.endsWith('/access_tokens'))
 
 
-test('repo-config rejects a caller-selected branch', async () => {
-  const handler = createRepoConfigHandler()
-  const response = await handler.fetch(new Request(
-    'https://example.test/api/repo-config?owner=octocat&repo=demo&branch=feature'))
-  const data = await response.json()
-  assert.equal(response.status, 400)
-  assert.equal(data.state, 'invalid_target')
-})
+const savePayload={owner:OWNER,repo:REPO,action:'save_config',branch:'main',
+ content:NEXT_CONFIG,expectedHeadSha:HEAD,expectedFileSha:FILE_SHA}
+const submit=(mock,payload,options)=>createRepoConfigHandler({fetcher:mock.fetcher})
+ .fetch(http.post('/api/repo-config',payload,options))
+function checkWrites(mock,expected){
+ const calls=writes(mock.calls)
+ assert.deepEqual(calls.map(c=>[c.method,c.path]),expected)
+ assert.ok(calls.every(c=>c.authorization==='Bearer user-oauth-token'))
+ return calls
+}
 
 test('Config saves exactly the reviewed bytes to unprotected main and verifies the committed version', async () => {
   const mock=mockFetcher({protected:false})
@@ -204,8 +207,7 @@ test('Config saves exactly the reviewed bytes to unprotected main and verifies t
     fileSha:NEW_FILE_SHA,headSha:COMMIT_SHA,requestedBy:'fixture-operator'})
   assert.equal(mock.getMainContent(),NEXT_CONFIG)
   assert.equal(mock.getMainHead(),COMMIT_SHA)
-  assert.equal(writes(mock.calls).length,1)
-  const [put]=writes(mock.calls)
+  const [put]=checkWrites(mock,[['PUT',BASE+'/contents/labourchain.config.yaml']])
   assert.equal(put.method,'PUT')
   assert.equal(put.path,BASE+'/contents/labourchain.config.yaml')
   const body=JSON.parse(put.body)
@@ -232,8 +234,7 @@ test('Config protected main receives only a reviewed PR with the exact maintenan
   assert.equal(data.commitSha,COMMIT_SHA)
   assert.equal(data.fileSha,NEW_FILE_SHA)
   assert.match(data.branch,/^labourchain\/config-/)
-  const [ref,put,pr,...extra]=writes(mock.calls)
-  assert.deepEqual(extra,[])
+  const [ref,put,pr]=checkWrites(mock,[['POST',BASE+'/git/refs'],['PUT',BASE+'/contents/labourchain.config.yaml'],['POST',BASE+'/pulls']])
   assert.deepEqual([ref.method,ref.path],['POST',BASE+'/git/refs'])
   assert.deepEqual(JSON.parse(ref.body),{ref:'refs/heads/'+data.branch,sha:HEAD})
   assert.deepEqual([put.method,put.path],['PUT',BASE+'/contents/labourchain.config.yaml'])
@@ -265,69 +266,62 @@ async function syncPreviewId(mock) {
   return preview.snapshotId
 }
 
-test('Label sync requires explicit cleanup confirmation and uses exact DELETE with OAuth user token', async () => {
-  const mock = mockFetcher({
-    content: 'namespaces:\n  foo: []\n',
-    issue: issue(),
-    labels: [{ name: 'foo:old' }],
-  })
-  const previewId = await syncPreviewId(mock)
-  const payload = {
-    owner: OWNER, repo: REPO, action: 'sync_labels', branch: 'main',
-    previewId, confirmRemovals: true,
-  }
-  const handler = createRepoConfigHandler({
-    fetcher: mock.fetcher,
-  })
-  const response = await handler.fetch(http.post('/api/repo-config',payload))
-  const data = await response.json()
-  assert.equal(response.status, 200)
-  assert.equal(data.state, 'ready')
-  assert.equal(data.removedAssociations, 1)
-  assert.deepEqual(mock.getIssue().labels, [])
-  const deletion = mock.calls.find(call => call.method === 'DELETE')
-  assert.equal(deletion.path, BASE + '/issues/1/labels/foo:old')
-  assert.equal(deletion.authorization, 'Bearer user-oauth-token')
-  assert.ok(!mock.calls.some(call => call.method === 'PUT' && call.path.includes('/issues/')))
-})
-
-test('Label sync rejects an expired snapshot before any mutation', async () => {
-  const mock = mockFetcher({ content: 'namespaces:\n  foo: []\n' })
-  const payload = {
-    owner: OWNER, repo: REPO, action: 'sync_labels', branch: 'main',
-    previewId: '0'.repeat(64), confirmRemovals: true,
-  }
-  const handler = createRepoConfigHandler({
-    fetcher: mock.fetcher,
-  })
-  const response = await handler.fetch(http.post('/api/repo-config',payload))
-  const data = await response.json()
-  assert.equal(response.status, 409)
-  assert.equal(data.state, 'stale_preview')
+test('Label sync commits only the reviewed current plan after explicit confirmation and becomes idempotent',async()=>{
+ const mock=mockFetcher({content:'namespaces:\n  foo: []\n  status: [new]\n',
+   issue:issue(['foo:old','external:keep']),labels:[{name:'foo:old'},{name:'external:keep'}]})
+ const previewId=await syncPreviewId(mock)
+ const payload={owner:OWNER,repo:REPO,action:'sync_labels',branch:'main',previewId,confirmRemovals:true}
+ for(const [changes,status,state] of [
+  [{previewId:'0'.repeat(64)},409,'stale_preview'],
+  [{confirmRemovals:false},400,'confirmation_required'],
+ ]){
+  const response=await submit(mock,{...payload,...changes})
+  assert.equal(response.status,status)
+  assert.equal((await response.json()).state,state)
   assert.deepEqual(writes(mock.calls),[])
+  assert.deepEqual(mock.getIssue().labels.map(x=>x.name),['foo:old','external:keep'])
+ }
+ const response=await submit(mock,payload),data=await response.json()
+ assert.equal(response.status,200)
+ assert.equal(data.state,'ready')
+ assert.deepEqual(data.createdLabels,['status:new'])
+ assert.equal(data.removedAssociations,1)
+ const [create]=checkWrites(mock,[['POST',BASE+'/labels'],['DELETE',BASE+'/issues/1/labels/foo:old']])
+ assert.equal(JSON.parse(create.body).name,'status:new')
+ assert.deepEqual(mock.getIssue().labels.map(x=>x.name),['external:keep'])
+ assert.deepEqual(mock.getLabels().map(x=>x.name),['foo:old','external:keep','status:new'])
+ const after=await createRepoConfigHandler({fetcher:mock.fetcher}).fetch(new Request(
+  'https://example.test/api/repo-config?owner='+OWNER+'&repo='+REPO))
+ assert.equal(after.status,200)
+ assert.equal((await after.json()).state,'ready')
+ assert.equal(writes(mock.calls).length,2)
 })
 
-test('Label sync without destructive confirmation performs no writes', async () => {
-  const mock = mockFetcher({
-    content: 'namespaces:\n  foo: []\n',
-    issue: issue(),
-    labels: [{ name: 'foo:old' }],
-  })
-  const previewId = await syncPreviewId(mock)
-  const payload = {
-    owner: OWNER, repo: REPO, action: 'sync_labels', branch: 'main',
-    previewId, confirmRemovals: false,
-  }
-  const handler = createRepoConfigHandler({
-    fetcher: mock.fetcher,
-  })
-  const response = await handler.fetch(http.post('/api/repo-config',payload))
-  const data = await response.json()
-  assert.equal(response.status, 400)
-  assert.equal(data.state, 'confirmation_required')
+test('Config refuses unauthorized targets or stale reviewed content before any mutation',async()=>{
+ for(const [options,changes,requestOptions,status,state] of [
+  [{},{},{loggedIn:false},401],
+  [{},{},{requestOrigin:'https://wrong.test'},403],
+  [{revoked:true},{},{},403],
+  [{notMember:true},{},{},403],
+  [{appPermissions:{contents:'read',issues:'write',pull_requests:'write'}},{},{},403,'app_permission_missing'],
+  [{},{expectedHeadSha:'0'.repeat(40)},{},409,'stale_preview'],
+  [{},{expectedFileSha:'0'.repeat(40)},{},409,'stale_preview'],
+ ]){
+  const mock=mockFetcher(options)
+  const response=await submit(mock,{...savePayload,...changes},requestOptions)
+  assert.equal(response.status,status,JSON.stringify([options,changes]))
+  if(state)assert.equal((await response.json()).state,state)
   assert.deepEqual(writes(mock.calls),[])
+  assert.equal(mock.getMainContent(),CONFIG)
+  assert.equal(mock.getMainHead(),HEAD)
+ }
+ const mock=mockFetcher()
+ const response=await createRepoConfigHandler({fetcher:mock.fetcher}).fetch(new Request(
+  'https://example.test/api/repo-config?owner=octocat&repo=demo&branch=feature'))
+ assert.equal(response.status,400)
+ assert.equal((await response.json()).state,'invalid_target')
+ assert.deepEqual(mock.calls,[])
 })
-
 
 test('protected Config refuses a missing maintenance Ruleset after creating a ref, without PUT', async () => {
   const mock = mockFetcher({ newBranchRulesUnavailable: true })
@@ -353,40 +347,7 @@ test('protected Config refuses a missing maintenance Ruleset after creating a re
   assert.equal(mock.calls.filter(call => call.method === 'PUT').length, 0)
 })
 
-test('Config save rejects stale main SHA before creating a branch or Contents PUT', async () => {
-  const mock = mockFetcher()
-  const payload = {
-    owner: OWNER, repo: REPO, action: 'save_config', branch: 'main',
-    content: NEXT_CONFIG, expectedHeadSha: '0'.repeat(40),
-    expectedFileSha: FILE_SHA,
-  }
-  const handler = createRepoConfigHandler({
-    fetcher: mock.fetcher,
-  })
-  const response = await handler.fetch(http.post('/api/repo-config',payload))
-  assert.equal(response.status, 409)
-  assert.equal((await response.json()).state, 'stale_preview')
-  assert.deepEqual(writes(mock.calls),[])
-})
-
-test('Config save rejects App permission gaps without Bot fallback or GitHub mutation', async () => {
-  const mock = mockFetcher({
-    appPermissions: { contents: 'read', issues: 'write', pull_requests: 'write' },
-  })
-  const payload = {
-    owner: OWNER, repo: REPO, action: 'save_config', branch: 'main',
-    content: NEXT_CONFIG, expectedHeadSha: HEAD, expectedFileSha: FILE_SHA,
-  }
-  const handler = createRepoConfigHandler({
-    fetcher: mock.fetcher,
-  })
-  const response = await handler.fetch(http.post('/api/repo-config',payload))
-  assert.equal(response.status, 403)
-  assert.equal((await response.json()).state, 'app_permission_missing')
-  assert.deepEqual(writes(mock.calls),[])
-})
-
-test('#47 B1-2: GET main 429 after a Label create preserves progress and retry metadata', async () => {
+test('Label sync readback throttling preserves the created label and leaves cleanup pending', async () => {
   const mock = mockFetcher({
     content: 'namespaces:\n  foo: []\n  status: [new]\n',
     labels: [{ name: 'foo:old' }],
@@ -416,7 +377,7 @@ test('#47 B1-2: GET main 429 after a Label create preserves progress and retry m
   assert.equal(mock.calls.filter(call => call.method === 'DELETE').length, 0)
 })
 
-test('#47 B1-2: GET main 503 after ten Issue deletes preserves all successful operations', async () => {
+test('Label sync verification failure after a deletion batch preserves every confirmed removal', async () => {
   const names = Array.from({ length: 10 }, (_, i) => 'foo:old-' + i)
   const mock = mockFetcher({
     content: 'namespaces:\n  foo: []\n',
@@ -447,57 +408,29 @@ test('#47 B1-2: GET main 503 after ten Issue deletes preserves all successful op
   assert.equal(mock.calls.filter(call => call.method === 'DELETE').length, 10)
 })
 
-test('#47 B1-2: post-PUT maintenance branch verification 503 keeps commit and branch evidence', async () => {
-  const mock = mockFetcher({ failBranchVerification: true })
-  const payload = {
-    owner: OWNER, repo: REPO, action: 'save_config', branch: 'main',
-    content: NEXT_CONFIG, expectedHeadSha: HEAD, expectedFileSha: FILE_SHA,
+test('a committed Config that cannot be read back retains its evidence and cannot be reported as verified',async()=>{
+ for(const protectedBranch of [false,true]){
+  const mock=mockFetcher({protected:protectedBranch,
+   ...(protectedBranch?{failBranchVerification:true}:{failDirectVerification:true})})
+  const response=await submit(mock,savePayload),data=await response.json()
+  assert.equal(response.status,200)
+  assert.equal(data.state,'partial_failure')
+  assert.equal(data.commitSha,COMMIT_SHA)
+  assert.equal(data.fileSha,NEW_FILE_SHA)
+  assert.equal(data.failed[0].kind,protectedBranch?'verify_branch':'verify_main_commit')
+  assert.equal(data.requiresRefresh,true)
+  const calls=checkWrites(mock,protectedBranch?
+   [['POST',BASE+'/git/refs'],['PUT',BASE+'/contents/labourchain.config.yaml']]:
+   [['PUT',BASE+'/contents/labourchain.config.yaml']])
+  const put=JSON.parse(calls.at(-1).body)
+  assert.equal(Buffer.from(put.content,'base64').toString('utf8'),NEXT_CONFIG)
+  if(protectedBranch){
+   assert.match(data.branchUrl,/\/tree\/labourchain\/config-/)
+   assert.equal(mock.getMainContent(),CONFIG)
+   assert.deepEqual(mock.getBranch(put.branch),{content:NEXT_CONFIG,fileSha:NEW_FILE_SHA,head:COMMIT_SHA})
+  }else{
+   assert.equal(mock.getMainContent(),NEXT_CONFIG)
+   assert.equal(mock.getMainHead(),COMMIT_SHA)
   }
-  const handler = createRepoConfigHandler({
-    fetcher: mock.fetcher,
-  })
-  const res = await handler.fetch(http.post('/api/repo-config',payload))
-  const data = await res.json()
-  assert.equal(res.status, 200)
-  assert.equal(data.state, 'partial_failure')
-  assert.equal(data.commitSha, COMMIT_SHA)
-  assert.match(data.branchUrl, /\/tree\/labourchain\/config-/)
-  assert.equal(data.failed[0].kind, 'verify_branch')
-  assert.equal(data.requiresRefresh, true)
-  assert.equal(mock.calls.filter(call => call.method === 'POST' &&
-    call.path === BASE + '/pulls').length, 0)
-})
-
-test('#47 B1-2: post-PUT direct main verification 503 keeps commit evidence', async () => {
-  const mock = mockFetcher({ protected: false, failDirectVerification: true })
-  const payload = {
-    owner: OWNER, repo: REPO, action: 'save_config', branch: 'main',
-    content: NEXT_CONFIG, expectedHeadSha: HEAD, expectedFileSha: FILE_SHA,
-  }
-  const handler = createRepoConfigHandler({
-    fetcher: mock.fetcher,
-  })
-  const res = await handler.fetch(http.post('/api/repo-config',payload))
-  const data = await res.json()
-  assert.equal(res.status, 200)
-  assert.equal(data.state, 'partial_failure')
-  assert.equal(data.commitSha, COMMIT_SHA)
-  assert.equal(data.fileSha, NEW_FILE_SHA)
-  assert.equal(data.failed[0].kind, 'verify_main_commit')
-  assert.equal(data.requiresRefresh, true)
-  assert.equal(mock.calls.filter(call => call.method === 'PUT').length, 1)
-})
-
-test('Config mutations require authenticated same-origin access to the exact active Installation',async()=>{
-  const payload={owner:OWNER,repo:REPO,action:'save_config',branch:'main',
-    content:NEXT_CONFIG,expectedHeadSha:HEAD,expectedFileSha:FILE_SHA}
-  for(const [options,requestOptions,status] of [
-    [{},{loggedIn:false},401],[{},{requestOrigin:'https://wrong.test'},403],
-    [{revoked:true},{},403],[{notMember:true},{},403]]){
-    const mock=mockFetcher(options)
-    const response=await createRepoConfigHandler({fetcher:mock.fetcher}).fetch(http.post('/api/repo-config',payload,requestOptions))
-    assert.equal(response.status,status)
-    assert.deepEqual(writes(mock.calls),[])
-    assert.equal(mock.getMainContent(),CONFIG)
-  }
+ }
 })
