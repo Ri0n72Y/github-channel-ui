@@ -92,7 +92,8 @@
       "fix/community-experience-reduction-20261126": false,
       "fix/participant-experience-round2-20261126": false,
       "fix/participant-experience-round3-20261126": false,
-      "fix/public-node-followup-20261128": false
+      "fix/public-node-followup-20261128": false,
+      "docs/engineering-contract-20261128": false
     }
   }
 }

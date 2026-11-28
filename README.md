@@ -1,23 +1,27 @@
 # GitHub Channel UI — Public Plugin Source
 
-Reusable Cordis/React plugins for public GitHub repository discovery, Issues, channels, configuration and discussions.
+Reusable Cordis/React plugins for public GitHub repositories, Issues, channels, configuration, discussions and Topic discovery.
 
 ## Development
 
-`npm install --no-audit --no-fund && npm run build` builds the public Playground. `npm run dev` serves it locally. Open `/` to enter an exact GitHub repository, Issue, or supported configuration-file URL; direct resource paths load real APIs. `/playground` lists six explicit Fixture entries, `/playground/:slug`; linked fixture routes retain mock services.
+Node 22 is the current CI runtime. Install with `npm install --no-audit --no-fund`, then run `npm run dev` for the local development server or `npm run build` for TypeScript checking and the Vite build.
 
-Public has no global product Header or Navigator. The host places reusable theme and session controls. Legacy query-selected runtime is removed; current HTTP routes and Function budget are unchanged.
+The real root `/` accepts exact GitHub repository, Issue, Issue-list, new-Issue and supported main-branch configuration-file URLs. Resource routes use real APIs. The formal Topic route is `/topic/:owner/:repo`; it reads a public source repository's activity configuration and project declarations. See [source boundaries and Topic contract](docs/public-source-boundaries.md).
 
-## Source boundaries
+`/playground` lists six explicit Fixture entries; `/playground/:slug` and linked fixture routes use controlled mock services. Fixture routes do not demonstrate production OAuth, real writes or serverless deployment.
 
-- Browser-only entry: `plugins/public-entries/client.ts`.
-- Pure JS domain entry: `plugins/public-entries/domain.mjs`.
-- Node-only handler entry: `plugins/public-entries/server.mjs`; direct imports must remain on the server.
-- `api/_*.mjs` files are backward-compatible server adapters, not client dependencies.
-- CSS Modules and public tests remain with the owning plugin.
+The reusable renderer has no global product Header or Navigator; theme and session controls can be placed through its public exports.
 
-These are source entry points, not published npm packages. A downstream build must pin an independently reviewed full commit SHA and use a single React/Cordis dependency instance. See [source boundaries](docs/public-source-boundaries.md).
+## Source and verification
+
+- Browser-only: `plugins/public-entries/client.ts`.
+- Pure business rules: `plugins/public-entries/domain.mjs`.
+- Node-only handlers: `plugins/public-entries/server.mjs`.
+- `api/_*.mjs` are compatibility adapters on the server. The 11 Function entry points and 16 rewrites define this application's HTTP dispatch.
+- The source is consumed by commit, not as published npm packages.
+
+Run the build and relevant tests as described in [testing](docs/testing.md). The repository does not track a dependency lockfile or declare a release version; a commit alone does not establish reproducible dependency resolution. See [build and release evidence](docs/public-source-boundaries.md#build-and-release-evidence).
 
 ## License and rights
 
-Original code remains under [GNU AGPL-3.0-only](LICENSE); review copyright, third-party dependencies and Corresponding Source obligations before distribution or network deployment. Git history and applicable attribution remain part of the audit trail.
+Original code remains under [GNU AGPL-3.0-only](LICENSE). Preserve authorship, Git history and applicable attribution. Review actual dependency licenses, contributor rights and Corresponding Source obligations before distribution or network deployment.
