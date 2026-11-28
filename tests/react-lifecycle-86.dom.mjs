@@ -1781,54 +1781,128 @@ test('anonymous publication never sends a write and login returns to the scoped 
  }finally{await page.close()}
 })
 
-test('RepoPanel confirmed publication permits retry after definite rejection but locks an uncertain write',async()=>{
- const posts=[],pending=deferred()
- let mode='rejected'
+test('RepoPanel publication preserves draft and write lock through delayed same-target rechecks',async()=>{
+ const posts=[],writeSignals=[],pending=deferred(),reads=[]
+ let mode='success',nextRead
+ const listed=title=>Response.json({issues:[{number:1,title,comments:0,html_url:'https://github.com/sample/repo/issues/1'}]})
  const api=createRepoIssuesApi(observeHttp(async(address,init={})=>{
   const url=new URL(address,'https://local.test'),method=init.method||'GET'
   if(url.pathname==='/api/github-session'&&method==='GET')return Response.json({authenticated:true})
   if(url.pathname==='/api/issues'&&method==='GET'){
    assert.deepEqual(Object.fromEntries(url.searchParams),{owner:'sample',repo:'repo'})
-   return Response.json({issues:[{number:1,title:'Existing issue',comments:0,html_url:'https://github.com/sample/repo/issues/1'}]})
+   reads.push(url.pathname)
+   if(nextRead){const read=nextRead;nextRead=undefined;return read.promise}
+   return listed('Existing issue')
   }
   if(url.pathname==='/api/github-issue-create'&&method==='POST'){
    assert.equal(init.headers['X-LabourChain-Write'],'1')
    assert.equal(init.credentials,'same-origin')
-   posts.push(JSON.parse(init.body))
+   posts.push(JSON.parse(init.body));writeSignals.push(init.signal)
+   if(mode==='success')return Response.json({issue:{number:6,html_url:'https://github.com/sample/repo/issues/6'}},{status:201})
    if(mode==='rejected')return Response.json({error:'Validation failed'},{status:422})
    return pending.promise
   }
+  // Permission notice can check the current session; every external mutation still goes through the actual service.
   throw Error('Unexpected RepoPanel request: '+address)
  }))
- const store=makeRepoStore(api),app=await mount('/sample/repo/issues','/:owner/:repo/issues',RepoPanel,{store})
+ const originalFetch=globalThis.fetch
+ // RepoAccessNotice uses a separate request port. Never allow a real request while denied.
+ const noticeCalls=[]
+ globalThis.fetch=observeHttp(async(address,init={})=>{
+  noticeCalls.push(String(address))
+  assert.equal(String(address),'/api/github-session')
+  assert.equal(init.method||'GET','GET')
+  return Response.json({authenticated:false})
+ })
+ const store=makeRepoStore(api)
+ let app
  const confirm=window.confirm
  const button=text=>[...app.host.querySelectorAll('button')].find(b=>b.textContent===text)
- const submit=()=>app.host.querySelector('section form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))
+ const form=()=>app.host.querySelector('section form')
+ const submit=()=>form().dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))
+ const edit=async(title,body)=>act(async()=>{input(form().querySelector('input'),title);input(form().querySelector('textarea'),body)})
+ const draft=()=>[form().querySelector('input').value,form().querySelector('textarea').value]
+ async function recheck(viaForm=false){
+  const read=deferred(),count=reads.length
+  nextRead=read
+  await act(async()=>{
+   if(viaForm)app.host.querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))
+   else button('重新核验').click()
+  })
+  assert.equal(reads.length,count+1)
+  assert.match(app.host.textContent,/正在读取项目/)
+  assert.equal(store.getSnapshot().loading,true)
+  assert.doesNotMatch(app.host.textContent,/Existing issue|Refreshed issue|Recovered issue/)
+  return read
+ }
  try{
+  app=await mount('/sample/repo/issues','/:owner/:repo/issues',RepoPanel,{store})
   assert.match(app.host.textContent,/Existing issue/)
   await act(async()=>button('发布动态').click())
-  const form=app.host.querySelector('section form')
-  await act(async()=>{input(form.querySelector('input'),'Review');input(form.querySelector('textarea'),'Keep this draft')})
+  await edit('First confirmed','First body')
   window.confirm=()=>false
   await act(async()=>submit())
   assert.deepEqual(posts,[])
   window.confirm=()=>true
   await act(async()=>submit());await flush()
+  assert.match(app.host.textContent,/Issue #6 创建成功/)
+  assert.ok(app.host.querySelector('a[href="https://github.com/sample/repo/issues/6"]'))
+  assert.equal(form(),null)
+  // A definite success clears the submitted draft and allows a distinct new publication.
+  await act(async()=>button('发布动态').click())
+  assert.deepEqual(draft(),['',''])
+  await edit('Review','Keep this draft')
+  mode='rejected'
+  await act(async()=>submit());await flush()
   assert.match(app.host.textContent,/Validation failed/)
   assert.equal(button('确认发布').disabled,false)
-  assert.equal(form.querySelector('textarea').value,'Keep this draft')
+  assert.deepEqual(draft(),['Review','Keep this draft'])
   mode='unknown'
   await act(async()=>{submit();submit()})
-  assert.equal(posts.length,2)
+  assert.equal(posts.length,3)
+  assert.equal(writeSignals[2].aborted,false)
+  const during=await recheck()
+  assert.deepEqual(draft(),['Review','Keep this draft'])
+  assert.equal(button('创建中…').disabled,true)
+  await act(async()=>submit())
+  assert.equal(posts.length,3)
+  assert.equal(writeSignals[2].aborted,false)
+  during.resolve(listed('Refreshed issue'));await flush()
+  assert.match(app.host.textContent,/Refreshed issue/)
+  assert.equal(button('创建中…').disabled,true)
   pending.resolve(Response.json({issue:{number:7,html_url:'https://github.com/other/repo/issues/7'}},{status:201}))
   await flush()
   assert.match(app.host.textContent,/发布结果尚未确认/)
   assert.equal(button('确认发布').disabled,true)
-  assert.equal(form.querySelector('input').value,'Review')
-  assert.equal(form.querySelector('textarea').value,'Keep this draft')
+  assert.deepEqual(draft(),['Review','Keep this draft'])
   assert.ok(app.host.querySelector('a[href="https://github.com/sample/repo/issues"]'))
   assert.equal(app.host.querySelector('a[href="https://github.com/other/repo/issues/7"]'),null)
+  // Both ordinary refresh controls must preserve the lock, even through a failed read.
+  const unknownRead=await recheck(true)
+  assert.match(app.host.textContent,/发布结果尚未确认/)
+  assert.deepEqual(draft(),['Review','Keep this draft'])
   await act(async()=>submit())
-  assert.deepEqual(posts,Array(2).fill({owner:'sample',repo:'repo',title:'Review',body:'Keep this draft'}))
- }finally{window.confirm=confirm;await app.close();store.dispose()}
+  unknownRead.resolve(listed('Refreshed issue'));await flush()
+  assert.equal(button('确认发布').disabled,true)
+  assert.deepEqual(draft(),['Review','Keep this draft'])
+  await act(async()=>submit())
+  const denied=await recheck()
+  denied.resolve(Response.json({state:'repo_access_required',error:'Access revoked'},{status:403}))
+  await flush()
+  assert.equal(store.getSnapshot().availability,'repo_access_required')
+  assert.doesNotMatch(app.host.textContent,/Refreshed issue/)
+  assert.match(app.host.textContent,/发布结果尚未确认/)
+  assert.equal(button('确认发布').disabled,true)
+  assert.deepEqual(draft(),['Review','Keep this draft'])
+  await act(async()=>submit())
+  const recovery=await recheck(true)
+  recovery.resolve(listed('Recovered issue'));await flush()
+  assert.match(app.host.textContent,/Recovered issue/)
+  assert.match(app.host.textContent,/发布结果尚未确认/)
+  assert.equal(button('确认发布').disabled,true)
+  assert.deepEqual(draft(),['Review','Keep this draft'])
+  await act(async()=>submit())
+  assert.deepEqual(posts,[{owner:'sample',repo:'repo',title:'First confirmed',body:'First body'},
+   ...Array(2).fill({owner:'sample',repo:'repo',title:'Review',body:'Keep this draft'})])
+ }finally{window.confirm=confirm;try{await app?.close()}finally{store.dispose();globalThis.fetch=originalFetch}}
 })

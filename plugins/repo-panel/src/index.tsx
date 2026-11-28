@@ -22,6 +22,11 @@ export function RepoPanel({ store }: { store: RepoIssueStore }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot)
   const s=owner&&repo&&snapshot.targetUrl.toLowerCase()!==('https://github.com/'+owner+'/'+repo).toLowerCase()
     ? {...snapshot,repos:[],selected:'',issues:[],error:'',availability:'checking',actionUrl:null,targetUrl:'',loading:true}:snapshot
+  // A same-target read clears the verified list, not the identity of its local writer.
+  const workspaceTarget=parseGitHubRepositoryUrl(s.targetUrl)
+  const workspaceAvailable=Boolean(workspaceTarget&&!s.loading&&s.availability==='connected'&&
+    s.repos.some(item=>item.full_name.toLowerCase()===workspaceTarget.full_name.toLowerCase()&&
+      item.full_name===s.selected))
   const accessReason=repoAccessReason(Object.assign(new Error(s.error),{state:s.availability}))
   const [session, setSession] = useState<'checking' | 'connected' | 'anonymous' | 'error'>('checking')
   const [verification, setVerification] = useState<Verification>({ status: 'idle' })
@@ -31,7 +36,7 @@ export function RepoPanel({ store }: { store: RepoIssueStore }) {
   const [repositoryUrl,setRepositoryUrl]=useState('')
   const [inputError,setInputError]=useState('')
   useEffect(()=>subscribeSessionChanged(()=>{
-    setSessionRevision(n=>n+1);setVerification({status:'idle'})
+    setSession('checking');setSessionRevision(n=>n+1);setVerification({status:'idle'})
   }),[])
 
   function submitRepository(event: FormEvent<HTMLFormElement>) {
@@ -136,10 +141,11 @@ export function RepoPanel({ store }: { store: RepoIssueStore }) {
     {s.loading && s.availability === 'connected' && <p role="status">正在读取讨论…</p>}
     {accessReason&&s.targetUrl&&<RepoAccessNotice owner={s.targetUrl.split('/')[3]} repo={s.targetUrl.split('/')[4]} reason={accessReason} onRetry={refreshRepository} retryDisabled={s.loading}/>}
     {s.error && !accessReason && <p role="alert">{s.error}</p>}
-    {s.repos.find(repo => repo.full_name === s.selected) && <IssueWorkspace
-        key={s.selected}
-        repo={s.repos.find(repo => repo.full_name === s.selected)!}
-        issues={s.issues}
+    {workspaceTarget && <IssueWorkspace
+        key={workspaceTarget.full_name.toLowerCase()}
+        repo={workspaceTarget}
+        available={workspaceAvailable} checking={s.loading}
+        issues={workspaceAvailable?s.issues:[]}
         loggedIn={session === 'connected'} api={store.api} />}
     <footer>可阅读已授权的公开项目；发布和回复需要登录并通过权限检查。</footer>
   </div>

@@ -12,8 +12,9 @@ import styles from './IssueWorkspace.module.css'
 type Notice = { text: string; url?: string; relogin?: boolean; error?: boolean }
 
 /** @summary Keep the existing Issue creation demo while navigating to independent Issue pages. */
-export function IssueWorkspace({ repo, issues, loggedIn, api }: {
-  repo: Repo; issues: readonly Issue[]; loggedIn: boolean; api: Readonly<RepoIssuesApi>
+export function IssueWorkspace({ repo, issues, available, checking, loggedIn, api }: {
+  repo: Repo; issues: readonly Issue[]; available: boolean; checking: boolean;
+  loggedIn: boolean; api: Readonly<RepoIssuesApi>
 }) {
   const [creating, setCreating] = useState(false)
   const [title, setTitle] = useState('')
@@ -21,10 +22,16 @@ export function IssueWorkspace({ repo, issues, loggedIn, api }: {
   const {gate,pending,unknown}=useWriteGate()
   useEffect(()=>subscribeSessionChanged(()=>gate.invalidate()),[gate])
   const [notice, setNotice] = useState<Notice | null>(null)
+  const canWrite=available&&loggedIn
+  // A temporary read does not decide the outcome of an in-flight write.
+  // A failed repository recheck detaches it; even a late success cannot unlock it.
+  useEffect(()=>{
+    if(!available&&!checking)gate.invalidate()
+  },[available,checking,gate])
 
   async function submitIssue(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (pending || unknown || !loggedIn || !title.trim() || title.length > 256 ||
+    if (pending || unknown || !canWrite || !title.trim() || title.length > 256 ||
         description.length > 20000 ||
         !window.confirm('确认以你的 GitHub 身份创建此 Issue？')) return
     const attempt=gate.begin()
@@ -49,15 +56,18 @@ export function IssueWorkspace({ repo, issues, loggedIn, api }: {
     } finally { gate.finish(attempt) }
   }
 
+  if(!available&&!creating&&!pending&&!unknown&&!notice)return null
+
   return <section className={styles.workspace}>
     <header className={styles.toolbar}>
-      <h2>开放中的讨论 ({issues.length})</h2>
-      <button type="button" disabled={!loggedIn || pending || unknown}
+      <h2>{available?'开放中的讨论 ('+issues.length+')':'仓库发布草稿'}</h2>
+      <button type="button" disabled={!canWrite || pending || unknown}
         onClick={() => setCreating(value => !value)}>
         {creating ? '取消创建' : '发布动态'}
       </button>
     </header>
-    {!loggedIn && <p>可匿名阅读公开讨论，登录 GitHub 后发布。</p>}
+    {!available && <p>仓库读取尚未确认，暂时禁止发布。</p>}
+    {available&&!loggedIn && <p>可匿名阅读公开讨论，登录 GitHub 后发布。</p>}
     {notice && <p role={notice.error ? 'alert' : 'status'}>{notice.text}
       {notice.url && <> · <a href={notice.url} target="_blank" rel="noreferrer">在 GitHub 查看</a></>}
       {notice.relogin && <> · <a href={loginHref(resourcePath(repo.owner,repo.name,'issues')||'/')}>重新登录</a></>}
@@ -69,17 +79,17 @@ export function IssueWorkspace({ repo, issues, loggedIn, api }: {
         onChange={e => setTitle(e.target.value)} /></label>
       <label>正文 <textarea rows={6} maxLength={20000} value={description}
         onChange={e => setDescription(e.target.value)} /></label>
-      <button type="submit" disabled={pending || unknown || !loggedIn || !title.trim()}>
+      <button type="submit" disabled={pending || unknown || !canWrite || !title.trim()}>
         {pending ? '创建中…' : '确认发布'}
       </button>
     </form>}
-    <ul className={styles.list}>{issues.map(issue => <li key={issue.number}>
+    {available && <><ul className={styles.list}>{issues.map(issue => <li key={issue.number}>
       <Link to={'/' + repo.owner + '/' + repo.name + '/issues/' + issue.number}>
         #{issue.number} · {issue.title}
       </Link>
       <small>{issue.comments} 条评论</small>
       <a href={issue.html_url} target="_blank" rel="noreferrer">GitHub</a>
     </li>)}</ul>
-    {!issues.length && <p>暂无开放中的讨论。</p>}
+    {!issues.length && <p>暂无开放中的讨论。</p>}</>}
   </section>
 }
