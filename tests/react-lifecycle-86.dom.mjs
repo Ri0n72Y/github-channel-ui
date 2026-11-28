@@ -1842,7 +1842,7 @@ async function withRepoPanelPublication(run){
  }finally{window.confirm=confirm;try{await app?.close()}finally{store.dispose();globalThis.fetch=originalFetch}}
 }
 
-test('RepoPanel publication preserves draft and write lock through delayed same-target rechecks',()=>withRepoPanelPublication(async({app,store,posts,writeSignals,pending,button,form,submit,edit,draft,recheck,setMode})=>{
+test('RepoPanel publication preserves draft and write lock through delayed same-target rechecks',()=>withRepoPanelPublication(async({app,store,posts,writeSignals,pending,button,form,submit,edit,draft,recheck,listed,setMode})=>{
   assert.match(app.host.textContent,/Existing issue/)
   await act(async()=>button('发布动态').click())
   await edit('First confirmed','First body')
