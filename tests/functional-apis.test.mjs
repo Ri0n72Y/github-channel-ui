@@ -29,7 +29,7 @@ function mockReplies(table){
   }
   return {request,calls}
 }
-test('#77 all five module APIs are frozen stable ordinary objects without HTTP Classes',()=>{
+test('functional APIs expose immutable ordinary objects',()=>{
   const entries=[
     ['repo-home','createRepoHomeApi','repoHomeApi'],
     ['repo-config','createRepoConfigApi','repoConfigApi'],
@@ -42,16 +42,11 @@ test('#77 all five module APIs are frozen stable ordinary objects without HTTP C
     const api=module[factory](async()=>Response.json({}))
     assert.equal(typeof api,'object')
     assert.ok(Object.isFrozen(api))
+    assert.ok(module[staticName] && typeof module[staticName] === 'object')
     assert.ok(Object.isFrozen(module[staticName]))
-    for(const fn of Object.values(api)) if(typeof fn==='function'){
-      assert.equal(Object.hasOwn(fn,'fetcher'),false)
-    }
-    assert.equal(module[classNames[name]],undefined,
-      'old HTTP Service Class must be removed')
+    assert.equal(Object.getPrototypeOf(api),Object.prototype)
   }
 })
-const classNames={'repo-home':'RepoHomeService','repo-config':'RepoConfigService',
-  'issue-detail':'IssueDetailService','channel':'ChannelService','topic-page':'TopicPageService'}
 test('#76 Repo Home, Feed, capability and member write use receiver-safe factory functions',async()=>{
   const home={repository:{full_name:'sample/repo',name:'repo',description:null,
     html_url:'https://github.com/sample/repo',default_branch:'main'},
@@ -59,24 +54,29 @@ test('#76 Repo Home, Feed, capability and member write use receiver-safe factory
     team:{state:'missing',members:[]}}
   const {request,calls}=mockReplies({
     'GET /api/repo-home':{value:home},
-    'GET /api/repo-feed':{value:{page:1,items:[],hasMore:false}},
+    'GET /api/repo-feed':{value:{page:2,items:[],hasMore:false}},
     'GET /api/repo-member-permission':{value:{user:{id:7,login:'sample'},
       branch:'main',protected:false,mode:'commit'}},
     'POST /api/repo-member-register':{value:{status:'committed',
       url:'https://github.com/sample/repo/commit/abc',sha:'abc',requestedBy:'sample'}},
   })
-  const api=services['repo-home'].createRepoHomeApi(request)
-  assert.equal((await api.getHome('sample','repo','main',signal())).team.state,'missing')
-  assert.deepEqual((await api.getFeed('sample','repo',1,signal())).items,[])
-  assert.equal((await api.getCapability('sample','repo','main',signal())).user.login,'sample')
+  const {getHome,getFeed,getCapability,register}=services['repo-home'].createRepoHomeApi(request)
+  assert.equal((await getHome('sample','repo','feature/docs',signal())).team.state,'missing')
+  assert.deepEqual((await getFeed('sample','repo',2,signal(),['status:todo'])).items,[])
+  assert.equal((await getCapability('sample','repo','main',signal())).user.login,'sample')
   const member={name:'A',links:[{label:'GitHub',url:'https://github.com'}]}
   const before=JSON.stringify(member)
-  assert.equal((await api.register('sample','repo','main',member,signal())).status,'committed')
+  assert.equal((await register('sample','repo','main',member,signal())).status,'committed')
   assert.equal(JSON.stringify(member),before)
   assert.deepEqual(calls.map(c=>c.key),[
     'GET /api/repo-home','GET /api/repo-feed',
     'GET /api/repo-member-permission','POST /api/repo-member-register'])
-  assert.equal(calls.at(-1).init.headers['X-LabourChain-Write'],'1')
+  const query=call=>Object.fromEntries(new URL(call.url,'https://local.test').searchParams)
+  assert.deepEqual(query(calls[0]),{owner:'sample',repo:'repo',branch:'feature/docs'})
+  assert.deepEqual(query(calls[1]),{owner:'sample',repo:'repo',page:'2',labels:'status:todo'})
+  assert.deepEqual(query(calls[2]),{owner:'sample',repo:'repo',branch:'main'})
+  assert.deepEqual(JSON.parse(calls[3].init.body),{owner:'sample',repo:'repo',branch:'main',member})
+  assert.equal(calls[3].init.headers['X-LabourChain-Write'],'1')
 })
 test('#77 Config, Issue, Channel and Topic preserve read models and explicit OAuth writes',async()=>{
   const config=mockReplies({
@@ -153,8 +153,10 @@ test('#77 invalid unknown response cannot masquerade as a complete domain object
     ['topic-page','getSnapshot',[{owner:'a',repo:'b'},signal()],'GET /api/topic-page'],
   ]){
     const factory=Object.keys(services[name]).find(k=>/^create.*Api$/.test(k))
-    const api=services[name][factory](mockReplies({[key]:{value:{data:'untrusted'}}}).request)
-    await assert.rejects(api[method](...args),Error,name)
+    const mock=mockReplies({[key]:{value:{data:'untrusted'}}})
+    const api=services[name][factory](mock.request)
+    await assert.rejects(api[method](...args),error=>error?.status===502,name)
+    assert.deepEqual(mock.calls.map(call=>call.key),[key])
   }
 })
 test('#76 default HTTP request calls global fetch with its native receiver',async()=>{
@@ -210,7 +212,6 @@ test('#77 valid Config partial writes project nested fields without forwarding u
     pending:[{number:2,labels:['old-label']}],
     retryAfter:null,requiresRefresh:true,
     noChanges:false,reconciled:false,unsupported:{token:'secret'}}
-  const before=JSON.stringify(payload)
   const api=services['repo-config'].createRepoConfigApi(async()=>Response.json(payload))
   const result=await api.sync('sample','repo','proof',false,signal())
   assert.deepEqual(result,{
@@ -222,9 +223,6 @@ test('#77 valid Config partial writes project nested fields without forwarding u
     pending:[{number:2,labels:['old-label']}],retryAfter:null,
     requiresRefresh:true,noChanges:false,reconciled:false,
   })
-  assert.equal(JSON.stringify(payload),before,'the input business snapshot is immutable')
-  assert.notStrictEqual(result.failed,payload.failed)
-  assert.notStrictEqual(result.removedAssociations,payload.removedAssociations)
   const {createElement}=await import('react')
   const {renderToStaticMarkup}=await import('react-dom/server')
   const {MemoryRouter}=await import('react-router')
@@ -246,7 +244,7 @@ test('#77 valid Config partial writes project nested fields without forwarding u
 })
 
 
-test('#77 Issue domain projects only validated fields and creates fresh nested snapshots',async()=>{
+test('Issue API projects only validated fields from untrusted JSON',async()=>{
   const issue={number:2,title:'Issue',body:'Content',state:'open',comments:1,
     html_url:'https://github.com/sample/repo/issues/2',
     labels:[{name:'work',secret:'hidden'}],user:{login:'sample',token:'secret'},

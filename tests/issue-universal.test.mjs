@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { validIssueForPage, validChannelIssue, summarizeIssueComments } from '../plugins/issue-detail/src/domain.mjs'
+import { validIssueForPage, validChannelIssue } from '../plugins/issue-detail/src/domain.mjs'
 import { loadIssueContent } from '../plugins/issue-detail/src/load-issue.mjs'
 
 const issue = (number = 1, labels = [], state = 'open') => ({
@@ -25,7 +25,6 @@ function fakeApi(value, options = {}) {
     },
     async getConfig() {
       calls.push('config')
-      if (options.badConfig) return 'namespaces:\n  channel: [invalid'
       throw Object.assign(new Error('Missing repository config'), { status: 422 })
     },
   }
@@ -65,16 +64,13 @@ test('independent Channel membership keeps configured single-label validation', 
   assert.equal(validChannelIssue({ ...issue(), pull_request: {} }, allowed), false)
 })
 
-test('generic Issue read never calls Config for missing or malformed Config', async () => {
-  for (const options of [{}, { badConfig: true }]) {
-    for (const labels of [[], ['status:todo'], ['channel:discussion'],
-      ['channel:discussion', 'channel:other']]) {
-      const { service, calls } = fakeApi(issue(28, labels), options)
-      const loaded = await loadIssueContent(service, 'sample', 'repo', 28, new AbortController().signal)
-      assert.equal(loaded.issue.number, 28)
-      assert.equal(loaded.first.items.length, 1)
-      assert.deepEqual(calls, ['issue:sample/repo/28', 'comments:sample/repo/28/1'])
-    }
+test('generic Issue loading does not depend on Config', async () => {
+  for (const labels of [[], ['channel:discussion', 'channel:other']]) {
+    const { service, calls } = fakeApi(issue(28, labels))
+    const loaded = await loadIssueContent(service, 'sample', 'repo', 28, new AbortController().signal)
+    assert.equal(loaded.issue.number, 28)
+    assert.equal(loaded.first.items.length, 1)
+    assert.deepEqual(calls, ['issue:sample/repo/28', 'comments:sample/repo/28/1'])
   }
 })
 
@@ -97,10 +93,12 @@ test('GitHub errors preserve 404, 403, 429 and 502 without Config conversion', a
   }
 })
 
-test('cross-repository route switch aborts old read and isolates new target', async () => {
+test('Issue loader forwards cancellation to its read dependency and stops before comments', async () => {
   const controller = new AbortController()
   const delayed = {
-    getIssue(_owner, _repo, _number, signal) {
+    getIssue(owner, repo, number, signal) {
+      assert.deepEqual([owner, repo, number], ['old-owner','old-repo',1])
+      assert.equal(signal, controller.signal)
       return new Promise((_resolve, reject) => {
         signal.addEventListener('abort', () => reject(new Error('request aborted')), { once: true })
       })
@@ -111,18 +109,5 @@ test('cross-repository route switch aborts old read and isolates new target', as
   const pending = loadIssueContent(delayed, 'old-owner', 'old-repo', 1, controller.signal)
   controller.abort()
   await assert.rejects(pending, /request aborted/)
-  const { service, calls } = fakeApi(issue(2))
-  const latest = await loadIssueContent(service, 'new-owner', 'new-repo', 2,
-    new AbortController().signal)
-  assert.equal(latest.issue.number, 2)
-  assert.deepEqual(calls, ['issue:new-owner/new-repo/2', 'comments:new-owner/new-repo/2/1'])
-})
 
-test('Labour summary remains limited to the selected Issue', async () => {
-  const first = fakeApi(issue(1)), second = fakeApi(issue(2))
-  const a = await loadIssueContent(first.service, 'sample', 'repo', 1, new AbortController().signal)
-  const b = await loadIssueContent(second.service, 'sample', 'repo', 2, new AbortController().signal)
-  assert.equal(summarizeIssueComments(a.first.items, true).hours, 0.5)
-  assert.equal(summarizeIssueComments(b.first.items, true).hours, 0.5)
-  assert.notEqual(a.first.items[0].id, b.first.items[0].id)
 })

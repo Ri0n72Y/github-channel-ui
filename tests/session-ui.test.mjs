@@ -2,7 +2,6 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createGithubSessionHandler, publicGitHubProfile } from '../api/github-session.mjs'
 import { createGithubLogoutHandler } from '../api/_github-logout.mjs'
-import { validLoginReturnPath } from '../api/_oauth.mjs'
 
 const origin = 'https://labour.test'
 const req = (path, init = {}) => new Request(origin + path, init)
@@ -87,14 +86,4 @@ test('#76 logout requires explicit same-origin POST and clears only local secure
     assert.match(cookie,/SameSite=Lax/)
   }
   assert.equal(response.headers.get('cache-control'),'no-store')
-})
-
-test('#76 Github login return targets allow only real page paths, never API or open URLs', () => {
-  const valid=['/sample/repo','/sample/repo/members','/sample/repo/members/register',
-    '/sample/repo/issues/2','/sample/repo/config','/sample/repo/channels',
-    '/topic/sample/repo']
-  for(const path of valid)assert.equal(validLoginReturnPath(path),path)
-  for(const path of ['//evil.invalid','/api/github-callback','/api/github-logout',
-    'https://evil.invalid','/sample/repo?next=evil','/sample/repo/../../api/github-callback',
-    '/sample/repo/channels?unsafe=1'])assert.equal(validLoginReturnPath(path),'/')
 })

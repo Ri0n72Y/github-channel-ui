@@ -2,7 +2,7 @@
 
 ## 执行口径
 
-本地在候选源码根目录运行：
+Public 可使用线上 PR CI；需要完整回归时按既有批准流程执行。以下为候选源码根目录的等价完整验证命令：
 
 ```sh
 npm run build
@@ -47,3 +47,20 @@ npm run test:dom
 ## 完成条件
 
 候选全量 Node/DOM 与 build 有真实结果，独立 Reviewer 核对删减是否丢失现行产品契约、架构或安全边界；未完成的视觉验收继续明确跟踪。不要为了维持旧计数、绿色结果或配额修改断言含义。
+
+## 依赖风险审计（2026-11-28）
+
+依据 [dependency-risk-testing](https://github.com/Ri0n72Y/agent-identity/blob/main/.agents/skills/dependency-risk-testing/SKILL.md)。上轮 Head 8e77ef8b 的 313/313 是运行结果，不能据此证明每项断言都符合标准。此次读取该轮 CI 日志并扫描全部 27 个运行入口的测试声明、导入与断言；对发现的问题回读实际责任函数与调用组件后修订。逐项生产依赖追踪与所有等价类去重尚未完成，不将本次扫描标记为 313 项全部合规。
+
+| 责任边界 | 结构性风险及应拒绝的错误实现 | 本轮处理 |
+|---|---|---|
+| target.mjs / OAuth newFlow/readFlow | 允许非授权返回路径、状态或密钥错配 | 将 Session 中重复 allowlist 合入 OAuth；纯路径规范化和封存边界各自保留 |
+| Issue domain / loadIssueContent | PR 或错误编号被当 Issue，或取消信号未转发 | 领域判断只保留最近的完整用例；loader 测实际依赖转发与不继续读取 |
+| IssueDetailPage 路由及分页状态 | 切换 Issue 后旧分页迟到，污染新 Issue 的劳动汇总 | 删除两个独立 loader 假数据自证的汇总用例；新增真实挂载、路由切换、旧请求迟到及当前成果/工时断言 |
+| Topic config-draft / TopicPageContainer | dirty 草稿被读取覆盖；维护 PR 在 main 未变化或读取失败后提前解锁 | 保留纯函数等价类；替换测试自行模拟 Promise 失败和源码 ref 名称检查为真实挂载组件的提交、重查、失败恢复、版本变化 |
+| TopicPageContainer 分页 | 同 tick 双请求、失败丢失已有卡片、重复 ID | 既有生产 batch/endpoint 用例覆盖 sparse；移除 Playground fixture 及源码钩子混合用例，新增真实 UI 快速点击/失败/重试 |
+| member registerMember / GitHub Contents port | 409 后重复旧 SHA、覆盖其他人的并发修改 | mock 在第一次 409 后返回新 SHA 和真实新增成员；断言第二次 PUT 使用新 SHA 且保留双方成员 |
+| functional API → HTTP port | 错目标、错分支、错误分页参数、未发送写入对象、错误请求也被泛型 Error 断言接受 | 验证 detached API 调用、确切 query/body/错误类别，移除旧 Class 名称和 JSON 序列化天然不同引用的断言 |
+| Issue View / CI config | 实际架构和任务调度契约 vs 内部变量、历史文档字符串、重复计数 | 保留禁止越界依赖和独立调度风险；删除 Controller 私有变量/函数调用名称、重复 rewrite 数量、同一计算重复断言 |
+
+保留未证实重复的安全/并发/缓存、签名、响应投影和路由接线保护，尤其多个端点各自可能错误绕过共享授权函数的组合风险。Mock 请求验证不证明真实 GitHub 兼容性；JSDOM 不证明真实浏览器布局/BFCache。仍需按原门槛完成新的线上证据、独立 Reviewer 的覆盖复核以及未验证依赖边界的逐项审计，不能因测试全部绿色而关闭该要求。

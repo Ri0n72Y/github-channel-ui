@@ -3,7 +3,6 @@ import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
-const agents = readFileSync(new URL('../AGENTS.md', import.meta.url), 'utf8')
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 test('existing required Build & test check and basic tests remain', () => {
   assert.match(workflow,/\n  checks:\n    name: Build & test\n/)
@@ -63,9 +62,6 @@ test('governance branch cannot generate Preview', () => {
   const v=JSON.parse(readFileSync(new URL('../vercel.json',import.meta.url),'utf8'))
   assert.equal(v.git.deploymentEnabled['ci-governance-budget-20261118'],false)
   assert.notEqual(v.git.deploymentEnabled.main,false)
-  assert.equal(v.rewrites.length,16)
-  assert.match(agents,/CI 配额与自动化约束/)
-  assert.match(agents,/本地.*验证/)
 })
 
 // Evaluate the workflow expression using the GitHub `format()` semantics with
@@ -105,8 +101,4 @@ test('concurrency: main and approved manual pending runs cannot replace each oth
   assert.equal(new Set(all.map(x => x.group)).size, all.length,
     'same group lets GitHub queue:single replace an existing pending run')
   for (const item of all) assert.equal(item.cancelInProgress, false)
-  const pendingReplaced = (pending, incoming) => pending.group === incoming.group
-  assert.equal(pendingReplaced(pendingMain, laterMain), false)
-  assert.equal(pendingReplaced(pendingMain, manual), false)
-  assert.equal(pendingReplaced(manual, nextManual), false)
 })

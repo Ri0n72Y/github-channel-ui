@@ -129,6 +129,39 @@ test('#86 Issue A -> B: current-page input and late writes belong to their origi
   assert.doesNotMatch(app.host.textContent,/GitHub 已确认发表/)
  }finally{await app.close()}
 })
+test('Issue route change excludes old labour records even when an earlier page completes late',async()=>{
+ const late=deferred()
+ let oldSignal
+ const record=(id,n,hours,outcome)=>({
+  ...comment(id,'\x60\x60\x60yaml\nlabour:\n  work: review\n  hr: ~'+hours+'\n  outcome: '+outcome+'\n\x60\x60\x60'),
+  html_url:'https://github.com/sample/repo/issues/'+n+'#issuecomment-'+id,
+ })
+ const svc=issueService({comments:(n,page,signal)=>{
+  if(n===1&&page===2){oldSignal=signal;return late.promise}
+  return Promise.resolve({items:n===1?[record(101,1,0.5,'old outcome')]:[record(201,2,1.5,'current outcome')],
+   hasMore:n===1})
+ }})
+ const app=await mount('/sample/repo/issues/1','/:owner/:repo/issues/:number',Issue,{service:svc},
+  p=>p.owner+'/'+p.repo+'/'+p.number)
+ const summary=()=>app.host.querySelector('[aria-label="最近劳动成果与工时摘要"]')
+ try{
+  assert.match(summary().textContent,/old outcome/)
+  const more=[...app.host.querySelectorAll('button')].find(b=>b.textContent==='加载下一页评论')
+  assert.ok(more)
+  await act(async()=>more.click())
+  assert.ok(oldSignal)
+  await app.go('/sample/repo/issues/2')
+  assert.equal(oldSignal.aborted,true)
+  assert.match(summary().textContent,/current outcome/)
+  assert.equal(summary().querySelector('strong').textContent,'1.5')
+  late.resolve({items:[record(102,1,3,'late old outcome')],hasMore:false})
+  await flush()
+  assert.match(summary().textContent,/current outcome/)
+  assert.equal(summary().querySelector('strong').textContent,'1.5')
+  assert.doesNotMatch(app.host.textContent,/old outcome|late old outcome/)
+ }finally{await app.close()}
+})
+
 test('#86 Issue page: two same-tick load-more events are single-flight and IDs dedupe',async()=>{
  const next=deferred()
  const svc=issueService({comments:(_n,page)=>page===2?next.promise:
@@ -1743,6 +1776,120 @@ test('#115 case-insensitive resource route emits canonical OAuth return target',
  }finally{await app.close();store.dispose()}
 })
 
+
+test('Topic pending config PR survives failed or unchanged rechecks and unlocks only on a changed version',async()=>{
+ const Topic=(await server.ssrLoadModule('/plugins/topic-page/src/TopicPageContainer.tsx')).default
+ const baseline={repository:{owner:'sample',name:'repo',full_name:'sample/repo',html_url:'https://github.com/sample/repo'},
+  readme:'# Activity',coverUrl:null,config:{topic:'labourchain',whitelist:false},configState:'ready',
+  configText:'topic: labourchain\nwhitelist: false\n',headSha:'a'.repeat(40),configSha:'b'.repeat(40),
+  defaultBranch:'main',allowedRepositories:[]}
+ const draft='topic: edited-topic\nwhitelist: false\n'
+ let nextRead=()=>Promise.resolve(baseline),writes=0
+ const refreshes=[]
+ const api={
+  reportAvailable:false,getSession:async()=>true,
+  getSnapshot:async(route,signal,refresh)=>{
+   assert.deepEqual(route,{owner:'sample',repo:'repo'})
+   if(refresh)refreshes.push(signal)
+   return nextRead()
+  },
+  getProjects:async(route,page,signal,offset)=>({page,offset,perPage:100,totalCount:0,
+   hasNext:false,nextPage:null,nextOffset:null,windowExhausted:false,items:[]}),
+  saveConfig:async(route,content,head,config)=>{
+   assert.deepEqual(route,{owner:'sample',repo:'repo'})
+   assert.equal(content,draft)
+   assert.equal(head,baseline.headSha)
+   assert.equal(config,baseline.configSha)
+   writes++
+   return {state:'pending_pr',effective:false,branch:'maintenance',prUrl:'https://github.com/sample/repo/pull/81'}
+  },
+ }
+ const app=await mount('/topic/sample/repo','/topic/:owner/:repo',Topic,{owner:'sample',repo:'repo',api})
+ const field=()=>app.host.querySelector('#topic-config-yaml')
+ const button=text=>[...app.host.querySelectorAll('button')].find(b=>b.textContent===text)
+ const save=()=>button('确认提交配置')
+ const recheck=()=>button('重新检查默认分支配置')
+ try{
+  assert.equal(field().value,baseline.configText)
+  await act(async()=>input(field(),draft))
+  await act(async()=>save().click())
+  await flush()
+  assert.equal(writes,1)
+  assert.ok(save().disabled)
+  assert.ok(app.host.querySelector('a[href="https://github.com/sample/repo/pull/81"]'))
+  const same=deferred()
+  nextRead=()=>same.promise
+  await act(async()=>recheck().click())
+  assert.ok(refreshes.length>0)
+  same.resolve(baseline)
+  await flush()
+  assert.equal(field().value,draft)
+  assert.ok(save().disabled)
+  await act(async()=>save().click())
+  assert.equal(writes,1)
+  nextRead=()=>Promise.reject(Object.assign(Error('controlled source 503'),{status:503,stage:'source'}))
+  await act(async()=>recheck().click())
+  await flush()
+  assert.match(app.host.textContent,/controlled source 503/)
+  assert.equal(writes,1)
+  nextRead=()=>Promise.resolve(baseline)
+  await act(async()=>button('重新加载').click())
+  await flush()
+  assert.equal(field().value,draft)
+  assert.ok(save().disabled)
+  nextRead=()=>Promise.resolve({...baseline,headSha:'c'.repeat(40),configSha:'d'.repeat(40),
+   configText:'topic: remote-topic\nwhitelist: false\n',config:{topic:'remote-topic',whitelist:false}})
+  await act(async()=>recheck().click())
+  await flush()
+  assert.equal(field().value,draft)
+  assert.equal(save().disabled,false)
+  assert.equal(writes,1)
+ }finally{await app.close()}
+})
+
+test('Topic project pagination coalesces rapid UI requests and preserves loaded results after a failed page',async()=>{
+ const Topic=(await server.ssrLoadModule('/plugins/topic-page/src/TopicPageContainer.tsx')).default
+ const snapshot={repository:{owner:'sample',name:'repo',full_name:'sample/repo',html_url:'https://github.com/sample/repo'},
+  readme:'# Activity',coverUrl:null,config:{topic:'labourchain',whitelist:false},configState:'ready',
+  configText:'topic: labourchain\nwhitelist: false\n',headSha:'a'.repeat(40),configSha:'b'.repeat(40),
+  defaultBranch:'main',allowedRepositories:[]}
+ const project=id=>({id,full_name:'member/project-'+id,name:'project-'+id,owner:'member',
+  description:'Project '+id,html_url:'https://github.com/member/project-'+id,stargazers_count:1,language:null})
+ const page=(n,items,more)=>({page:n,offset:0,perPage:100,totalCount:11,hasNext:more,
+  nextPage:more?2:null,nextOffset:more?0:null,windowExhausted:false,items})
+ const pending=deferred()
+ let page2Calls=0
+ const api={reportAvailable:false,getSession:async()=>false,getSnapshot:async()=>snapshot,
+  getProjects:async(route,n,signal,offset,head)=>{
+   assert.deepEqual(route,{owner:'sample',repo:'repo'})
+   assert.equal(head,snapshot.headSha)
+   assert.equal(offset,0)
+   if(n===1)return page(1,Array.from({length:10},(_,i)=>project(i+1)),true)
+   assert.equal(n,2)
+   page2Calls++
+   return page2Calls===1?pending.promise:page(2,[project(10),project(11)],false)
+  }}
+ const app=await mount('/topic/sample/repo','/topic/:owner/:repo',Topic,{owner:'sample',repo:'repo',api})
+ const button=text=>[...app.host.querySelectorAll('button')].find(b=>b.textContent===text)
+ const cards=()=>app.host.querySelectorAll('[data-topic-masonry-item]')
+ try{
+  assert.equal(cards().length,10)
+  const more=button('加载更多项目')
+  assert.ok(more)
+  await act(async()=>{more.dispatchEvent(new MouseEvent('click',{bubbles:true}));more.dispatchEvent(new MouseEvent('click',{bubbles:true}))})
+  assert.equal(page2Calls,1)
+  pending.reject(Object.assign(Error('controlled page 429'),{status:429,stage:'topic-search'}))
+  await flush()
+  assert.equal(cards().length,10)
+  assert.match(app.host.textContent,/controlled page 429/)
+  await act(async()=>button('重试加载更多').click())
+  await flush()
+  assert.equal(page2Calls,2)
+  assert.equal(cards().length,11)
+  assert.equal(app.host.querySelectorAll('a[href="https://github.com/member/project-10"]').length,1)
+  assert.equal(button('加载更多项目'),undefined)
+ }finally{await app.close()}
+})
 
 test('Theme toggle changes the mounted UI even when browser storage rejects persistence',async()=>{
  const {ThemeProvider,ThemeToggle}=await server.ssrLoadModule('/plugins/react-ui/src/index.tsx')

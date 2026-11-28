@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { parseLabourComment, formatLabourComment, summarizeIssueComments,
-  parseIssueLabels, validIssueTarget, validIssueForPage, validChannelIssue } from '../plugins/issue-detail/src/domain.mjs'
+  parseIssueLabels, validIssueTarget } from '../plugins/issue-detail/src/domain.mjs'
 
 import { createQuoteReply, buildCommentReply, commentPermalink } from '../plugins/issue-detail/src/quote-reply.mjs'
 
@@ -61,7 +61,7 @@ test('one comment with multiple SHAs is one labour record; repeated SHA conflict
   assert.equal(result.complete, false)
 })
 
-test('URL, exact channel namespace and Open/Closed validation excludes PRs', () => {
+test('Issue target rejects invalid numbers and Channel labels parse from supported YAML', () => {
   assert.equal(validIssueTarget('sample', 'repo', '28'), true)
   for (const number of ['0', '-1', '1.5', 'abc', '9007199254740992']) {
     assert.equal(validIssueTarget('sample', 'repo', number), false)
@@ -70,16 +70,7 @@ test('URL, exact channel namespace and Open/Closed validation excludes PRs', () 
     ['channel:wishlist', 'channel:discussion'])
   assert.deepEqual(parseIssueLabels('namespaces:\n  channel:\n    - discussion\n'),
     ['channel:discussion'])
-  const issue = { number: 1, state: 'closed', labels: [{ name: 'channel:discussion' }] }
-  assert.equal(validIssueForPage(issue), true)
-  assert.equal(validIssueForPage({ ...issue, state: 'open' }), true)
-  assert.equal(validIssueForPage({ ...issue, pull_request: {} }), false)
-  assert.equal(validChannelIssue(issue, ['channel:discussion']), true)
-  assert.equal(validChannelIssue({ ...issue, pull_request: {} }, ['channel:discussion']), false)
-  assert.equal(validChannelIssue({ ...issue, labels: [{ name: 'channel:discussion' },
-    { name: 'channel:other' }] }, ['channel:discussion']), false)
-  assert.equal(validChannelIssue({ ...issue, labels: [{ name: 'channel:unknown' }] },
-    ['channel:discussion']), false)
+
 })
 
 test('real §9.4 no-suffix examples preserve multiline Markdown and inline outcome links', () => {

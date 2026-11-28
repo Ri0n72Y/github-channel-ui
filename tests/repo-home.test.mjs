@@ -59,9 +59,9 @@ function makeGitHubMock(options = {}) {
         encoding: 'base64', content: Buffer.from(body).toString('base64') })
     }
     if (method === 'GET' && path === '/repos/octocat/hello/contents/team-member.json') {
-      const team = options.team
+      const team = conflicted && options.conflictTeam ? options.conflictTeam : options.team
       if (!team) return response(404, { message: 'Not Found' })
-      return response(200, { type: 'file', path: 'team-member.json', sha: 'file-sha',
+      return response(200, { type: 'file', path: 'team-member.json', sha: conflicted && options.conflictTeam ? 'concurrent-file-sha' : 'file-sha',
         size: team.length, encoding: 'base64', content: Buffer.from(team).toString('base64') })
     }
     if (method === 'GET' && path === '/repos/octocat/hello/issues') {
@@ -201,7 +201,10 @@ test('repo-home: protected branch Bot creates reviewable PR with verified OAuth 
 })
 test('repo-home: SHA conflict re-reads and retries without dropping original members', async () => {
   const old = JSON.stringify({ version: 1, members: [{ id: 'old', name: 'Previously added' }] })
-  await mocked({ protected: false, conflict: true, team: old }, async mock => {
+  const concurrent = JSON.stringify({ version: 1, members: [
+    { id: 'old', name: 'Previously added' }, { id: 'other-writer', name: 'Concurrent member' },
+  ] })
+  await mocked({ protected: false, conflict: true, team: old, conflictTeam: concurrent }, async mock => {
     const result = await registerEndpoint.fetch(request('/api/repo-member-register', {
       method: 'POST', headers: { Origin: origin, Cookie: session(), 'Content-Type': 'application/json',
         'X-LabourChain-Write': '1' },
@@ -213,10 +216,11 @@ test('repo-home: SHA conflict re-reads and retries without dropping original mem
     const attempts = mock.writes.filter(w => w.method === 'PUT')
     assert.equal(attempts.length, 2)
     assert.equal(attempts[0].body.sha, 'file-sha')
-    assert.equal(attempts[1].body.sha, 'file-sha')
+    assert.equal(attempts[1].body.sha, 'concurrent-file-sha')
     const people = JSON.parse(Buffer.from(attempts[1].body.content, 'base64').toString()).members
-    assert.equal(people[0].id, 'old')
-    assert.equal(people.length, 2)
+    assert.deepEqual(people.map(person=>person.name), ['Previously added','Concurrent member','New'])
+    assert.deepEqual(people.slice(0,2).map(person=>person.id), ['old','other-writer'])
+    assert.equal(people.length, 3)
   })
 })
 test('repo-home: forged cross-origin submission is rejected before Bot write', async () => {
