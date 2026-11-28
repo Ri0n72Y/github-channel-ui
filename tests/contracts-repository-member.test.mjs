@@ -2,7 +2,6 @@ import {observeHttp} from './helpers/observe-http.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { generateKeyPairSync, randomBytes } from 'node:crypto'
-import { paramsFor } from '../api/_repo-home-access.mjs'
 import feedEndpoint from '../api/_repo-feed.mjs'
 import homeEndpoint from '../api/_repo-home.mjs'
 import permissionEndpoint from '../api/_repo-member-permission.mjs'
@@ -34,7 +33,7 @@ function makeGitHubMock(options = {}) {
     assert.equal(u.host, 'api.github.com', 'all upstream GitHub calls are absolute API endpoints')
     const path = u.pathname, method = init.method || 'GET'
     calls.push({ method, path, query: u.search, auth: init.headers?.Authorization })
-    if (['PUT','POST','PATCH','DELETE'].includes(method)) writes.push({ method, path, body: init.body ? JSON.parse(init.body) : undefined })
+    if (['PUT','POST','PATCH','DELETE'].includes(method)) writes.push({ method, path, auth: init.headers?.Authorization, body: init.body ? JSON.parse(init.body) : undefined })
     if (method === 'GET' && path === '/repos/octocat/hello') return response(200, repo)
     if (method === 'GET' && path === '/repos/octocat/hello/installation') return response(200,
       { id: 17, account: { login: 'octocat' }, suspended_at: null })
@@ -103,174 +102,132 @@ const origin = 'https://labour.example'
 const session = () => SESSION_COOKIE + '=' + seal({ token: 'user-token', exp: Date.now() + 60_000 }, 'session', key)
 const request = (path, init) => new Request(origin + path, init)
 
-test('repo-home: display branch and page parameter validation is fail-closed', () => {
-  assert.equal(paramsFor(request('/api/repo-feed?owner=octocat&repo=hello&page=2'), true).page, 2)
-  assert.throws(() => paramsFor(request('/api/repo-home?owner=octocat&repo=hello&branch=../main')))
-  assert.throws(() => paramsFor(request('/api/repo-feed?owner=octocat&repo=hello&page=0'), true))
-})
-test('repo-home: PR-only GitHub page still reports next cursor, followed by normal issue', async () => {
-  await mocked({}, async mock => {
-    const first = await feedEndpoint.fetch(request('/api/repo-feed?owner=octocat&repo=hello&page=1'))
-    assert.equal(first.status, 200)
-    assert.deepEqual((await first.json()).items, [])
-    const next = await feedEndpoint.fetch(request('/api/repo-feed?owner=octocat&repo=hello&page=2'))
-    assert.equal(next.status, 200)
-    assert.deepEqual((await next.json()).items.map(i => i.id), [20])
-    assert.ok(mock.calls.some(call => call.path === '/app/installations/17/access_tokens'))
-  })
-})
-test('repo-home: README and team states are independent and anonymous GET is installed-scoped', async () => {
-  await mocked({}, async () => {
-    const result = await homeEndpoint.fetch(request('/api/repo-home?owner=octocat&repo=hello&branch=main'))
-    assert.equal(result.status, 200)
-    const data = await result.json()
-    assert.equal(data.team.state, 'missing')
-    assert.equal(data.readme.state, 'ready')
-    assert.match(data.readme.content, /introduction/)
-    assert.equal(data.repository.full_name, 'octocat/hello')
-  })
-})
-test('repo-home: Bot missing Contents Write rejects an authenticated operator before any mutation', async () => {
-  await mocked({ contents: 'read' }, async mock => {
-    const result = await permissionEndpoint.fetch(request('/api/repo-member-permission?owner=octocat&repo=hello&branch=main', {
-      headers: { Cookie: session() },
-    }))
-    assert.equal(result.status, 403)
-    assert.match((await result.json()).error, /Contents/)
-    assert.equal(mock.writes.filter(w => w.path.includes('git/refs') || w.path.endsWith('/pulls') ||
-      w.method === 'PUT').length, 0)
-  })
-})
-test('repo-home: protected branch Bot creates reviewable PR with verified OAuth requester', async () => {
-  await mocked({ protected: true }, async mock => {
-    const result = await registerEndpoint.fetch(request('/api/repo-member-register', {
-      method: 'POST', headers: {
-        Origin: origin, Cookie: session(), 'Content-Type': 'application/json', 'X-LabourChain-Write': '1',
-      },
-      body: JSON.stringify({ owner: 'octocat', repo: 'hello', branch: 'main',
-        member: { name: 'New', role: 'Reviewer', links: [] }, user: 'spoofed-login' }),
-    }))
-    assert.equal(result.status, 202)
-    const body = await result.json()
-    assert.equal(body.status, 'pending_pr')
-    assert.equal(body.requestedBy, 'operator')
-    const file = mock.writes.find(w => w.method === 'PUT')
-    assert.ok(file)
-    assert.equal(file.body.branch.startsWith('labourchain/team-member-'), true)
-    assert.match(file.body.message, /Requested by @operator/)
-    assert.doesNotMatch(file.body.message, /spoofed-login/)
-    assert.equal(JSON.parse(Buffer.from(file.body.content, 'base64').toString()).members.length, 1)
-    assert.equal(mock.writes.find(w => w.path.endsWith('/pulls')).body.base, 'main')
-  })
-})
-test('repo-home: SHA conflict re-reads and retries without dropping original members', async () => {
-  const old = JSON.stringify({ version: 1, members: [{ id: 'old', name: 'Previously added' }] })
-  const concurrent = JSON.stringify({ version: 1, members: [
-    { id: 'old', name: 'Previously added' }, { id: 'other-writer', name: 'Concurrent member' },
-  ] })
-  await mocked({ protected: false, conflict: true, team: old, conflictTeam: concurrent }, async mock => {
-    const result = await registerEndpoint.fetch(request('/api/repo-member-register', {
-      method: 'POST', headers: { Origin: origin, Cookie: session(), 'Content-Type': 'application/json',
-        'X-LabourChain-Write': '1' },
-      body: JSON.stringify({ owner: 'octocat', repo: 'hello', branch: 'main',
-        member: { name: 'New' } }),
-    }))
-    assert.equal(result.status, 201)
-    assert.equal((await result.json()).status, 'committed')
-    const attempts = mock.writes.filter(w => w.method === 'PUT')
-    assert.equal(attempts.length, 2)
-    assert.equal(attempts[0].body.sha, 'file-sha')
-    assert.equal(attempts[1].body.sha, 'concurrent-file-sha')
-    const people = JSON.parse(Buffer.from(attempts[1].body.content, 'base64').toString()).members
-    assert.deepEqual(people.map(person=>person.name), ['Previously added','Concurrent member','New'])
-    assert.deepEqual(people.slice(0,2).map(person=>person.id), ['old','other-writer'])
-    assert.equal(people.length, 3)
-  })
-})
-test('repo-home: forged cross-origin submission is rejected before Bot write', async () => {
-  await mocked({}, async mock => {
-    const result = await registerEndpoint.fetch(request('/api/repo-member-register', {
-      method: 'POST', headers: { Origin: 'https://attacker.example', Cookie: session(),
-        'Content-Type': 'application/json', 'X-LabourChain-Write': '1' },
-      body: JSON.stringify({ owner: 'octocat', repo: 'hello', branch: 'main',
-        member: { name: 'N' } }),
-    }))
-    assert.equal(result.status, 403)
-    assert.equal(mock.writes.length, 0)
+const target = 'owner=octocat&repo=hello'
+const endpoint = '/api/repo-member-register'
+const submit = (member={name:'New'}, extra={}) => registerEndpoint.fetch(request(endpoint,{
+  method:'POST',headers:{Origin:origin,Cookie:session(),'Content-Type':'application/json',
+    'X-LabourChain-Write':'1',...extra},
+  body:JSON.stringify({owner:'octocat',repo:'hello',branch:'main',member,user:'spoofed-login'}),
+}))
+const permission = () => permissionEndpoint.fetch(request('/api/repo-member-permission?'+target+'&branch=main',{
+  headers:{Cookie:session()},
+}))
+const mutations = mock => mock.writes.filter(w=>!w.path.endsWith('/access_tokens'))
+const members = write => JSON.parse(Buffer.from(write.body.content,'base64').toString()).members
+
+test('public home preserves missing team independently of README, and feed follows raw pages even when a page contains only PRs',async()=>{
+  await mocked({},async mock=>{
+    const home=await homeEndpoint.fetch(request('/api/repo-home?'+target+'&branch=main'))
+    assert.equal(home.status,200)
+    const value=await home.json()
+    assert.equal(value.repository.full_name,'octocat/hello')
+    assert.equal(value.team.state,'missing')
+    assert.equal(value.readme.state,'ready')
+    assert.match(value.readme.content,/This is the introduction/)
+    for(const [page,ids,hasMore] of [[1,[],true],[2,[20],false]]){
+      const result=await feedEndpoint.fetch(request('/api/repo-feed?'+target+'&page='+page))
+      assert.equal(result.status,200)
+      const data=await result.json()
+      assert.deepEqual(data.items.map(i=>i.id),ids)
+      assert.equal(data.page,page)
+      assert.equal(data.hasMore,hasMore)
+    }
+    assert.deepEqual(mock.calls.filter(c=>c.path.endsWith('/issues')).map(c=>new URLSearchParams(c.query).get('page')),['1','2'])
+    assert.deepEqual(mutations(mock),[])
   })
 })
 
+test('invalid resource branch or page is rejected before upstream access',async()=>{
+  await mocked({},async mock=>{
+    assert.equal((await homeEndpoint.fetch(request('/api/repo-home?'+target+'&branch=../main'))).status,400)
+    assert.equal((await feedEndpoint.fetch(request('/api/repo-feed?'+target+'&page=0'))).status,400)
+    assert.deepEqual(mock.calls,[])
+  })
+})
 
-test('repo-home review P1: effective pull-request Ruleset requires PR even without branch.protected', async () => {
-  await mocked({ protected: false, rules: [{ type: 'pull_request', ruleset_id: 42 }] }, async mock => {
-    const result = await permissionEndpoint.fetch(request('/api/repo-member-permission?owner=octocat&repo=hello&branch=main', {
-      headers: { Cookie: session() },
-    }))
-    assert.equal(result.status, 200)
-    const capability = await result.json()
-    assert.equal(capability.mode, 'pr')
-    assert.equal(capability.protected, true)
-    const written = await registerEndpoint.fetch(request('/api/repo-member-register', {
-      method: 'POST', headers: { Origin: origin, Cookie: session(),
-        'Content-Type': 'application/json', 'X-LabourChain-Write': '1' },
-      body: JSON.stringify({ owner: 'octocat', repo: 'hello', branch: 'main',
-        member: { name: 'Member from active Ruleset' } }),
-    }))
-    assert.equal(written.status, 202)
-    assert.ok(mock.writes.some(call => call.path.endsWith('/git/refs')))
-    assert.ok(mock.writes.some(call => call.path.endsWith('/pulls')))
-    assert.ok(mock.writes.filter(call => call.method === 'PUT').every(call =>
-      call.body.branch.startsWith('labourchain/team-member-')))
+test('branch protection and effective PR rules both write only a maintenance branch, attributed to the verified operator',async()=>{
+  for(const options of [{protected:true},{protected:false,rules:[{type:'pull_request'}]}]){
+    await mocked(options,async mock=>{
+      const capability=await permission()
+      assert.equal(capability.status,200)
+      const grant=await capability.json()
+      assert.equal(grant.mode,'pr')
+      assert.equal(grant.protected,true)
+      const result=await submit({name:'New',role:'Reviewer',links:[]})
+      assert.equal(result.status,202)
+      const body=await result.json()
+      assert.equal(body.status,'pending_pr')
+      assert.equal(body.requestedBy,'operator')
+      const [ref,file,pr]=mutations(mock)
+      assert.deepEqual(mutations(mock).map(w=>[w.method,w.path]),[
+        ['POST','/repos/octocat/hello/git/refs'],
+        ['PUT','/repos/octocat/hello/contents/team-member.json'],
+        ['POST','/repos/octocat/hello/pulls'],
+      ])
+      assert.match(file.body.branch,/^labourchain\/team-member-/)
+      assert.equal(ref.body.ref,'refs/heads/'+file.body.branch)
+      assert.equal(pr.body.head,file.body.branch)
+      assert.equal(pr.body.base,'main')
+      assert.match(file.body.message,/Requested by @operator/)
+      assert.doesNotMatch(file.body.message,/spoofed-login/)
+      assert.deepEqual(members(file).map(({name,role})=>({name,role})),[{name:'New',role:'Reviewer'}])
+      assert.ok(mutations(mock).every(w=>w.auth==='Bearer POST-installation-token'))
+    })
+  }
+})
+
+test('a genuine SHA conflict retries against the concurrent document without losing members or changing target',async()=>{
+  const old=JSON.stringify({version:1,members:[{id:'old',name:'Previously added'}]})
+  const concurrent=JSON.stringify({version:1,members:[
+    {id:'old',name:'Previously added'},{id:'other-writer',name:'Concurrent member'},
+  ]})
+  await mocked({protected:false,conflict:true,team:old,conflictTeam:concurrent},async mock=>{
+    const result=await submit()
+    assert.equal(result.status,201)
+    assert.equal((await result.json()).status,'committed')
+    const writes=mutations(mock)
+    assert.deepEqual(writes.map(w=>[w.method,w.body.branch,w.body.sha]),[
+      ['PUT','main','file-sha'],['PUT','main','concurrent-file-sha'],
+    ])
+    assert.deepEqual(members(writes[1]).map(p=>p.name),['Previously added','Concurrent member','New'])
+    assert.deepEqual(members(writes[1]).slice(0,2).map(p=>p.id),['old','other-writer'])
+    assert.ok(writes.every(w=>w.auth==='Bearer POST-installation-token'))
   })
 })
-test('repo-home review P1: PR scope absent for effective protected rules denies before Bot mutation', async () => {
-  await mocked({ protected: false, rules: [{ type: 'pull_request' }], pull_requests: 'read' }, async mock => {
-    const result = await permissionEndpoint.fetch(request('/api/repo-member-permission?owner=octocat&repo=hello&branch=main', {
-      headers: { Cookie: session() },
-    }))
-    assert.equal(result.status, 403)
-    assert.match((await result.json()).error, /Pull requests: write/)
-    assert.equal(mock.writes.filter(c => c.path.endsWith('/git/refs') || c.path.endsWith('/pulls') ||
-      c.method === 'PUT').length, 0)
+
+test('a displayed capability is not write authorization: missing grants and unknown rules prevent actual registration',async()=>{
+  for(const [options,message] of [
+    [{contents:'read'},/Contents/],
+    [{protected:false,rules:[{type:'pull_request'}],pull_requests:'read'},/Pull requests/],
+    [{protected:false,rulesFail:403},/./],
+    [{push:false},/./],
+  ]){
+    await mocked(options,async mock=>{
+      const check=await permission()
+      assert.equal(check.status,403)
+      assert.match((await check.json()).error,message)
+      const result=await submit()
+      assert.equal(result.status,403)
+      assert.deepEqual(mutations(mock),[])
+    })
+  }
+  await mocked({},async mock=>{
+    assert.equal((await submit({name:'New'},{Origin:'https://attacker.example'})).status,403)
+    assert.deepEqual(mock.calls,[])
   })
 })
-test('repo-home review P1: 422 validation error retains status and is never retried as SHA conflict', async () => {
-  await mocked({ protected: false, validation422: true }, async mock => {
-    const result = await registerEndpoint.fetch(request('/api/repo-member-register', {
-      method: 'POST', headers: { Origin: origin, Cookie: session(),
-        'Content-Type': 'application/json', 'X-LabourChain-Write': '1' },
-      body: JSON.stringify({ owner: 'octocat', repo: 'hello', branch: 'main',
-        member: { name: 'Validation branch' } }),
-    }))
-    assert.equal(result.status, 422)
-    const value = await result.json()
-    assert.match(value.error, /GitHub 校验失败/)
-    assert.match(value.error, /Validation Failed/)
-    assert.doesNotMatch(value.error, /SHA 冲突/)
-    assert.equal(mock.writes.filter(c => c.method === 'PUT').length, 1)
-    assert.equal(mock.writes.some(c => c.path.endsWith('/git/refs') || c.path.endsWith('/pulls')), false)
-  })
-})
-test('repo-home review P1: unverified 403 cannot trigger unapproved PR fallback', async () => {
-  await mocked({ protected: false, directDenied: true }, async mock => {
-    const result = await registerEndpoint.fetch(request('/api/repo-member-register', {
-      method: 'POST', headers: { Origin: origin, Cookie: session(),
-        'Content-Type': 'application/json', 'X-LabourChain-Write': '1' },
-      body: JSON.stringify({ owner: 'octocat', repo: 'hello', branch: 'main',
-        member: { name: 'Denied' } }),
-    }))
-    assert.equal(result.status, 403)
-    assert.equal(mock.writes.filter(c => c.method === 'PUT').length, 1)
-    assert.equal(mock.writes.some(c => c.path.endsWith('/git/refs') || c.path.endsWith('/pulls')), false)
-  })
-})
-test('repo-home review P1: unavailable effective branch rules fail closed', async () => {
-  await mocked({ protected: false, rulesFail: 403 }, async mock => {
-    const result = await permissionEndpoint.fetch(request('/api/repo-member-permission?owner=octocat&repo=hello&branch=main', {
-      headers: { Cookie: session() },
-    }))
-    assert.equal(result.status, 403)
-    assert.equal(mock.writes.filter(c => c.path.endsWith('/git/refs') || c.path.endsWith('/pulls') ||
-      c.method === 'PUT').length, 0)
-  })
+
+test('non-conflict PUT failures retain their status without retrying or inventing a PR fallback',async()=>{
+  for(const [options,status] of [[{validation422:true},422],[{directDenied:true},403]]){
+    await mocked({protected:false,...options},async mock=>{
+      const result=await submit()
+      assert.equal(result.status,status)
+      const data=await result.json()
+      if(status===422){
+        assert.match(data.error,/Validation Failed/)
+        assert.doesNotMatch(data.error,/SHA 冲突/)
+      }
+      assert.deepEqual(mutations(mock).map(w=>[w.method,w.body.branch]),[['PUT','main']])
+    })
+  }
 })
