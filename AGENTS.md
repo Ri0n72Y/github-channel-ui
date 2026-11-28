@@ -21,9 +21,9 @@ This repository provides reusable React/Cordis client plugins, pure domain modul
 - 视觉、响应式、触控尺寸及焦点可见性按 [测试与验收说明](docs/testing.md) 进行真实浏览器检查。测试数量不设固定指标。合并或删除测试须说明覆盖归属及未验证风险。
 - 测试维护候选须完成 build、完整 Node 回归与两套 DOM 回归；记录实际命令、精确 SHA 和退出码。只报告真实运行结果。
 
-## CI 配额与自动化约束（双仓协作）
+## CI 配额与自动化约束
 
-- Coder 先完成可执行的相关静态检查和验证，记录实际证据；Public 可按 Owner 授权使用线上 PR CI 完成测试，不要求 Owner 单独检出 Public 候选。禁止以空提交或碎片提交反复触发 CI 试错。
+- Coder 先完成可执行的相关静态检查和验证，记录实际证据；可按 Owner 授权使用线上 PR CI 完成测试，无须额外检出候选。禁止以空提交或碎片提交反复触发 CI 试错。
 - 每项任务原则上只做一次正式完整 CI。失败先只读分析日志并本地修复；追加完整 CI、`rerun`、`workflow_dispatch` 需要 Lead/Owner 针对具体运行的明确授权。不得因节省预算谎报 PASS、规避必需验证或降低断言。
 - PR 默认保留现有 `Build & test` 轻量必需检查；完整 Node 回归按批准引用手动触发，PR 上过期检查由 `concurrency` 取消。自动取消不覆盖 main 与经授权手动 CI。变更 required checks 前由 Owner 核对分支保护规则。
 - Owner 在 GitHub Billing/Actions 查看用量并设置预算、告警与超额停止策略；未读取真实用量时不推断余额或 CI 启动失败根因。

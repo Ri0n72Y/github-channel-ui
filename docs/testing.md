@@ -18,7 +18,7 @@
 
 Issue 正文、讨论与劳动记录的差异由真实 Issue 页面和生产 service 验证；Theme 由真实 DOM 操作和重新挂载验证持久化。Config、Member、Issue、Topic 的写入 gate 与页面操作分层验证，避免在每个页面重复穷举共享规则。Topic 的缓存、完整 Search 页、局部分页及迟到响应在各自实际消费边界验证，避免重复跑相同的通用缓存矩阵。
 
-保留 Private 兼容入口 `tests/*.test.mjs`、`tests/react-lifecycle-86.dom.mjs`，以及独立 Playground DOM 入口和现有 CI 门槛。不新增测试框架。历史审查过程在 PR #122 中追踪，当前文档只维护现行契约。
+保留稳定的 Node/DOM 入口 `tests/*.test.mjs`、`tests/react-lifecycle-86.dom.mjs`，以及独立 Playground DOM 入口和现有 CI 门槛。不新增测试框架。历史审查过程在 PR #122 中追踪，当前文档只维护现行契约。
 
 ## 执行口径
 
@@ -28,7 +28,7 @@ npm run test:full
 npm run test:dom
 ```
 
-常规 CI 保留 Build & test 名称与原有 Installation、critical、DOM、router、policy 步骤；完整回归按既有批准流程，真实 GitHub 写入与部署仍需单独授权。不要把 CI 选择或测试数量作为质量目标。记录候选 SHA、实际命令和结果；Hosted 必须按正式流程同步 Public main。
+常规 CI 保留 Build & test 名称与原有 Installation、critical、DOM、router、policy 步骤；完整回归按既有批准流程，真实 GitHub 写入与部署仍需单独授权。不要把 CI 选择或测试数量作为质量目标。记录候选 SHA、实际命令和结果。
 
 ## 浏览器视觉验收
 
@@ -40,7 +40,6 @@ npm run test:dom
 - Issue：阅读/编辑区、标签和引用框在正常及矮视口可访问；分割滚动与紧凑单滚动模式保留末尾评论、分页、反馈及提交控件；触控与键盘可操作。
 - Config：320/375px 等窄屏，编辑器和操作按钮不超出容器，长 YAML 可编辑。
 - Topic：响应式列数和卡片布局符合批准设计，真实封面/无图/坏图状态正常；简介自然换行并最多显示五行，完整内容保留，链接正确。
-- Hosted Header 64px 及移动端换行由 Hosted 所属测试和浏览器验收负责。
 
 记录候选 SHA、浏览器、视口、实际结果和必要截图。上述验收不能用静态检查或 jsdom PASS 代替；未运行须注明。业务与安全行为仍由自动化测试保护。
 
