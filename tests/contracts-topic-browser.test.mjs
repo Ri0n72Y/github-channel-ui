@@ -23,8 +23,8 @@ test('browser source and complete Search page share requests across local slices
   const calls=[]
   const api=createTopicPageApi(async(url)=>{
     const u=new URL(url,'https://local.test');calls.push(u)
-    await new Promise(resolve=>setTimeout(resolve,5))
     if(u.pathname==='/api/topic-page')return Response.json(sample)
+    if(u.pathname!=='/api/topic-projects')throw Error('Unexpected Topic request: '+u.pathname)
     return Response.json({page:1,offset:0,perPage:100,totalCount:60,hasNext:false,
       nextPage:null,nextOffset:null,windowExhausted:false,
       items:Array.from({length:60},(_,i)=>({id:i+1,full_name:'member/p'+i,name:'p'+i,owner:'member',
@@ -38,6 +38,8 @@ test('browser source and complete Search page share requests across local slices
   const snapshot=await second
   assert.equal(calls.length,1)
   const slices=await Promise.all([0,25,50].map(offset=>api.getProjects(route,1,signal(),offset,snapshot.headSha)))
+  assert.deepEqual(slices.flatMap(p=>p.items.map(item=>item.id)),
+    Array.from({length:60},(_,i)=>i+1))
   assert.deepEqual(slices.map(p=>p.items.length),[25,25,10])
   assert.deepEqual(slices.map(p=>p.nextOffset),[25,50,null])
   assert.equal(calls.length,2)
@@ -47,8 +49,13 @@ test('browser source and complete Search page share requests across local slices
   await assert.rejects(api.getProjects(route,1,signal(),25,snapshot.headSha),
     {status:409,stage:'snapshot'})
   await api.getProjects(route,1,signal(),0,snapshot.headSha)
-  assert.equal(calls.length,4)
-  assert.equal(calls[2].searchParams.get('refresh'),'1')
+  assert.deepEqual(calls.map(u=>[u.pathname,u.searchParams.get('owner'),u.searchParams.get('repo'),
+    u.searchParams.get('page'),u.searchParams.get('offset'),u.searchParams.get('head'),u.searchParams.get('refresh')]),[
+    ['/api/topic-page','sample','repo',null,null,null,null],
+    ['/api/topic-projects','sample','repo','1','0',sample.headSha,null],
+    ['/api/topic-page','sample','repo',null,null,null,'1'],
+    ['/api/topic-projects','sample','repo','1','0',sample.headSha,null],
+  ])
 })
 
 function refreshGate(){

@@ -15,7 +15,7 @@ const params=caseName=>new URLSearchParams({sessionFixture:'1',sessionCase:caseN
 const get=fn=>fn('/api/github-session',{method:'GET',signal:new AbortController().signal})
 const post=fn=>fn('/api/github-logout',{method:'POST',
   headers:{'X-LabourChain-Write':'1'}})
-test('Playground Session scenarios are explicit and never call real GitHub',async()=>{
+test('Playground Session scenarios expose controlled login and logout states and reject unknown requests',async()=>{
   const guest=createSessionFixture(params('anonymous')).request
   assert.deepEqual(await (await get(guest)).json(),{authenticated:false})
   const live=createSessionFixture(params('authenticated')).request
@@ -32,6 +32,7 @@ test('Playground Session scenarios are explicit and never call real GitHub',asyn
   const noHeader=await logoutError('/api/github-logout',{method:'POST'})
   assert.equal(noHeader.status,403)
   const avatarFail=createSessionFixture(params('avatar-fail')).request
-  assert.match((await (await get(avatarFail)).json()).user.avatarUrl,
-    /avatars\.githubusercontent\.com/)
+  assert.equal((await (await get(avatarFail)).json()).user.avatarUrl,
+    'https://avatars.githubusercontent.com/not-found-fixture.png')
+  await assert.rejects(live('/api/unexpected',{method:'GET'}),/Unexpected Session Fixture request/)
 })

@@ -2,7 +2,7 @@
 
 ## 测试设计
 
-从实际生产契约设计最小充分保护。依据 [dependency-risk-testing](https://github.com/Ri0n72Y/agent-identity/blob/main/.agents/skills/dependency-risk-testing/SKILL.md) 及 Owner 指定的 [Change-Detector Tests](https://testing.googleblog.com/2015/01/testing-on-toilet-change-detector-tests.html)、[Increase Test Fidelity](https://testing.googleblog.com/2024/02/increase-test-fidelity-by-avoiding-mocks.html)、[Unit Testing](https://abseil.io/resources/swe-book/html/ch12.html)、[Practical Test Pyramid](https://martinfowler.com/articles/practical-test-pyramid.html)、[Testing Implementation Details](https://kentcdodds.com/blog/testing-implementation-details)。历史 Issue、文件、测试数量与既有绿色结果均不是保留依据。每个独立保护须有实际责任、风险、反例、可观察失败及最小适合层级。不要为单纯重构修改测试结果。
+从实际生产契约设计最小充分保护。依据 [effective-testing](https://github.com/Ri0n72Y/agent-identity/blob/main/.agents/skills/effective-testing/SKILL.md) 及 Owner 指定的 [Change-Detector Tests](https://testing.googleblog.com/2015/01/testing-on-toilet-change-detector-tests.html)、[Increase Test Fidelity](https://testing.googleblog.com/2024/02/increase-test-fidelity-by-avoiding-mocks.html)、[Unit Testing](https://abseil.io/resources/swe-book/html/ch12.html)、[Practical Test Pyramid](https://martinfowler.com/articles/practical-test-pyramid.html)、[Testing Implementation Details](https://kentcdodds.com/blog/testing-implementation-details)。历史 Issue、文件、测试数量与既有绿色结果均不是保留依据。按实际消费者、独立风险、可观察结果和维护成本选择最小稳定边界；预期结果须独立于实现。已有充分保护时可以不新增测试。外部端口替身应验证实际请求目标，并拒绝未预期的交互；避免生产错误处理吞掉替身内断言。重要的新建或实质修改测试在可行时验证预期缺陷能导致失败，不要求逐项风险记录、固定测试比例或 mutation score。不要为单纯重构修改测试结果。
 
 | 责任与执行边界 | 保护 |
 |---|---|

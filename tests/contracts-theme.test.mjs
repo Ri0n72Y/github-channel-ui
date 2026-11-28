@@ -33,13 +33,16 @@ test('Theme preference defaults dark, accepts only dark/light and saves one stab
   ]) {
     const storage = mockStorage(stored)
     assert.equal(theme.readStoredTheme(storage), expected)
-    theme.persistTheme('light', storage)
-    assert.equal(storage.values.get('labourchain.theme'), 'light')
-    assert.equal(theme.readStoredTheme(storage), 'light')
-    theme.persistTheme('dark', storage)
-    assert.equal(theme.readStoredTheme(storage), 'dark')
-    assert.deepEqual([...storage.values.keys()], ['labourchain.theme'])
   }
+  const storage = mockStorage(undefined)
+  theme.persistTheme('light', storage)
+  assert.equal(storage.values.get('labourchain.theme'), 'light')
+  assert.equal(theme.readStoredTheme(storage), 'light')
+  theme.persistTheme('dark', storage)
+  assert.equal(storage.values.get('labourchain.theme'), 'dark')
+  assert.equal(theme.readStoredTheme(storage), 'dark')
+  assert.deepEqual([...storage.values.keys()], ['labourchain.theme'])
+  assert.equal(theme.readStoredTheme({getItem(){throw Error('storage denied')}}), 'dark')
 })
 
 test('shared theme defines the same semantic token interface for dark and light', () => {

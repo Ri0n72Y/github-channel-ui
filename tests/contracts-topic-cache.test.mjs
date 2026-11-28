@@ -258,9 +258,7 @@ test('#83 P2 cache saturation is a diagnostic retryable HTTP 503',async()=>{
 
 test('#83 configured cover only, no arbitrary server image request or legacy fallback',async()=>{
   const cover='https://raw.githubusercontent.com/sample/repo/'+HEAD+'/poster.webp'
-  for(const value of [null,cover,'javascript:alert(1)','https://evil.invalid/image.png',
-    'https://raw.githubusercontent.com.evil.invalid/sample/repo/'+HEAD+'/poster.png',
-    'data:image/svg+xml,<svg/onload=alert(1)>','https://user-images.githubusercontent.com/a.svg']){
+  for(const value of [null,cover,'https://evil.invalid/image.png']){
     const config='topic: labourchain\nwhitelist: false\n'+(value===null?'':'cover: '+JSON.stringify(value)+'\n')
     const m=topicReadFixture({config,cover:'legacy',projects:null})
     const {meta,list}=endpoints(m)
@@ -273,7 +271,7 @@ test('#83 configured cover only, no arbitrary server image request or legacy fal
       assert.equal((await response.json()).stage,'config')
       assert.equal((await get(list,projects)).status,422)
     }
-    assert.equal(m.calls.filter(c=>c.path.includes('poster')||c.path.endsWith('cover.jpg')).length,0)
+    assert.equal(m.calls.filter(c=>c.path.includes('poster')||c.path.endsWith('cover.jpg')||c.host==='evil.invalid').length,0)
     assert.equal(m.calls.filter(c=>c.path==='/search/repositories').length,0)
   }
 })

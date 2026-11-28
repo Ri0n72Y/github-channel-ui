@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createTopicProjectsEndpoint } from '../api/_topic-projects.mjs'
-import { loadInstalledTopicBatch, validTopicSlug } from '../plugins/topic-page/src/domain.mjs'
+import { loadInstalledTopicBatch } from '../plugins/topic-page/src/domain.mjs'
 
 test('#83 production refuses all source-less, mixed and ambiguous Topic requests before GitHub',async()=>{
   let calls=0
@@ -16,8 +16,6 @@ test('#83 production refuses all source-less, mixed and ambiguous Topic requests
     assert.equal((await result.json()).stage,'route',suffix)
   }
   assert.equal(calls,0)
-  for(const value of ['bad_slug','-bad','bad-','','a'.repeat(51)])assert.equal(validTopicSlug(value),false)
-  assert.equal(validTopicSlug('dsh-plugin'),true)
 })
 
 test('#83 Playground source-less pagination keeps exact repository IDs and no source whitelist', async () => {

@@ -13,7 +13,7 @@ test('Topic and project declarations validate identifiers without broadening the
     assert.throws(()=>parseTopicYaml(source))
   assert.throws(()=>parseTopicYaml('repository: me/../repo','project'))
   for(const value of ['a','a'.repeat(50)])assert.equal(validTopicSlug(value),true)
-  for(const value of ['','a-','a'.repeat(51),'a/b'])assert.equal(validTopicSlug(value),false)
+  for(const value of ['','-bad','a-','bad_slug','a'.repeat(51),'a/b'])assert.equal(validTopicSlug(value),false)
   assert.equal(validTopicRepository('sample','repo'),true)
   assert.equal(validTopicRepository('../escape','repo'),false)
 })
@@ -29,8 +29,9 @@ test('configured cover requires a trusted direct image URL and immutable raw rep
     url.replace('raw.githubusercontent.com','raw.githubusercontent.com:8443'),url+'#x',url+'\u0000',
     url.replace('/poster','/%2e%2e/poster'),'data:image/png;base64,AA','//raw.githubusercontent.com/a.png']){
     assert.equal(safeTopicCoverUrl(value),null)
-    assert.throws(()=>parseTopicYaml('topic: activity\ncover: '+value))
   }
+  // One representative failure establishes that the YAML parser enforces the URL policy.
+  assert.throws(()=>parseTopicYaml('topic: activity\ncover: javascript:alert(1)'))
 })
 
 test('Topic README keeps description lines separate from contact metadata after the first H1',()=>{
