@@ -39,6 +39,5 @@ test('#76 Runtime never overrides global fetch for a Session fixture',async()=>{
   const {readFileSync}=await import('node:fs')
   const source=readFileSync(new URL('../apps/playground/src/single-plugin-runtime.ts',import.meta.url),'utf8')
   assert.match(source,/createSessionFixture/)
-  assert.match(source,/createSessionFixture/)
   assert.doesNotMatch(source,/globalThis\.fetch\s*=|window\.fetch\s*=/)
 })

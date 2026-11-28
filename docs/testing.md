@@ -64,3 +64,16 @@ npm run test:dom
 | Issue View / CI config | 实际架构和任务调度契约 vs 内部变量、历史文档字符串、重复计数 | 保留禁止越界依赖和独立调度风险；删除 Controller 私有变量/函数调用名称、重复 rewrite 数量、同一计算重复断言 |
 
 保留未证实重复的安全/并发/缓存、签名、响应投影和路由接线保护，尤其多个端点各自可能错误绕过共享授权函数的组合风险。Mock 请求验证不证明真实 GitHub 兼容性；JSDOM 不证明真实浏览器布局/BFCache。仍需按原门槛完成新的线上证据、独立 Reviewer 的覆盖复核以及未验证依赖边界的逐项审计，不能因测试全部绿色而关闭该要求。
+
+## 第二轮清理：实际路由、写入与全量目录
+
+基于 16cd25ba 的线上常规 CI 310/310（build 通过，full-regression skipped），补查此前未选入常规 CI 的测试文件。
+
+- Channel：保留 selectChannelIssues 真实领域风险和 Handler 的分页、授权、main 及不完整快照保护；去掉重复 Issue 有效性、手动拼接 Issue loader/劳动 parser 的测试以及 fixture 自身返回常量检查。新增实际 Cordis 插件注册、同路由跨仓库切换、旧响应迟到测试。
+- Config：用实际注册路由的 A 提交未结束 → B 编辑器 → A 响应迟到测试替代 config-route 中空组件 key 与 Controller 内部字符串断言。保留已有独立的读/写取消、草稿与同步保护。
+- Member：保留公共成员展示、权限状态、独立 Session fixture 连接行为；用真实 MembersPage 授权、session-change、迟到响应与公开内容保留测试替代 hook 内部 key/变量和 SSR 初始渲染推断。
+- Topic：实际注册源路由切换验证旧草稿和旧 metadata 取消；真实报告控制器测试覆盖快速重复 POST、未知结果、草稿、明确重查 proof 和成功链接。去掉源码 guard、无关插件名和 fixture 返回值自检；保留展示层独立失败/权限反馈。1000 窗口由 topic-pagination 的现行链路覆盖；旧导出 accumulateTopicProjects 尚未证明外部消费者不存在，保留其最近的聚合函数测试，不依据旧名称宣称其仍是现行分页入口。
+- Markdown、Theme、API routing：去掉重复的解析内容顺序、无真实主题依赖的 fixture 比较、精确 HTML 嵌套与 rewrite 总数；保留独立 H1–H6 可访问语义、真实组件路由和 API 映射/无重复来源保护。
+- Channel Handler 与普通 Issue 创建安装授权具有独立写入/读取风险，加入现有 critical 清单；不改变 workflow 或批准后 full-regression 门槛。全量目录中未选入常规 CI 的改动仍须通过完整回归确认。
+
+本轮仍为定向清理，尚不代表全部用例的生产依赖逐项审计完成。线上运行以新提交实际结果为准。

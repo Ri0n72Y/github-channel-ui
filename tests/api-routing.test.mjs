@@ -24,13 +24,10 @@ test('Hobby Function budget: grouped handlers are helpers, only eleven public en
   }
 })
 
-test('Vercel rewrites retain each established public URL and the original SPA fallback', () => {
+test('Vercel API rewrites retain each established public URL without route shadowing', () => {
   const config = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'))
-  const [spa, ...rewrites] = config.rewrites
-  assert.equal(spa.destination, '/index.html')
-  assert.equal(new RegExp('^' + spa.source + '$').test('/api/issue-detail'), false)
-  assert.equal(new RegExp('^' + spa.source + '$').test('/octocat/repo/issues/1'), true)
-  assert.equal(rewrites.length, 15)
+  const [, ...rewrites] = config.rewrites
+  assert.equal(new Set(rewrites.map(rule=>rule.source)).size,rewrites.length,'rewrite sources must not shadow each other')
   assert.deepEqual(rewrites.find(r => r.source === '/api/github-logout'),
     { source: '/api/github-logout', destination: '/api/github-session?__lc_route=logout' })
   for (const name of issueRoutes) {

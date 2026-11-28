@@ -140,17 +140,148 @@ for (const plugin of PLAYGROUND_PLUGINS) {
 }
 
 
+// Mount the real plugin registration and UI service; replace only the remote API.
+async function pluginRuntime(plugin) {
+  const {Context}=await import('@deepseek-ai/cordis')
+  const {ReactUIService}=await vite.ssrLoadModule('/plugins/react-ui/src/index.tsx')
+  const ctx=new Context()
+  const core=ctx.plugin(ReactUIService)
+  let fiber
+  try{
+    await core
+    fiber=ctx.plugin(plugin)
+    await fiber
+    return {ui:ctx.reactUI,dispose:async()=>{try{await fiber.dispose()}finally{await core.dispose()}}}
+  }catch(error){try{await fiber?.dispose()}finally{await core.dispose()}throw error}
+}
+function navigationControls(target){
+  return function Controls(){const go=useNavigate();return h('button',{id:'target-nav',onClick:()=>go(target)},'切换仓库')}
+}
+test('Channel registered route cancels the old repository and ignores late success after switching',async()=>{
+  const {createChannelPlugin}=await vite.ssrLoadModule('/plugins/channel/src/index.tsx')
+  let resolveOld,oldSignal
+  const old=new Promise(resolve=>{resolveOld=resolve})
+  const snapshot=(number,title)=>({state:'ready',branch:'main',channels:[
+    {name:'discussion',label:'channel:discussion',issue:{number,title,createdAt:'2026-11-10T00:00:00Z',comments:0,author:'writer'}},
+    {name:'wishlist',label:'channel:wishlist',issue:null}]})
+  const api={getChannels(owner,repo,signal){
+    assert.equal(owner,'sample')
+    if(repo==='alpha'){oldSignal=signal;return old}
+    assert.equal(repo,'beta')
+    return Promise.resolve(snapshot(22,'Beta discussion'))
+  }}
+  const runtime=await pluginRuntime(createChannelPlugin(api))
+  const Controls=navigationControls('/sample/beta/channels')
+  let view
+  try{
+    view=await mounted(h(MemoryRouter,{initialEntries:['/sample/alpha/channels']},h(Controls),h(App,{ui:runtime.ui})))
+    await expectLoaded(view.host,/正在加载频道/,'alpha pending')
+    for(let i=0;!oldSignal&&i<40;i++)await act(async()=>sleep(50))
+    assert.ok(oldSignal)
+    await act(async()=>view.host.querySelector('#target-nav').click())
+    await expectLoaded(view.host,/Beta discussion/,'beta channel')
+    assert.equal(oldSignal.aborted,true)
+    await act(async()=>resolveOld(snapshot(11,'Late alpha discussion')))
+    assert.doesNotMatch(view.host.textContent,/Late alpha discussion/)
+    assert.equal(view.host.querySelectorAll('a[href="/sample/beta/issues/22"]').length,1)
+    assert.equal(view.host.querySelector('a[href$="/issues/11"]'),null)
+    assert.match(view.host.textContent,/暂无进行中的讨论/)
+  }finally{await view?.close();await runtime.dispose()}
+})
+test('Config registered route isolates draft and late write result between repositories',async()=>{
+  const {createRepoConfigPlugin}=await vite.ssrLoadModule('/plugins/repo-config/src/index.tsx')
+  const {createRepoConfigFixtureService}=await vite.ssrLoadModule('/apps/playground/src/config-fixture.ts')
+  const fixture=createRepoConfigFixtureService(new URLSearchParams())
+  const writes=[]
+  let resolveWrite
+  const pending=new Promise(resolve=>{resolveWrite=resolve})
+  const betaText='namespaces:\n  status: [beta]\n'
+  const api={...fixture,async get(owner,repo,signal){
+    assert.equal(owner,'sample')
+    const snapshot=await fixture.get(owner,repo,signal)
+    return repo==='beta'?{...snapshot,configText:betaText}:snapshot
+  },save(owner,repo,content,head,file,signal){
+    writes.push({owner,repo,content,signal})
+    return pending
+  }}
+  const runtime=await pluginRuntime(createRepoConfigPlugin(api))
+  const Controls=navigationControls('/sample/beta/config')
+  let view
+  try{
+    view=await mounted(h(MemoryRouter,{initialEntries:['/sample/alpha/config']},h(Controls),h(App,{ui:runtime.ui})))
+    await expectLoaded(view.host,/提交 Config 变更/,'alpha editor')
+    const field=view.host.querySelector('textarea')
+    const draft=field.value+'\n# alpha-only edit'
+    await act(async()=>{
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(field,draft)
+      field.dispatchEvent(new Event('input',{bubbles:true}))
+    })
+    const submit=view.host.querySelector('button[type="submit"]')
+    assert.ok(submit&&!submit.disabled)
+    await act(async()=>submit.click())
+    assert.equal(writes.length,1)
+    assert.deepEqual([writes[0].owner,writes[0].repo,writes[0].content],['sample','alpha',draft])
+    await act(async()=>view.host.querySelector('#target-nav').click())
+    await expectLoaded(view.host,/配置没有未提交的本地修改/,'beta editor')
+    assert.equal(writes[0].signal.aborted,true)
+    assert.equal(view.host.querySelector('textarea').value,betaText)
+    await act(async()=>resolveWrite({state:'awaiting_pr_merge',prUrl:'https://github.com/sample/alpha/pull/88'}))
+    assert.equal(view.host.querySelector('textarea').value,betaText)
+    assert.equal(view.host.querySelector('a[href="https://github.com/sample/alpha/pull/88"]'),null)
+    assert.doesNotMatch(view.host.textContent,/等待 GitHub 审核与合并/)
+    assert.equal(writes.length,1)
+  }finally{await view?.close();await runtime.dispose()}
+})
+test('Topic registered source route clears old draft and aborts previous metadata on repository change',async()=>{
+  const {createTopicPagePlugin}=await vite.ssrLoadModule('/plugins/topic-page/src/index.tsx')
+  const snapshot=repo=>({repository:{owner:'sample',name:repo,full_name:'sample/'+repo,html_url:'https://github.com/sample/'+repo},
+    readme:'# '+repo+' activity',coverUrl:null,config:{topic:repo,whitelist:false},configState:'ready',
+    configText:'topic: '+repo+'\nwhitelist: false\n',headSha:'a'.repeat(40),configSha:'b'.repeat(40),
+    defaultBranch:'main',allowedRepositories:[]})
+  let resolveOld,oldSignal
+  const pending=new Promise(resolve=>{resolveOld=resolve})
+  const api={reportAvailable:false,getSession:async()=>false,
+    getSnapshot(route,signal,refresh){
+      assert.equal(route.owner,'sample')
+      if(route.repo==='alpha'&&refresh){oldSignal=signal;return pending}
+      return Promise.resolve(snapshot(route.repo))
+    },getProjects:async(route,page,signal,offset)=>({page,offset,perPage:100,totalCount:0,
+      hasNext:false,nextPage:null,nextOffset:null,windowExhausted:false,items:[]})}
+  const runtime=await pluginRuntime(createTopicPagePlugin(api))
+  const Controls=navigationControls('/topic/sample/beta')
+  let view
+  try{
+    view=await mounted(h(MemoryRouter,{initialEntries:['/topic/sample/alpha']},h(Controls),h(App,{ui:runtime.ui})))
+    await expectLoaded(view.host,/当前可访问搜索范围没有符合配置的项目/,'alpha loaded')
+    const field=view.host.querySelector('textarea')
+    await act(async()=>{
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(field,'topic: local-alpha\n')
+      field.dispatchEvent(new Event('input',{bubbles:true}))
+    })
+    await act(async()=>view.host.querySelector('[aria-label="刷新项目"]').click())
+    assert.ok(oldSignal)
+    await act(async()=>view.host.querySelector('#target-nav').click())
+    await expectLoaded(view.host,/beta activity/,'beta loaded')
+    assert.equal(oldSignal.aborted,true)
+    assert.equal(view.host.querySelector('textarea').value,snapshot('beta').configText)
+    await act(async()=>resolveOld(snapshot('alpha')))
+    assert.doesNotMatch(view.host.textContent,/alpha activity/)
+    assert.equal(view.host.querySelector('textarea').value,snapshot('beta').configText)
+  }finally{await view?.close();await runtime.dispose()}
+})
+
 test('#83 production registers source route only; direct slug is confined to Playground', async () => {
   const {createTopicPagePlugin}=await vite.ssrLoadModule('/plugins/topic-page/src/index.tsx')
   const {createTopicPageApi}=await vite.ssrLoadModule('/plugins/topic-page/src/service.ts')
-  const registered=[]
-  createTopicPagePlugin().apply({effect: fn=>fn(),
-    reactUI:{registerPage: row=>{registered.push(row.path);return ()=>{}}}})
-  assert.deepEqual(registered,['/topic/:owner/:repo'])
-  const routes=registered.map(path=>({path}))
-  assert.equal(matchRoutes(routes,'/topic/dsh-plugin'),null)
-  assert.equal(matchRoutes(routes,'/topic/sample/repo')?.at(-1)?.route.path,
-    '/topic/:owner/:repo')
+  const runtime=await pluginRuntime(createTopicPagePlugin())
+  try{
+    const registered=runtime.ui.getSnapshot().filter(row=>'path' in row).map(row=>row.path)
+    assert.deepEqual(registered,['/topic/:owner/:repo'])
+    const routes=registered.map(path=>({path}))
+    assert.equal(matchRoutes(routes,'/topic/dsh-plugin'),null)
+    assert.equal(matchRoutes(routes,'/topic/sample/repo')?.at(-1)?.route.path,
+      '/topic/:owner/:repo')
+  }finally{await runtime.dispose()}
   let requests=0
   const api=createTopicPageApi(async()=>{requests++;throw Error('unexpected network')})
   await assert.rejects(api.getProjects({topic:'dsh-plugin'},1,new AbortController().signal),

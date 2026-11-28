@@ -57,5 +57,4 @@ test('real resource routing and explicit Fixture mode preserve API/SPA boundarie
   assert.doesNotMatch(runtime,/Fixture|URLSearchParams/)
   assert.match(single,/createRepoPanelFixtureApi/)
   assert.ok(config.rewrites.slice(1).every(item => item.source.startsWith('/api/')))
-  assert.equal(config.rewrites.length,16)
 })

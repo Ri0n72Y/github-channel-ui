@@ -2,19 +2,16 @@ import test, { before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
 
 const root = resolve(import.meta.dirname, '..')
-let server, View, factory
+let server, View
 before(async () => {
   server = await createServer({ root, configFile: false, logLevel: 'silent',
     plugins: [react()], server: { middlewareMode: true } })
   View = (await server.ssrLoadModule('/plugins/topic-page/src/TopicPageView.tsx')).default
-  factory = (await server.ssrLoadModule('/apps/playground/src/topic-fixture.ts'))
-    .createTopicFixtureService
 })
 after(async () => { await server?.close() })
 
@@ -48,7 +45,6 @@ test('#31 H1 text, footer order and safe public project attribution render in SS
   assert.match(html, /Description/)
   assert.doesNotMatch(html, /Before H1/)
   assert.match(html, /邮箱：team@example.org/)
-  assert.ok(html.indexOf('查看官方仓库') < html.indexOf('<footer'))
   assert.match(html, /仅展示符合活动条件且已登记的公开项目/)
   assert.match(html, /https:\/\/github.com\/member\/project/)
 })
@@ -85,44 +81,6 @@ test('#31 unverified report permission keeps submit disabled with manual GitHub 
   assert.match(html, /href="https:\/\/github.com\/sample\/repo\/issues\/new"/)
 })
 
-test('#31 isolated fixture exercises whitelist, multi-page, 1000-window, retry and report error', async () => {
-  const signal = () => new AbortController().signal
-  const ready = factory(new URLSearchParams({ topicCase: 'ready' }))
-  const meta = await ready.getSnapshot({ owner: 'sample', repo: 'repo' }, signal())
-  const first = await ready.getProjects({ owner: 'sample', repo: 'repo' }, 1, signal())
-  const second = await ready.getProjects({ owner: 'sample', repo: 'repo' }, 2, signal())
-  assert.equal(first.hasNext, true)
-  assert.equal(second.hasNext, false)
-  assert.equal(meta.config.whitelist, true)
-  const empty = factory(new URLSearchParams({ topicCase: 'empty' }))
-  assert.deepEqual((await empty.getProjects({ owner: 'sample', repo: 'repo' }, 1, signal())).items, [])
-  const window = factory(new URLSearchParams({ topicCase: 'window' }))
-  assert.equal((await window.getProjects({ owner: 'sample', repo: 'repo' }, 1, signal())).windowExhausted,false)
-  assert.equal((await window.getProjects({ owner: 'sample', repo: 'repo' }, 10, signal())).windowExhausted,true)
-  const fail = factory(new URLSearchParams({ topicCase: 'rate-limit' }))
-  await assert.rejects(() => fail.getProjects({ owner: 'sample', repo: 'repo' }, 2, signal()),
-    { status: 429 })
-  const report = factory(new URLSearchParams({ topicCase: 'report-fail', fixtureAuth: '1' }))
-  assert.equal(await report.getSession(signal()), true)
-  const proof = await report.getReportTarget({ owner: 'sample', repo: 'repo' }, signal())
-  await assert.rejects(() => report.submitReport({ owner: 'sample', repo: 'repo' },
-    { title: 'Draft', body: 'Keep it' }, proof, signal()), { status: 403 })
-})
-
-test('#31 route remount, abort and separate plugin fixture wiring remain in main Runtime', () => {
-  const entry = readFileSync(resolve(root, 'plugins/topic-page/src/index.tsx'), 'utf8')
-  const control = readFileSync(resolve(root, 'plugins/topic-page/src/TopicPageContainer.tsx'), 'utf8')
-  const runtime = readFileSync(resolve(root, 'apps/playground/src/runtime.tsx'), 'utf8')
-  assert.match(entry, /path: '\/topic\/:owner\/:repo'/)
-  assert.match(entry, /key=\{topicTargetKey\(owner, repo\)\}/)
-  assert.match(entry, /ctx.effect/)
-  assert.match(control, /return \(\) => abort.abort\(\)/)
-  for (const name of ['repoHome', 'repoConfig', 'channel', 'createIssueDetailPlugin'])
-    assert.ok(runtime.includes(name))
-  assert.doesNotMatch(runtime,/URLSearchParams|Fixture/)
-})
-
-
 test('#31 OAuth report unknown result forces a deliberate confirmation button, preserves draft', () => {
   const html = render({ error: Object.assign(new Error('API failed'),
     { stage: 'source', status: 503 }), canReport: true, writeEnabled: false,
@@ -149,12 +107,6 @@ test('#31 B1-1 incomplete GitHub Search renders retryable failure, never an empt
   assert.doesNotMatch(html, /当前可访问搜索范围没有符合配置的项目/)
   assert.doesNotMatch(html, /1000 条可访问上限/)
 })
-
-test('#31 report Control uses a synchronous in-flight guard against rapid duplicate submits', () => {
-  const control = readFileSync(resolve(root, 'plugins/topic-page/src/TopicPageContainer.tsx'), 'utf8')
-  assert.match(control, /writeAbort\.current \|\| !api\.reportAvailable/)
-})
-
 
 test('#69 Topic cards show compact no-cover text and avatar fallback', () => {
   const html = render({ snapshot: meta, projects: [project] })

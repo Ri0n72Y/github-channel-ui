@@ -1891,6 +1891,87 @@ test('Topic project pagination coalesces rapid UI requests and preserves loaded 
  }finally{await app.close()}
 })
 
+test('Member management permission cannot survive logout or a late old capability response',async()=>{
+ const pending=deferred()
+ const calls=[]
+ let phase='initial'
+ const api={getHome:async(o,r,branch)=>({repository:{name:r,full_name:o+'/'+r},branch,
+  team:{state:'ready',members:[{id:'one',name:'Visible member'}]},readme:{state:'missing'}}),
+  getCapability:async(o,r,branch,signal)=>{
+   calls.push({o,r,branch,signal,phase})
+   if(phase==='initial')return pending.promise
+   if(phase==='allowed')return {user:{id:1,login:'operator'},mode:'commit',branch:'main'}
+   throw Object.assign(Error('logged out'),{status:401})
+  }}
+ const app=await mount('/sample/repo/members','/:owner/:repo/members',Members,{api})
+ const link=()=>app.host.querySelector('a[href="/sample/repo/members/register"]')
+ try{
+  assert.match(app.host.textContent,/Visible member/)
+  assert.equal(link(),null)
+  assert.ok(calls.length)
+  phase='allowed'
+  await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
+  await flush()
+  assert.ok(link())
+  phase='logout'
+  await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
+  await flush()
+  assert.equal(link(),null)
+  assert.match(app.host.textContent,/Visible member/)
+  assert.ok(calls.filter(c=>c.phase==='initial').every(c=>c.signal.aborted))
+  pending.resolve({user:{id:1,login:'stale'},mode:'commit',branch:'main'})
+  await flush()
+  assert.equal(link(),null)
+  assert.ok(calls.every(c=>c.o==='sample'&&c.r==='repo'&&c.branch==='main'))
+ }finally{await app.close()}
+})
+
+test('Topic report controller blocks duplicate and unknown POSTs until explicit recheck',async()=>{
+ const Topic=(await server.ssrLoadModule('/plugins/topic-page/src/TopicPageContainer.tsx')).default
+ const pending=deferred()
+ const writes=[]
+ let proofs=0
+ const api={reportAvailable:true,getSession:async()=>true,
+  getSnapshot:async()=>{throw Object.assign(Error('controlled source 503'),{status:503,stage:'source'})},
+  getReportTarget:async route=>{assert.deepEqual(route,{owner:'sample',repo:'repo'});return 'proof-'+(++proofs)},
+  submitReport:async(route,report,proof)=>{
+   writes.push({route,report,proof})
+   if(writes.length===1)return pending.promise
+   return 'https://github.com/sample/repo/issues/71'
+  }}
+ const app=await mount('/topic/sample/repo','/topic/:owner/:repo',Topic,{owner:'sample',repo:'repo',api})
+ const dialog=()=>app.host.querySelector('[role="dialog"]')
+ const button=text=>[...app.host.querySelectorAll('button')].find(b=>b.textContent===text)
+ const submit=()=>dialog().querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))
+ try{
+  await act(async()=>button('编辑问题报告').click());await flush()
+  assert.equal(proofs,1)
+  const title='Edited report',body='Keep this draft'
+  await act(async()=>{input(dialog().querySelector('input'),title);input(dialog().querySelector('textarea'),body)})
+  assert.ok(!dialog().querySelector('button[type="submit"]').disabled)
+  await act(async()=>{submit();submit()})
+  assert.equal(writes.length,1)
+  assert.deepEqual(writes[0],{route:{owner:'sample',repo:'repo'},report:{title,body},proof:'proof-1'})
+  pending.reject(Object.assign(Error('transport unknown'),{status:502,outcomeUnknown:true}))
+  await flush()
+  assert.equal(dialog().querySelector('input').value,title)
+  assert.equal(dialog().querySelector('textarea').value,body)
+  assert.ok(dialog().querySelector('button[type="submit"]').disabled)
+  assert.match(dialog().textContent,/之前的创建结果未知/)
+  await act(async()=>submit())
+  assert.equal(writes.length,1)
+  await act(async()=>button('我已在 GitHub 核查，允许再次提交').click());await flush()
+  assert.equal(proofs,2)
+  assert.equal(writes.length,1)
+  assert.ok(!dialog().querySelector('button[type="submit"]').disabled)
+  await act(async()=>submit());await flush()
+  assert.equal(writes.length,2)
+  assert.deepEqual(writes[1],{...writes[0],proof:'proof-2'})
+  assert.equal(dialog(),null)
+  assert.ok(app.host.querySelector('a[href="https://github.com/sample/repo/issues/71"]'))
+ }finally{await app.close()}
+})
+
 test('Theme toggle changes the mounted UI even when browser storage rejects persistence',async()=>{
  const {ThemeProvider,ThemeToggle}=await server.ssrLoadModule('/plugins/react-ui/src/index.tsx')
  const key='labourchain.theme'

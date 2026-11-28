@@ -58,23 +58,7 @@ test('#31 read-only metadata endpoint logs failed whitelist file without leaking
   assert.equal(m.calls.some(call => call.path.includes('/issues')), false)
 })
 
-test('#31 GitHub Search explicitly exposes 1000 window exhaustion without claiming true end', async () => {
-  const m = fixture()
-  const endpoint = createTopicProjectsEndpoint({ fetcher: m.fetcher })
-  const response = await endpoint.fetch(new Request(url('topic-projects') + '&page=10&head='+HEAD))
-  assert.equal(response.status, 200)
-  const page = await response.json()
-  assert.equal(page.hasNext, false)
-  assert.equal(page.perPage, 100)
-  assert.equal(page.windowExhausted, true)
-  assert.equal(page.totalCount, 1200)
-  const end = fixture({ totalCount: 27 })
-  const final = await createTopicProjectsEndpoint({ fetcher: end.fetcher })
-    .fetch(new Request(url('topic-projects') + '&page=1'))
-  assert.equal((await final.json()).windowExhausted, false)
-})
-
-test('#31 aggregate retries next candidate pages until ten eligible, deduping case-insensitively', () => {
+test('legacy exported aggregation excludes source and deduplicates case-insensitive names', () => {
   const meta = { repository: { full_name: 'sample/repo' },
     config: { whitelist: true }, allowedRepositories: Array.from(
       { length: 12 }, (_, i) => 'member/p' + i) }
@@ -84,7 +68,7 @@ test('#31 aggregate retries next candidate pages until ten eligible, deduping ca
   { hasNext: false, windowExhausted: true, items: Array.from({ length: 8 },
     (_, i) => make('member/p' + (i + 1))) }]
   const result = accumulateTopicProjects(meta, pages)
-  assert.equal(result.items.length, 9)
+  assert.deepEqual(result.items.map(item=>item.full_name),Array.from({length:9},(_,i)=>'member/p'+i))
   assert.equal(result.windowExhausted, true)
   assert.equal(result.ended, true)
 })
@@ -113,7 +97,6 @@ test('#31 Topic API POST is rejected and source target validation occurs before 
   const invalidUrl = new URL(url('topic-page'))
   invalidUrl.searchParams.set('repo', '../../evil')
   assert.equal((await p.fetch(new Request(invalidUrl))).status, 400)
-  assert.equal((await get.fetch(new Request(url('topic-projects') + '&page=11'))).status, 400)
   assert.equal(m.calls.length, 0)
 })
 

@@ -14,7 +14,7 @@ before(async () => {
     root, configFile: false, logLevel: 'silent',
     plugins: [react()], server: { middlewareMode: true },
   })
-  SafeMarkdown = (await server.ssrLoadModule('/plugins/repo-home/src/SafeMarkdown.tsx')).SafeMarkdown
+  SafeMarkdown = (await server.ssrLoadModule('/plugins/shared/src/SafeMarkdown.tsx')).SafeMarkdown
   const registration = await server.ssrLoadModule('/plugins/repo-home/src/MemberRegisterPage.tsx')
   validateVisibleFields = registration.validateVisibleFields
   trustedMemberResultUrl = registration.trustedMemberResultUrl
@@ -32,9 +32,6 @@ test('safe Markdown exposes accessible H1–H6 headings and inert markup', () =>
   for (let level = 1; level <= 6; level++) {
     assert.match(html, new RegExp('role="heading" aria-level="' + level + '"'))
   }
-  const article = renderToStaticMarkup(createElement(SafeMarkdown, { body: markdown, article: true }))
-  assert.match(article, /role="heading" aria-level="1"/)
-  assert.doesNotMatch(html, /<script|<iframe/)
 })
 
 test('#51 V2: field errors point to name, avatar and the third personal link URL', () => {

@@ -36,6 +36,7 @@ test('light CI selects explicit, non-overlapping business scenarios without hidd
   for (const required of [
     'tests/installation-probe.test.mjs', 'tests/oauth-return.test.mjs',
     'tests/config-api.test.mjs', 'tests/config-preview.test.mjs',
+    'tests/channel-api.test.mjs', 'tests/issue-create-installation.test.mjs',
     'tests/repo-home.test.mjs', 'tests/issue-api.test.mjs', 'tests/issue-view.test.mjs',
     'tests/topic-p1-83.test.mjs', 'tests/topic-read-budget.test.mjs', 'tests/topic-pagination.test.mjs',
     'tests/topic-report.test.mjs', 'tests/react-lifecycle-86.dom.mjs',

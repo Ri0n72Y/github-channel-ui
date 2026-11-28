@@ -4,8 +4,6 @@ import { createRepoChannelsHandler } from '../api/_repo-channels.mjs'
 import { IssueAccessError } from '../api/_issue-access.mjs'
 import { selectChannelIssues, channelTargetKey } from '../plugins/channel/src/domain.mjs'
 import { parseConfigNamespaces } from '../plugins/repo-config/src/domain.mjs'
-import { validIssueForPage, summarizeIssueComments } from '../plugins/issue-detail/src/domain.mjs'
-import { loadIssueContent } from '../plugins/issue-detail/src/load-issue.mjs'
 
 const HEAD = 'a'.repeat(40)
 const CONFIG_SHA = 'b'.repeat(40)
@@ -103,8 +101,6 @@ test('#28 duplicate Issue and ambiguous creation metadata fail closed', () => {
     [item(1, ['channel:discussion']), item(1, ['channel:discussion'])]), /Duplicate/)
   assert.throws(() => selectChannelIssues(config,
     [item(1, ['channel:discussion'], { createdAt: 'invalid' })]), /metadata/)
-  assert.equal(validIssueForPage(item(10, [], { state: 'closed' })), true)
-  assert.equal(validIssueForPage(item(11, ['channel:discussion'], { pr: true })), false)
 })
 
 test('#28 public API reads only main Config and complete Open Issue pagination', async () => {
@@ -185,32 +181,4 @@ test('#28 API preserves 429/permission failures, blocks POST and non-main branch
 test('#28 Channel identity isolates A/B routes without ambiguous slash keys', () => {
   assert.notEqual(channelTargetKey('octocat', 'a'), channelTargetKey('octocat', 'b'))
   assert.notEqual(channelTargetKey('a/b', 'c'), channelTargetKey('a', 'b/c'))
-  assert.equal(channelTargetKey('octocat', 'a'), channelTargetKey('octocat', 'a'))
-})
-
-test('#28 Channel Labour summary uses the selected Issue only, same existing Issue parser', async () => {
-  const labour = hours => '\`\`\`yaml\nlabour:\n  work: 实现频道\n  hr: ~' + hours + 'h\n\`\`\`'
-  const service = {
-    async getIssue(_owner, _repo, number) {
-      assert.equal(number, 12)
-      return item(12, ['channel:discussion'])
-    },
-    async getComments(_owner, _repo, number, page) {
-      assert.equal(number, 12)
-      assert.equal(page, 1)
-      return { items: [
-        { id: 1, body: labour(1.5) },
-        { id: 2, body: '普通讨论' },
-        { id: 3, body: labour(0.5) },
-      ], hasMore: false }
-    },
-  }
-  const loaded = await loadIssueContent(service, 'octocat', 'demo', 12, new AbortController().signal)
-  const sum = summarizeIssueComments(loaded.first.items, !loaded.first.hasMore)
-  assert.equal(sum.hours, 2)
-  assert.equal(sum.records.length, 2)
-  assert.equal(sum.discussion.length, 1)
-  assert.equal(sum.complete, true)
-  // Unrelated Issue comments are not passed to loadIssueContent or the summary.
-  assert.equal(loaded.issue.number, 12)
 })

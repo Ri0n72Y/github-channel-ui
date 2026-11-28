@@ -8,7 +8,7 @@ import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
 
 const root = resolve(import.meta.dirname, '..')
-let vite, Home, fixture, SafeMarkdown
+let vite, Home, fixture
 
 before(async () => {
   vite = await createServer({ root, configFile: false, logLevel: 'silent',
@@ -16,7 +16,6 @@ before(async () => {
   Home = (await vite.ssrLoadModule('/plugins/repo-home/src/RepoHomePage.tsx')).default
   fixture = (await vite.ssrLoadModule('/apps/playground/src/repo-fixture.ts'))
     .createRepoFixtureService
-  SafeMarkdown = (await vite.ssrLoadModule('/plugins/repo-home/src/SafeMarkdown.tsx')).SafeMarkdown
 })
 after(async () => { await vite?.close() })
 
@@ -39,35 +38,6 @@ test('Repo Home SSR uses the supplied theme without inventing a default', () => 
   }
   const noTheme = renderHome(undefined)
   assert.doesNotMatch(noTheme, /data-lc-theme=/)
-})
-
-test('#67 fixture theme parameters never change GitHub data or issue ordering', async () => {
-  const signal = new AbortController().signal
-  const q = name => new URLSearchParams({
-    repoFixture: '1', repoTheme: name, fixtureCase: 'description', fixtureCount: '2',
-  })
-  const dark = fixture(q('dark')), light = fixture(q('light'))
-  assert.deepEqual(await dark.getHome('sample','repo','main',signal),
-    await light.getHome('sample','repo','main',signal))
-  const a = await dark.getFeed('sample','repo',1,signal)
-  const b = await light.getFeed('sample','repo',1,signal)
-  assert.deepEqual(a,b)
-  assert.deepEqual(a.items.map(x => x.state), ['open','closed'])
-  assert.ok(a.items.every(x => !x.pull_request))
-})
-
-test('Markdown renders complete content in source order without executable markup', () => {
-  const body = '# Real heading\n\nbody [link](https://github.com)\n\n' +
-    '```js\nconst x=1\n```\n\n' +
-    '![image](https://example.com/p.png)\n\n@[video](https://example.com/v)'
-  const html = renderToStaticMarkup(createElement(SafeMarkdown, { body, article: true }))
-  for(const label of ['Real heading','body','const x=1','查看图片来源','打开视频']) {
-    assert.ok(html.includes(label))
-  }
-  const indexes = ['Real heading','body','const x=1','查看图片来源','打开视频']
-    .map(label => html.indexOf(label))
-  assert.deepEqual(indexes,[...indexes].sort((a,b) => a-b))
-  assert.doesNotMatch(html, /<iframe|<script/)
 })
 
 test('Repo title cover accepts only trusted immutable repository image URLs',async()=>{
