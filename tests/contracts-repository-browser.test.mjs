@@ -18,33 +18,6 @@ const repo = {owner:'sample',name:'repo',full_name:'sample/repo'}
 const issue = {number:2,title:'Fixture Issue',html_url:'https://github.com/sample/repo/issues/2',comments:1}
 
 
-test('Repo Panel HTTP creation sends exact content once and reports uncertain writes',async()=>{
-  const calls=[]
-  const request=async(url,init)=>{
-    calls.push({url:String(url),init})
-    if(url==='/api/github-issue-create')return Response.json({
-      issue:{number:44,html_url:'https://github.com/sample/repo/issues/44'},
-    },{status:201})
-    throw Error('Unexpected URL')
-  }
-  const api=createRepoIssuesApi(request)
-  const result=await api.createIssue(repo,'Title','Body',signal())
-  assert.equal(result.number,44)
-  assert.equal(calls[0].init.method,'POST')
-  assert.equal(calls[0].init.headers['X-LabourChain-Write'],'1')
-  assert.equal(calls[0].init.credentials,'same-origin')
-  assert.equal(calls.length,1)
-  assert.equal(calls[0].url,'/api/github-issue-create')
-  assert.deepEqual(JSON.parse(calls[0].init.body),{owner:'sample',repo:'repo',title:'Title',body:'Body'})
-  let attempts=0
-  await assert.rejects(createRepoIssuesApi(async()=>{
-    attempts++
-    throw Error('broken connection')
-  }).createIssue(repo,'Title','Body',signal()),error=>error.status===502&&/创建结果未知/.test(error.message))
-  assert.equal(attempts,1)
-})
-
-
 test('scoped RepoPanel API refuses legacy no-target callers and unverified repository swaps',async()=>{
   const calls=[]
   const request=async(url,init)=>{

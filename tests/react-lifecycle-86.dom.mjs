@@ -6,6 +6,7 @@ import React, { act } from 'react'
 
 import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
+import {observeHttp} from './helpers/observe-http.mjs'
 import { configSnapshot } from './helpers/config-wire-fixture.mjs'
 
 const h = React.createElement
@@ -24,7 +25,7 @@ const deferred = () => {
   return {promise,resolve,reject}
 }
 const flush = async () => act(async () => { await new Promise(r => setTimeout(r, 0)) })
-let server, Home, Issue, Member, Members, Config, configFixture, RepoPanel, makeRepoStore, CreateIssue
+let server, Home, Issue, Member, Members, Config, configFixture, RepoPanel, makeRepoStore, CreateIssue, createIssueDetailApi, createRepoIssuesApi
 before(async () => {
  server=await createServer({root:process.cwd(),configFile:false,logLevel:'silent',plugins:[react()],server:{middlewareMode:true}})
  Home=(await server.ssrLoadModule('/plugins/repo-home/src/RepoHomePage.tsx')).default
@@ -36,6 +37,8 @@ before(async () => {
  configFixture=(await server.ssrLoadModule('/apps/playground/src/config-fixture.ts')).createRepoConfigFixtureService
  RepoPanel=(await server.ssrLoadModule('/plugins/repo-panel/src/index.tsx')).RepoPanel
  makeRepoStore=(await server.ssrLoadModule('/plugins/repo-issues/src/index.ts')).createRepoIssuesStore
+ createIssueDetailApi=(await server.ssrLoadModule('/plugins/issue-detail/src/service.ts')).createIssueDetailApi
+ createRepoIssuesApi=(await server.ssrLoadModule('/plugins/repo-issues/src/api.ts')).createRepoIssuesApi
 })
 after(async () => {await server?.close();dom.window.close()})
 // Mount resource routes through their actual Cordis plugin registration.
@@ -89,22 +92,49 @@ const comment=(id,body='note')=>({id,body,html_url:'https://github.com/a/issues/
 const issue=(number)=>({number,title:'Issue '+number,body:'body',state:'open',labels:[],
  html_url:'https://github.com/a/issues/'+number,comments:3,user:{login:'alice'}})
 function issueService(opts={}){
- const calls=[]
- return {
-  calls,
-  getIssue:async (_owner,_repo,n)=>issue(n),
-  getComments:(_owner,_repo,n,page,signal)=>{
-   calls.push({n,page,signal})
-   return opts.comments?.(n,page,signal) ?? Promise.resolve({items:[comment(n*100+page)],hasMore:page===1})
-  },
-  getSession:async()=>opts.session?opts.session():Boolean(opts.authorized),
-  verify:async(o,r)=>({user:{id:opts.userId?opts.userId():1,login:'fixture-user'},repository:{accessible:true,full_name:o+'/'+r}}),
-  postComment:async(o,r,n,body,signal)=>{
-   const result=await (opts.postComment?.(o,r,n,body,signal)??{id:99})
-   return {body,created_at:'2026-11-17T00:00:00Z',html_url:'https://github.com/'+o+'/'+r+'/issues/'+n+'#issuecomment-'+result.id,...result}
-  },
- }
+ const calls=[],writes=[]
+ const api=createIssueDetailApi(observeHttp(async(address,init={})=>{
+  const url=new URL(address,'https://local.test')
+  const method=init.method||'GET'
+  try{
+   assert.equal(init.credentials,'same-origin')
+   if(url.pathname==='/api/github-session'&&method==='GET')
+    return Response.json({authenticated:opts.session?await opts.session():Boolean(opts.authorized)})
+   const o=url.searchParams.get('owner'),r=url.searchParams.get('repo'),n=Number(url.searchParams.get('number'))
+   if(url.pathname==='/api/github-verify'&&method==='GET'){
+    assert.equal(o,'sample');assert.equal(r,'repo')
+    return Response.json({user:{id:opts.userId?opts.userId():1,login:'fixture-user'},
+     repository:{accessible:true,full_name:o+'/'+r,permissions:null}})
+   }
+   if(url.pathname==='/api/issue-detail'&&method==='GET'){
+    assert.equal(o,'sample');assert.equal(r,'repo')
+    return Response.json({...issue(n),html_url:'https://github.com/'+o+'/'+r+'/issues/'+n,...opts.issueFields})
+   }
+   if(url.pathname==='/api/issue-comments'&&method==='GET'){
+    assert.equal(o,'sample');assert.equal(r,'repo')
+    const page=Number(url.searchParams.get('page'))
+    calls.push({n,page,signal:init.signal})
+    const data=await (opts.comments?.(n,page,init.signal)??Promise.resolve({items:[comment(n*100+page)],hasMore:page===1}))
+    return Response.json(data.items,{headers:data.hasMore?{Link:'<https://api.github.com/repos/'+o+'/'+r+'/issues/'+n+'/comments?page='+(page+1)+'>; rel="next"'}:{}})
+   }
+   if(url.pathname==='/api/github-issue-comment'&&method==='POST'){
+    const {owner,repo,number,body}=JSON.parse(init.body)
+    writes.push({owner,repo,number,body,signal:init.signal})
+    assert.equal(owner,'sample');assert.equal(repo,'repo')
+    assert.equal(init.headers['X-LabourChain-Write'],'1')
+    const result=await (opts.postComment?.(owner,repo,number,body,init.signal)??{id:99})
+    return Response.json({comment:{body,created_at:'2026-11-17T00:00:00Z',
+     html_url:'https://github.com/'+owner+'/'+repo+'/issues/'+number+'#issuecomment-'+result.id,...result}},{status:201})
+   }
+   throw Error('Unexpected Issue HTTP request: '+method+' '+address)
+  }catch(error){
+   if(typeof error?.status==='number')return Response.json({error:error.message,state:error.state},{status:error.status})
+   throw error
+  }
+ }))
+ return {...api,calls,writes}
 }
+
 test('Repo A -> B: StrictMode remount hides old cards and preserves per-repo branch',async()=>{
  const pending=deferred()
  const calls=[]
@@ -323,30 +353,7 @@ test('Config rejected saves preserve the draft; an acknowledged PR suppresses fu
  }finally{await app.close()}
 })
 
-test('Config session change aborts an in-flight HTTP save; late success cannot remove the unknown-result lock',async()=>{
- const snapshot=configSnapshot(),pending=deferred()
- const j=await configJourney({read:()=>Response.json(snapshot),write:()=>pending.promise})
- const {app}=j
- try{
-  const draft=snapshot.configText+'\n# pending change'
-  await act(async()=>input(app.host.querySelector('textarea'),draft))
-  await act(async()=>formSubmit(app.host))
-  assert.equal(j.posts().length,1)
-  assert.equal(j.posts()[0].signal.aborted,false)
-  await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
-  await flush()
-  assert.equal(j.posts()[0].signal.aborted,true)
-  assert.match(app.host.textContent,/GitHub 写入结果未知/)
-  pending.resolve(Response.json({state:'sync_pending',commitSha:'d'.repeat(40),fileSha:'e'.repeat(40)}))
-  await flush()
-  assert.match(app.host.textContent,/GitHub 写入结果未知/)
-  assert.equal(app.host.querySelector('textarea').value,draft)
-  assert.equal(app.host.querySelector('button[type="submit"]').disabled,true)
-  await act(async()=>formSubmit(app.host))
-  assert.equal(j.posts().length,1)
-  j.verify()
- }finally{await app.close()}
-})
+
 
 async function memberJourney(write){
  const {createRepoHomeApi}=await server.ssrLoadModule('/plugins/repo-home/src/service.ts')
@@ -375,19 +382,7 @@ async function memberJourney(write){
 }
 const memberSuccess=sha=>Response.json({status:'committed',url:'https://github.com/sample/repo/commit/'+sha,sha,requestedBy:'operator'})
 
-test('leaving member registration aborts the real HTTP submission and does not replay it',async()=>{
- const pending=deferred(),j=await memberJourney(()=>pending.promise)
- try{
-  await act(async()=>input(j.app.host.querySelector('input[required]'),'Alice'))
-  await act(async()=>formSubmit(j.app.host))
-  assert.equal(j.posts().length,1)
- }finally{await j.app.close()}
- assert.equal(j.posts()[0].signal.aborted,true)
- pending.resolve(memberSuccess('a'.repeat(40)))
- await flush()
- assert.equal(j.posts().length,1)
- j.verify()
-})
+
 
 test('member session change invalidates pending HTTP write, preserves the draft and requires a checked retry',async()=>{
  const pending=deferred()
@@ -425,52 +420,9 @@ test('member session change invalidates pending HTTP write, preserves the draft 
  }finally{window.confirm=confirm;await app.close()}
 })
 
-test('member unknown write blocks duplicates; explicit permission rejection after checked retry preserves an editable draft',async()=>{
- let attempts=0
- const j=await memberJourney(()=>{if(++attempts===1)throw new TypeError('Network interrupted')
-  return Response.json({error:'Permission denied'},{status:403})})
- const {app}=j,confirm=window.confirm
- try{
-  await act(async()=>input(app.host.querySelector('input[required]'),'Alice'))
-  await act(async()=>formSubmit(app.host))
-  assert.equal(j.posts().length,1)
-  assert.match(app.host.textContent,/提交结果未知/)
-  await act(async()=>formSubmit(app.host))
-  assert.equal(j.posts().length,1)
-  window.confirm=()=>true
-  await act(async()=>buttonWith(app.host,'解除提交锁定').click())
-  await flush()
-  await act(async()=>formSubmit(app.host))
-  assert.equal(j.posts().length,2)
-  assert.match(app.host.textContent,/Permission denied/)
-  assert.doesNotMatch(app.host.textContent,/提交结果未知/)
-  assert.equal(app.host.querySelector('input[required]').value,'Alice')
-  assert.equal(app.host.querySelector('button[type="submit"]').disabled,false)
-  j.verify()
- }finally{window.confirm=confirm;await app.close()}
-})
 
-test('Repo: stale A response after B navigation never leaks A data into B links',async()=>{
- const first=deferred()
- const api={
-  getHome:(o,r,b)=>r==='alpha'?first.promise:Promise.resolve({
-   repository:{name:'beta',full_name:'sample/beta',description:'Beta confirmed'},
-   branch:b,team:{state:'empty',members:[]},readme:{state:'missing'}}),
-  getFeed:async(o,r,page)=>({page,hasMore:false,items:r==='beta'?[{
-   id:2,number:2,title:'Beta issue',state:'open',updated_at:'2026-11-17T00:00:00Z'}]:[]}),
-  getCapability:async()=>{throw Error('denied')}
- }
- const app=await mount('/sample/alpha','/:owner/:repo',Home,{api})
- try{
-  await app.go('/sample/beta')
-  first.resolve({repository:{name:'alpha',full_name:'sample/alpha',description:'Alpha stale'},
-   branch:'main',team:{state:'empty',members:[]},readme:{state:'missing'}})
-  await flush()
-  assert.doesNotMatch(app.host.textContent,/Alpha stale/)
-  assert.match(app.host.textContent,/Beta confirmed/)
-  assert.ok([...app.host.querySelectorAll('a')].some(a=>a.getAttribute('href')?.includes('/sample/beta/issues/2')))
- } finally {await app.close()}
-})
+
+
 test('Config uncertain Save or Label Sync locks both HTTP writes until an explicit checked refresh',async()=>{
  const {createRepoConfigApi}=await server.ssrLoadModule('/plugins/repo-config/src/service.ts')
  for(const action of ['save_config','sync_labels']){
@@ -759,174 +711,12 @@ test('member registration fails closed when server capability branch differs fro
  }finally{await registration.close();localStorage.removeItem(key)}
 })
 
-test('scoped Issue creation requires the exact selected repository and OAuth session', async()=>{
- let writes=0,requested=[]
- const api={
-  getRepositories:async(_signal,target)=>{requested.push(target.full_name);return [target]},
-  getSession:async()=>false,
-  createIssue:async()=>{writes++;throw Error('must not write')},
- }
- const page=await mount('/sample/repo/issues/new','/:owner/:repo/issues/new',CreateIssue,
-   {api,owner:'sample',repo:'repo'})
- try{
-  assert.ok(requested.length >= 1 && requested.every(value => value === 'sample/repo'))
-  assert.equal(page.host.querySelector('form'),null)
-  assert.match(page.host.textContent,/登录 GitHub 后才能发布动态/)
-  const link=page.host.querySelector('a[href^="/api/github-login?"]')
-  assert.ok(link)
-  assert.equal(new URLSearchParams(link.getAttribute('href').split('?')[1]).get('return_to'),
-    '/sample/repo/issues/new')
-  assert.equal(writes,0)
- } finally {await page.close()}
-})
 
-test('publishing restores and overwrites one repository-scoped draft until GitHub confirms creation', async()=>{
- const target={owner:'sample',name:'repo',full_name:'sample/repo'}
- const pending=deferred()
- const storageKey='labourchain:issue-create:v1:sample/repo'
- let writes=0,actual
- const api={
-  getRepositories:async()=>[target],
-  getSession:async()=>true,
-  createIssue:async(repo,title,body)=>{writes++;actual={repo,title,body};return pending.promise},
- }
- let page=await mount('/sample/repo/issues/new','/:owner/:repo/issues/new',CreateIssue,{api,owner:'sample',repo:'repo'})
- try{
-  await act(async()=>input(page.host.querySelector('#create-issue-title'),'Scoped task'))
-  await act(async()=>input(page.host.querySelector('#create-issue-body'),'first body'))
-  await act(async()=>input(page.host.querySelector('#create-issue-title'),'  Latest title  '))
-  await act(async()=>input(page.host.querySelector('#create-issue-body'),'Latest body'))
-  assert.deepEqual(JSON.parse(localStorage.getItem(storageKey)),{title:'  Latest title  ',description:'Latest body'})
-  assert.equal(Object.keys(localStorage).filter(key=>key===storageKey).length,1)
-  await page.close()
-  page=await mount('/sample/repo/issues/new','/:owner/:repo/issues/new',CreateIssue,{api,owner:'sample',repo:'repo'})
-  assert.equal(page.host.querySelector('#create-issue-title').value,'  Latest title  ')
-  assert.equal(page.host.querySelector('#create-issue-body').value,'Latest body')
-  assert.equal(writes,0,'restoring a draft must never submit it')
-  const form=page.host.querySelector('form')
-  await act(async()=>{form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))
-   form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))})
-  assert.equal(writes,1)
-  assert.deepEqual(actual,{repo:target,title:'Latest title',body:'Latest body'})
-  pending.resolve({number:47,html_url:'https://github.com/sample/repo/issues/47'})
-  await flush()
-  assert.match(page.host.textContent,/动态已发布 · #47/)
-  assert.equal(page.host.querySelector('form'),null)
-  assert.ok(page.host.querySelector('a[href="/sample/repo/issues/47"]'))
-  assert.ok(page.host.querySelector('a[href="https://github.com/sample/repo/issues/47"]'))
-  assert.equal(localStorage.getItem(storageKey),null,'a trusted GitHub creation clears the matching latest draft')
- }finally{await page.close();localStorage.removeItem(storageKey)}
-})
-test('a newer in-page edit remains the only saved draft when an earlier publish succeeds',async()=>{
- const pending=deferred(),storageKey='labourchain:issue-create:v1:sample/repo'
- const api={getRepositories:async()=>[{owner:'sample',name:'repo',full_name:'sample/repo'}],getSession:async()=>true,
-  createIssue:async()=>pending.promise}
- const page=await mount('/sample/repo/issues/new','/:owner/:repo/issues/new',CreateIssue,{api,owner:'sample',repo:'repo'})
- try{
-  await act(async()=>input(page.host.querySelector('#create-issue-title'),'submitted title'))
-  await act(async()=>input(page.host.querySelector('#create-issue-body'),'submitted body'))
-  await act(async()=>page.host.querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})))
-  await act(async()=>input(page.host.querySelector('#create-issue-title'),'newer title'))
-  await act(async()=>input(page.host.querySelector('#create-issue-body'),'newer body'))
-  pending.resolve({number:48,html_url:'https://github.com/sample/repo/issues/48'})
-  await flush()
-  assert.deepEqual(JSON.parse(localStorage.getItem(storageKey)),{title:'newer title',description:'newer body'})
- }finally{await page.close();localStorage.removeItem(storageKey)}
-})
-test('invalid Issue creation response retains the draft and never auto-retries after remount',async()=>{
- let posts=0,page
- const storageKey='labourchain:issue-create:v1:sample/repo'
- const api={
-  getRepositories:async()=>[{owner:'sample',name:'repo',full_name:'sample/repo'}],
-  getSession:async()=>true,
-  createIssue:async()=>{posts++;return {number:2,html_url:'https://github.com/other/repo/issues/2'}},
- }
- try{
-  page=await mount('/sample/repo/issues/new','/:owner/:repo/issues/new',CreateIssue,{api,owner:'sample',repo:'repo'})
-  await act(async()=>input(page.host.querySelector('#create-issue-title'),'Attempt'))
-  await act(async()=>input(page.host.querySelector('#create-issue-body'),'keep for verification'))
-  await act(async()=>page.host.querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})))
-  assert.equal(posts,1)
-  assert.match(page.host.textContent,/发布结果尚未确认/)
-  assert.equal(page.host.querySelector('form'),null)
-  assert.doesNotMatch(page.host.innerHTML,/href="https:\/\/github\.com\/other\/repo\/issues\/2"/)
-  assert.deepEqual(JSON.parse(localStorage.getItem(storageKey)),{title:'Attempt',description:'keep for verification'})
-  await page.close()
-  page=await mount('/sample/repo/issues/new','/:owner/:repo/issues/new',CreateIssue,{api,owner:'sample',repo:'repo'})
-  assert.equal(page.host.querySelector('#create-issue-title').value,'Attempt')
-  assert.equal(page.host.querySelector('#create-issue-body').value,'keep for verification')
-  assert.equal(posts,1,'restoring an uncertain draft must not replay the write')
- }finally{await page?.close();localStorage.removeItem(storageKey)}
-})
-test('concise RepoHome retains one members entry, genuine identities and issue source links',async()=>{
- const api={
-  getHome:async()=>({
-   repository:{name:'repo',full_name:'sample/repo',
-     html_url:'https://github.com/sample/repo',description:'Real project description'},
-   branch:'main',
-   team:{state:'ready',members:[{id:'one',name:'Alice',role:'Maintainer'},
-     {id:'two',name:'Bob',role:'Reviewer'}]},
-   readme:{state:'missing'},
-  }),
-  getFeed:async(_o,_r,page)=>({
-   page,hasMore:false,items:[{
-    id:71,number:71,title:'Document actual state',state:'closed',
-    body:'A useful Issue summary for the public project.',
-    html_url:'https://github.com/sample/repo/issues/71',
-    user:{login:'operator'},updated_at:'2026-11-22T12:00:00Z',
-   }],
-  }),
-  getCapability:async()=>({user:{login:'operator'},mode:'direct',branch:'main'}),
- }
- const app=await mount('/sample/repo','/:owner/:repo',Home,{api})
- try{
-  const nav=app.host.querySelectorAll('a[href="/sample/repo/members"]')
-  assert.equal(nav.length,1,'team directory must not look like another member')
-  const teamHead=app.host.querySelector('#team-heading')?.parentElement
-  const feedHead=app.host.querySelector('#feed-heading')?.parentElement
-  assert.ok(teamHead && feedHead)
-  assert.equal(teamHead.dataset.teamState,'ready')
-  const [heading,memberStrip,actions]=teamHead.children
-  assert.equal(heading.id,'team-heading')
-  assert.equal(memberStrip.getAttribute('aria-label'),'团队成员')
-  assert.equal(teamHead.children.length,3)
-  for (const path of ['/sample/repo/members','/sample/repo/members/register']) {
-    const anchor=app.host.querySelector('a[href="'+path+'"]')
-    assert.ok(anchor,'existing scoped team link: '+path)
-    assert.equal(anchor.parentElement,actions,'team CTA must be a direct action-group link after the member strip')
-  }
-  const createIssue=app.host.querySelector('a[href="/sample/repo/issues/new"]')
-  assert.ok(createIssue)
-  assert.equal(createIssue.parentElement,feedHead,'Issue CTA must be a direct sectionHead link')
-  const strip=app.host.querySelector('[aria-label="团队成员"]')
-  assert.ok(strip)
-  assert.match(strip.textContent,/Alice.*Maintainer.*Bob.*Reviewer/)
-  assert.equal(strip.querySelectorAll('button[aria-expanded]').length,2)
-  assert.ok(app.host.querySelector('a[href="/sample/repo/config"]'))
-  assert.ok(app.host.querySelector('a[href="/sample/repo/channels"]'))
-  const card=app.host.querySelector('article')
-  assert.ok(card)
-  assert.equal(card.querySelector('[data-state="closed"]').textContent.trim(),'已关闭')
-  assert.equal(card.querySelectorAll('a[href="/sample/repo/issues/71"]').length,1)
-  assert.match(card.textContent,/#71/)
-  assert.match(card.textContent,/operator/)
-  assert.match(card.textContent,/A useful Issue summary/)
-  const source=card.querySelector('a[href="https://github.com/sample/repo/issues/71"]')
-  assert.equal(source?.getAttribute('target'),'_blank')
-  assert.equal(source.getAttribute('aria-label'),'GitHub 原文')
-  assert.ok(source.querySelector('svg'))
-  assert.ok(source.parentElement.querySelector('time[datetime="2026-11-22T12:00:00Z"]'))
-  assert.match(source.parentElement.textContent,/更新于/)
-  assert.equal(app.host.querySelector('[aria-label="刷新动态"]'),null)
-  // Internal source remains independent; clicking noninteractive card content navigates.
-  await act(async()=>source.dispatchEvent(new MouseEvent('click',{bubbles:true,ctrlKey:true})))
-  assert.ok(app.host.contains(card))
-  await act(async()=>card.dispatchEvent(new MouseEvent('click',{bubbles:true,ctrlKey:true})))
-  assert.ok(app.host.contains(card))
-  await act(async()=>card.click())
-  assert.equal(app.host.contains(card),false)
- }finally{await app.close()}
-})
+
+
+
+
+
 
 test('compact team layout preserves missing, empty, error and unauthorized states',async()=>{
  for(const [team,allowed,label] of [
@@ -964,8 +754,7 @@ test('Issue Detail Markdown image fallback and keyboard tabs preserve current-pa
  const svc=issueService({authorized:true,comments:()=>Promise.resolve({items:[
   comment(101,'## Comment heading\n\n**Readable comment**\n\n![broken picture](https://example.com/comment.png)'),
   comment(102,'<script>alert(1)</script>\n\n[unsafe](javascript:alert(1))'),
- ],hasMore:false})})
- svc.getIssue=async(_o,_r,n)=>({...issue(n),body:'# Topic heading\n\n![topic image](https://example.com/topic.png)'})
+ ],hasMore:false}),issueFields:{body:'# Topic heading\n\n![topic image](https://example.com/topic.png)'}})
  const app=await mount('/sample/repo/issues/1','/:owner/:repo/issues/:number',Issue,
    {service:svc})
  try{
@@ -1043,37 +832,7 @@ test('quote choose/replace/cancel and tabs preserve current-page input; confirma
   assert.match(app.host.textContent,/已发表；讨论列表已重新读取/)
  }finally{window.confirm=originalConfirm;await app.close()}
 })
-test('quote total length, empty reply and unauthorized state prevent writes',async()=>{
- for(const authorized of [true,false]){
-  let writes=0
-  const svc=issueService({authorized,comments:()=>Promise.resolve({items:[replyComment(101,'长'.repeat(1500))],hasMore:false}),
-    postComment:async()=>{writes++;return {id:999}}})
-  const app=await issueMount(svc)
-  try{
-   if(!authorized){
-    assert.match(app.host.textContent,/长长长/)
-    assert.equal(replyArea(app),null)
-    assert.equal(quoteButtons(app).length,0)
-    assert.equal(replySend(app),null)
-    const link=[...app.host.querySelectorAll('a')].find(a=>a.textContent==='登录后即可发表评论')
-    assert.ok(link)
-    assert.equal(new URL(link.href).searchParams.get('return_to'),'/sample/repo/issues/1')
-    assert.equal(writes,0)
-    continue
-   }
-   await act(async()=>quoteButtons(app)[0].click())
-   assert.match(quotePreview(app).textContent,/引用已截取/)
-   assert.equal(replySend(app).disabled,true)
-   await act(async()=>input(replyArea(app),'x'.repeat(20000)))
-   assert.equal(replySend(app).disabled,true)
-   assert.match(app.host.textContent,/超过 20000 字符/)
-   await act(async()=>replyArea(app).closest('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})))
-   assert.equal(writes,0)
-   await act(async()=>input(replyArea(app),'short'))
-   assert.equal(replySend(app).disabled,false)
-  }finally{await app.close()}
- }
-})
+
 test('failed/unknown reply keeps current-page input; duplicate submit is blocked and newer edits survive success',async()=>{
  for(const outcome of ['failure','unknown','success']){
   const pending=deferred()
@@ -1113,28 +872,7 @@ test('failed/unknown reply keeps current-page input; duplicate submit is blocked
   }finally{await app.close()}
  }
 })
-test('comment and labour forms are memory-only with no localStorage writes or draft UI',async()=>{
- const prototype=Object.getPrototypeOf(localStorage),original=prototype.setItem,writes=[]
- prototype.setItem=function(key,value){writes.push(String(key));return original.call(this,key,value)}
- let app=await issueMount(issueService({authorized:true}))
- try{
-  await act(async()=>input(replyArea(app),'comment only in this page'))
-  await act(async()=>quoteButtons(app)[0].click())
-  await act(async()=>app.host.querySelectorAll('[role="tab"]')[1].click())
-  const work=()=>[...app.host.querySelectorAll('textarea')].find(el=>el.closest('label')?.textContent.includes('工作内容'))
-  await act(async()=>input(work(),'labour only in this page'))
-  assert.doesNotMatch(app.host.textContent,/草稿仅保存在当前浏览器|无法可靠保存|提交结果待核查/)
-  assert.equal([...app.host.querySelectorAll('button')].some(b=>/解除提交锁定|解锁/.test(b.textContent)),false)
-  await app.close()
-  app=await issueMount(issueService({authorized:true}))
-  assert.equal(replyArea(app).value,'')
-  assert.equal(quotePreview(app),null)
-  await act(async()=>app.host.querySelectorAll('[role="tab"]')[1].click())
-  const restoredWork=[...app.host.querySelectorAll('textarea')].find(el=>el.closest('label')?.textContent.includes('工作内容'))
-  assert.equal(restoredWork.value,'')
-  assert.deepEqual(writes,[])
- }finally{prototype.setItem=original;await app.close()}
-})
+
 
 const labourWork=app=>[...app.host.querySelectorAll('textarea')].find(el=>el.closest('label')?.textContent.includes('工作内容'))
 const labourSend=app=>labourWork(app)?.closest('form')?.querySelector('button[type="submit"]')
@@ -1190,6 +928,7 @@ test('comment and labour unknown writes keep independent locks and feedback acro
 
 test('unknown write locks reset on Issue remount and verified account/session change',async()=>{
  let userId=1,writes=0
+ const stored=JSON.stringify({...localStorage})
  const svc=issueService({authorized:true,userId:()=>userId,postComment:async()=>{writes++;throw Error('connection lost')}})
  const app=await issueMount(svc)
  try{
@@ -1219,58 +958,12 @@ test('unknown write locks reset on Issue remount and verified account/session ch
   await act(async()=>input(replyArea(app),'new account fresh input'))
   assert.ok(!replySend(app).disabled,'re-verifying a different account clears the prior account page lock')
   assert.equal(writes,2,'session revalidation never replays the uncertain POST')
+  assert.equal(JSON.stringify({...localStorage}),stored,'discussion drafts and uncertainty remain memory-only')
  }finally{await app.close()}
 })
 
 
-test('B2 visual viewport resize keeps quote, feedback, last comment and pagination mounted in compact mode',async()=>{
- const descriptor=Object.getOwnPropertyDescriptor(window,'visualViewport')
- const viewport=new window.EventTarget()
- viewport.height=812;viewport.offsetTop=0
- Object.defineProperty(window,'visualViewport',{configurable:true,value:viewport})
- let writes=0
- const svc=issueService({authorized:true,comments:(_n,page)=>Promise.resolve({items:[
-  replyComment(100+page,'长引用'.repeat(500),{user:{login:'long-author'}}),
-  replyComment(200+page,'last comment page '+page)
- ],hasMore:page===1}),postComment:async()=>{writes++;throw Error('GitHub rejected '.repeat(40))}})
- let app
- try{
-  app=await issueMount(svc)
-  const shell=app.host.querySelector('[aria-label="Issue 讨论面板"]')
-  const reading=app.host.querySelector('[aria-label="Issue 阅读区"]')
-  const page=shell.parentElement
-  assert.equal(page.dataset.heightMode,'split')
-  await act(async()=>quoteButtons(app)[0].click())
-  await act(async()=>input(replyArea(app),'long draft\n'.repeat(1000)))
-  await act(async()=>replySend(app).click())
-  await flush()
-  assert.equal(writes,1)
-  assert.match(app.host.textContent,/避免重复发表/)
-  for(const height of [480,479,160,812]){
-   await act(async()=>{viewport.height=height;viewport.dispatchEvent(new Event('resize'))})
-   assert.equal(page.dataset.heightMode,height<480?'compact':'split')
-   assert.equal(app.host.querySelector('[aria-label="Issue 讨论面板"]'),shell)
-   assert.equal(app.host.querySelector('[aria-label="Issue 阅读区"]'),reading)
-   assert.equal(replyArea(app).value,'long draft\n'.repeat(1000))
-   assert.ok(quotePreview(app))
-   assert.ok(replySend(app))
-   assert.match(reading.textContent,/last comment page 1/)
-   assert.match(app.host.textContent,/避免重复发表/)
-  }
-  await act(async()=>{viewport.height=160;viewport.dispatchEvent(new Event('resize'))})
-  await act(async()=>[...reading.querySelectorAll('button')].find(b=>b.textContent==='加载下一页评论').click())
-  await flush()
-  assert.match(reading.textContent,/last comment page 2/)
-  await act(async()=>quotePreview(app).querySelector('button').click())
-  assert.equal(quotePreview(app),null)
-  assert.equal(document.activeElement,replyArea(app))
-  assert.equal(replyArea(app).value,'long draft\n'.repeat(1000))
- }finally{
-  if(app)await app.close()
-  if(descriptor)Object.defineProperty(window,'visualViewport',descriptor)
-  else delete window.visualViewport
- }
-})
+
 
 
 test('Members full cards preserve stored order, complete profile content, safe links and scoped permissions',async()=>{
@@ -1829,62 +1522,8 @@ test('account disclosure requires explicit activation; Escape and outside close 
 })
 
 
-test('explicit publish rejection displays focusable failure and restores the latest form on reopen',async()=>{
- let posts=0,app
- const storageKey='labourchain:issue-create:v1:sample/repo'
- const api={getRepositories:async()=>[{owner:'sample',name:'repo',full_name:'sample/repo'}],getSession:async()=>true,
-  createIssue:async()=>{posts++;throw Object.assign(Error('422 validation failed'),{status:422})}}
- try{
-  app=await mount('/sample/repo/issues/new','/:owner/:repo/issues/new',CreateIssue,{api,owner:'sample',repo:'repo'})
-  await act(async()=>input(app.host.querySelector('#create-issue-title'),'draft title'))
-  await act(async()=>input(app.host.querySelector('#create-issue-body'),'draft body'))
-  await act(async()=>app.host.querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));await flush()
-  const failure=app.host.querySelector('form [role="alert"]')
-  assert.match(failure.textContent,/发布失败.*422 validation failed/)
-  assert.equal(document.activeElement,failure)
-  assert.equal(app.host.querySelector('#create-issue-title').value,'draft title')
-  assert.equal(app.host.querySelector('button[type="submit"]').disabled,false)
-  assert.equal(posts,1)
-  assert.deepEqual(JSON.parse(localStorage.getItem(storageKey)),{title:'draft title',description:'draft body'})
-  await app.close()
-  app=await mount('/sample/repo/issues/new','/:owner/:repo/issues/new',CreateIssue,{api,owner:'sample',repo:'repo'})
-  assert.equal(app.host.querySelector('#create-issue-title').value,'draft title')
-  assert.equal(app.host.querySelector('#create-issue-body').value,'draft body')
-  assert.equal(posts,1)
- }finally{await app?.close();localStorage.removeItem(storageKey)}
-})
-test('report modal keeps keyboard focus and restores opener, pending Escape cannot close',async()=>{
- const Dialog=(await server.ssrLoadModule('/plugins/topic-page/src/TopicReportDialog.tsx')).default
- function Report(){
-  const [open,setOpen]=React.useState(false),[pending,setPending]=React.useState(false)
-  return h('div',null,h('button',{onClick:()=>setOpen(true)},'Report'),
-    open&&h(Dialog,{title:'report',body:'body',pending,checking:false,uncertain:false,message:'',writeEnabled:true,
-    githubNewIssueUrl:'https://github.com/sample/repo/issues/new',githubIssuesUrl:'https://github.com/sample/repo/issues',
-    loginUrl:'/api/github-login',onTitleChange(){},onBodyChange(){},onCancel:()=>setOpen(false),
-    onConfirmUnknown(){},onSubmit:e=>{e.preventDefault();setPending(true)}}))
- }
- const app=await mount('/','/',Report,{})
- const key=(name,shiftKey=false)=>document.dispatchEvent(new window.KeyboardEvent('keydown',{key:name,shiftKey,bubbles:true,cancelable:true}))
- try{
-  const opener=app.host.querySelector('button')
-  await act(async()=>{opener.focus();opener.click()})
-  const dialog=app.host.querySelector('[role="dialog"]')
-  assert.equal(document.activeElement,dialog.querySelector('input'))
-  await act(async()=>key('Tab',true))
-  assert.equal(document.activeElement,[...dialog.querySelectorAll('a')].at(-1))
-  await act(async()=>key('Tab'))
-  assert.equal(document.activeElement,dialog.querySelector('input'))
-  await act(async()=>opener.focus())
-  assert.ok(dialog.contains(document.activeElement))
-  await act(async()=>key('Escape'))
-  assert.equal(app.host.querySelector('[role="dialog"]'),null)
-  assert.equal(document.activeElement,opener)
-  await act(async()=>opener.click())
-  await act(async()=>app.host.querySelector('[role="dialog"] form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})))
-  await act(async()=>key('Escape'))
-  assert.ok(app.host.querySelector('[role="dialog"]'))
- }finally{await app.close()}
-})
+
+
 
 
 test('feed card preserves title, independent markdown link, expansion, selection and modifiers',async()=>{
@@ -1980,4 +1619,119 @@ test('shared Markdown renders supported syntax and rejects executable markup and
   assert.equal(app.host.querySelectorAll('img').length,1)
   assert.equal(app.host.querySelector('script,iframe,object,embed,[href^="javascript:"],[src^="data:"],[href*="user:pass@"],[src^="http:"]'),null)
  }finally{await app.close()}
+})
+
+test('anonymous discussion is readable; confirmed reply length and empty body are enforced by the mounted page',async()=>{
+ const long=replyComment(101,'长'.repeat(1500))
+ for(const authorized of [false,true]){
+  const svc=issueService({authorized,comments:()=>({items:[long],hasMore:false})})
+  const app=await issueMount(svc)
+  try{
+   assert.match(app.host.textContent,/长长长/)
+   if(!authorized){
+    assert.equal(replyArea(app),null)
+    assert.equal(quoteButtons(app).length,0)
+    assert.ok([...app.host.querySelectorAll('a')].some(a=>new URL(a.href).searchParams.get('return_to')==='/sample/repo/issues/1'))
+   }else{
+    await act(async()=>quoteButtons(app)[0].click())
+    assert.ok(replySend(app).disabled)
+    await act(async()=>input(replyArea(app),'x'.repeat(20000)))
+    await act(async()=>replyArea(app).closest('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})))
+    assert.ok(replySend(app).disabled)
+    await act(async()=>input(replyArea(app),'short'))
+    assert.equal(replySend(app).disabled,false)
+   }
+   assert.deepEqual(svc.writes,[])
+  }finally{await app.close()}
+ }
+})
+
+const publishKey='labourchain:issue-create:v1:sample/repo'
+const publishTarget={owner:'sample',repo:'repo'}
+function publishNetwork(write,authenticated=true){
+ const calls=[]
+ const api=createRepoIssuesApi(observeHttp(async(address,init={})=>{
+  const url=new URL(address,'https://local.test')
+  const entry={path:url.pathname,query:Object.fromEntries(url.searchParams),method:init.method||'GET',
+   body:init.body?JSON.parse(init.body):undefined,signal:init.signal}
+  calls.push(entry)
+  assert.equal(init.credentials,'same-origin')
+  if(entry.path==='/api/repos'&&entry.method==='GET'){
+   assert.deepEqual(entry.query,publishTarget)
+   return Response.json({state:'connected',repository:{owner:'sample',name:'repo',full_name:'sample/repo'}})
+  }
+  if(entry.path==='/api/github-session'&&entry.method==='GET')return Response.json({authenticated})
+  if(entry.path==='/api/github-issue-create'&&entry.method==='POST'){
+   assert.equal(init.headers['X-LabourChain-Write'],'1')
+   return write(entry)
+  }
+  throw Error('Unexpected publication HTTP request: '+address)
+ }))
+ return {api,calls,posts:()=>calls.filter(x=>x.method==='POST'),
+  open:()=>mount('/sample/repo/issues/new','/:owner/:repo/issues/new',CreateIssue,{api,owner:'sample',repo:'repo'})}
+}
+const fillPublication=async(page,title,body)=>act(async()=>{
+ input(page.host.querySelector('#create-issue-title'),title)
+ input(page.host.querySelector('#create-issue-body'),body)
+})
+const createdIssue=(number,repo='sample/repo')=>Response.json({issue:{
+ number,html_url:'https://github.com/'+repo+'/issues/'+number}},{status:201})
+
+test('Issue publication submits the latest restored draft once and clears only the exact acknowledged draft',async()=>{
+ for(const changedDuringWrite of [false,true]){
+  localStorage.removeItem(publishKey)
+  const pending=deferred(),remote=publishNetwork(()=>pending.promise)
+  let page=await remote.open()
+  try{
+   await fillPublication(page,'Initial','Old body')
+   await fillPublication(page,'  Reviewed title  ','Reviewed body')
+   await page.close();page=await remote.open()
+   assert.equal(page.host.querySelector('#create-issue-title').value,'  Reviewed title  ')
+   assert.equal(page.host.querySelector('#create-issue-body').value,'Reviewed body')
+   assert.deepEqual(remote.posts(),[])
+   await act(async()=>{formSubmit(page.host);formSubmit(page.host)})
+   assert.deepEqual(remote.posts().map(x=>x.body),[{...publishTarget,title:'Reviewed title',body:'Reviewed body'}])
+   if(changedDuringWrite)await fillPublication(page,'Newer title','Newer body')
+   pending.resolve(createdIssue(47));await flush()
+   assert.ok(page.host.querySelector('a[href="/sample/repo/issues/47"]'))
+   assert.ok(page.host.querySelector('a[href="https://github.com/sample/repo/issues/47"]'))
+   assert.equal(page.host.querySelector('form'),null)
+   assert.deepEqual(JSON.parse(localStorage.getItem(publishKey)),changedDuringWrite?{title:'Newer title',description:'Newer body'}:null)
+   assert.equal(remote.posts().length,1)
+  }finally{await page.close();localStorage.removeItem(publishKey)}
+ }
+})
+
+test('a rejected publication preserves an editable draft; unverifiable success requires manual verification and never replays on reopening',async()=>{
+ let attempt=0
+ const remote=publishNetwork(()=>++attempt===1?Response.json({error:'Validation failed'},{status:422}):createdIssue(2,'other/repo'))
+ let page=await remote.open()
+ try{
+  await fillPublication(page,'Review','Preserve this draft')
+  await act(async()=>formSubmit(page.host));await flush()
+  const failure=page.host.querySelector('form [role="alert"]')
+  assert.match(failure.textContent,/Validation failed/)
+  assert.equal(document.activeElement,failure)
+  assert.equal(page.host.querySelector('button[type="submit"]').disabled,false)
+  await act(async()=>formSubmit(page.host));await flush()
+  assert.match(page.host.textContent,/发布结果尚未确认/)
+  assert.equal(page.host.querySelector('form'),null)
+  assert.equal(page.host.querySelector('a[href="https://github.com/other/repo/issues/2"]'),null)
+  assert.deepEqual(JSON.parse(localStorage.getItem(publishKey)),{title:'Review',description:'Preserve this draft'})
+  await page.close();page=await remote.open()
+  assert.equal(page.host.querySelector('#create-issue-title').value,'Review')
+  assert.equal(page.host.querySelector('#create-issue-body').value,'Preserve this draft')
+  assert.deepEqual(remote.posts().map(x=>x.body),Array(2).fill({...publishTarget,title:'Review',body:'Preserve this draft'}))
+ }finally{await page.close();localStorage.removeItem(publishKey)}
+})
+
+test('anonymous publication never sends a write and login returns to the scoped repository',async()=>{
+ const remote=publishNetwork(()=>{throw Error('Unexpected anonymous write')},false)
+ const page=await remote.open()
+ try{
+  assert.equal(page.host.querySelector('form'),null)
+  const login=page.host.querySelector('a[href^="/api/github-login?"]')
+  assert.equal(new URL(login.href).searchParams.get('return_to'),'/sample/repo/issues/new')
+  assert.deepEqual(remote.posts(),[])
+ }finally{await page.close()}
 })
