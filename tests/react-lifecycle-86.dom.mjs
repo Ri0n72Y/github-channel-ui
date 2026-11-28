@@ -1998,32 +1998,76 @@ test('RepoPanel denied same-target recheck cancels pending publication and rejec
 
 
 test('dedicated publication invalidates authorization and pending writes on session change',async()=>{
- localStorage.removeItem(publishKey)
- const pending=deferred()
- let authenticated=true,reads=0,signal
- const api={
-  getRepositories:async()=>[{owner:'sample',name:'repo',full_name:'sample/repo'}],
-  getSession:async()=>{reads++;return authenticated},
-  createIssue:async(_repo,_title,_body,s)=>{signal=s;return pending.promise}
+ for(const storageDenied of [false,true]){
+  localStorage.removeItem(publishKey)
+  const pending=deferred()
+  let authenticated=true,reads=0,signal,posts=0
+  const proto=Object.getPrototypeOf(localStorage),original=proto.setItem
+  const api={
+   getRepositories:async()=>[{owner:'sample',name:'repo',full_name:'sample/repo'}],
+   getSession:async()=>{reads++;return authenticated},
+   createIssue:async(_repo,_title,_body,s)=>{posts++;signal=s;return pending.promise}
+  }
+  const page=await mount('/sample/repo/issues/new','/:owner/:repo/issues/new',CreateIssue,{api})
+  async function session(value){
+   const before=reads
+   authenticated=value
+   await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
+   await flush()
+   assert.ok(reads>before)
+  }
+  function assertCopyable(){
+   assert.equal(page.host.querySelector('form'),null)
+   for(const [id,value] of [['#unsaved-issue-title','Review'],['#unsaved-issue-body','Preserve draft']]){
+    const field=page.host.querySelector(id)
+    assert.equal(field?.value,value)
+    assert.equal(field.readOnly,true)
+    assert.equal(field.disabled,false)
+    field.select()
+    assert.equal(field.selectionStart,0)
+    assert.equal(field.selectionEnd,value.length)
+   }
+   assert.equal(page.host.querySelector('button[type="submit"]'),null)
+  }
+  try{
+   if(storageDenied){
+    await fillPublication(page,'Older title','Older body')
+    proto.setItem=function(key,...args){
+     if(key===publishKey)throw Error('controlled storage denial')
+     return original.call(this,key,...args)
+    }
+   }
+   await fillPublication(page,'Review','Preserve draft')
+   if(storageDenied){
+    assert.match(page.host.textContent,/无法保存本机草稿/)
+    await session(false)
+    assertCopyable()
+    assert.equal(posts,0)
+    await session(true)
+    assert.equal(page.host.querySelector('#create-issue-body').value,'Preserve draft')
+    assert.equal(page.host.querySelector('#unsaved-issue-body'),null)
+   }
+   await act(async()=>formSubmit(page.host))
+   assert.ok(signal)
+   assert.equal(posts,1)
+   await session(false)
+   assert.equal(signal.aborted,true)
+   assert.match(page.host.textContent,/发布结果尚未确认/)
+   assert.equal(page.host.querySelector('form'),null)
+   if(storageDenied)assertCopyable()
+   pending.resolve({number:73,html_url:'https://github.com/sample/repo/issues/73'})
+   await flush()
+   assert.doesNotMatch(page.host.textContent,/动态已发布/)
+   await session(true)
+   assert.match(page.host.textContent,/发布结果尚未确认/)
+   assert.equal(page.host.querySelector('form'),null)
+   if(storageDenied)assertCopyable()
+   else assert.equal(page.host.querySelector('#unsaved-issue-body'),null)
+   assert.equal(posts,1)
+   assert.deepEqual(JSON.parse(localStorage.getItem(publishKey)),storageDenied?
+    {title:'Older title',description:'Older body'}:{title:'Review',description:'Preserve draft'})
+  }finally{proto.setItem=original;await page.close();localStorage.removeItem(publishKey)}
  }
- const page=await mount('/sample/repo/issues/new','/:owner/:repo/issues/new',CreateIssue,{api})
- try{
-  await fillPublication(page,'Review','Preserve draft')
-  await act(async()=>formSubmit(page.host))
-  assert.ok(signal)
-  const before=reads
-  authenticated=false
-  await act(async()=>window.dispatchEvent(new Event('labourchain:session-change')))
-  await flush()
-  assert.ok(reads>before)
-  assert.equal(signal.aborted,true)
-  assert.match(page.host.textContent,/发布结果尚未确认/)
-  assert.equal(page.host.querySelector('form'),null)
-  pending.resolve({number:73,html_url:'https://github.com/sample/repo/issues/73'})
-  await flush()
-  assert.doesNotMatch(page.host.textContent,/动态已发布/)
-  assert.deepEqual(JSON.parse(localStorage.getItem(publishKey)),{title:'Review',description:'Preserve draft'})
- }finally{await page.close();localStorage.removeItem(publishKey)}
 })
 
 test('dedicated publication reports storage failures without discarding edits or confirmed success',async()=>{
@@ -2048,7 +2092,29 @@ test('dedicated publication reports storage failures without discarding edits or
   await act(async()=>formSubmit(page.host));await flush()
   assert.match(page.host.textContent,/动态已发布/)
   assert.match(page.host.textContent,/无法清除本机草稿/)
+  assert.equal(page.host.querySelector('#unsaved-issue-body'),null)
   assert.equal(remote.posts().length,1)
+  await page.close();page=null
+  failure=''
+  const pending=deferred(),next=publishNetwork(()=>pending.promise)
+  page=await next.open()
+  await fillPublication(page,'Submitted','Submitted body')
+  await act(async()=>formSubmit(page.host))
+  failure='setItem'
+  await fillPublication(page,'Newer title','Newer unsaved body')
+  pending.resolve(createdIssue(75));await flush()
+  assert.match(page.host.textContent,/动态已发布 · #75/)
+  assert.match(page.host.textContent,/无法保存本机草稿/)
+  assert.equal(page.host.querySelector('form'),null)
+  for(const [id,value] of [['#unsaved-issue-title','Newer title'],['#unsaved-issue-body','Newer unsaved body']]){
+   const field=page.host.querySelector(id)
+   assert.equal(field?.value,value)
+   assert.equal(field.readOnly,true)
+   assert.equal(field.disabled,false)
+   field.select()
+   assert.equal(field.selectionEnd,value.length)
+  }
+  assert.equal(next.posts().length,1)
  }finally{
   Object.assign(proto,original)
   await page?.close();localStorage.removeItem(publishKey)

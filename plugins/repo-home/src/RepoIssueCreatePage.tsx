@@ -33,6 +33,7 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
   const [description, setDescription] = useState('')
   const draftRef=useRef({title:'',description:''})
   const [storageWarning, setStorageWarning] = useState('')
+  const [unsavedDraft, setUnsavedDraft] = useState(false)
   useEffect(()=>{
     let value={title:'',description:''}
     try{
@@ -43,6 +44,7 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
           description:typeof saved?.description==='string'?saved.description.slice(0,20000):''}
       }
       setStorageWarning('')
+      setUnsavedDraft(false)
     }catch{
       setStorageWarning('无法读取本机草稿。')
       return
@@ -58,7 +60,9 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
       if(nextTitle||nextDescription)window.localStorage.setItem(storageKey,JSON.stringify(value))
       else window.localStorage.removeItem(storageKey)
       setStorageWarning('')
+      setUnsavedDraft(false)
     }catch{
+      setUnsavedDraft(Boolean(nextTitle||nextDescription))
       setStorageWarning(nextTitle||nextDescription ? '无法保存本机草稿，请在离开前复制内容。' : '无法清除本机草稿，旧内容可能仍会恢复。')
     }
   }
@@ -135,6 +139,7 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
         try{window.localStorage.removeItem(storageKey);setStorageWarning('')}
         catch{setStorageWarning('已发布，但无法清除本机草稿，旧内容可能仍会恢复。')}
         draftRef.current={title:'',description:''}
+        setUnsavedDraft(false)
         setTitle('');setDescription('')
       }
       setCreated({ number: result.number, url })
@@ -148,6 +153,8 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
       }
     } finally { gate.finish(controller) }
   }
+
+  const canEdit = status === 'ready' && verified && !created && !unknown
 
   return <section className={styles.page}>
     <nav aria-label="面包屑"><Link to={base}>项目主页</Link> / 发布动态</nav>
@@ -174,7 +181,18 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
         <a href={created.url} target="_blank" rel="noopener noreferrer">在 GitHub 查看（新标签）</a>
       </div>
     </section>}
-    {status === 'ready' && verified && !created && !unknown &&
+    {!canEdit && unsavedDraft && (title || description) &&
+      <section className={styles.form} aria-labelledby="unsaved-issue-heading">
+        <h2 id="unsaved-issue-heading">未保存的本机草稿</h2>
+        <p>当前无法编辑或提交，请在离开页面前选择并复制需要保留的内容。</p>
+        <label htmlFor="unsaved-issue-title">标题
+          <input id="unsaved-issue-title" readOnly value={title} />
+        </label>
+        <label htmlFor="unsaved-issue-body">正文
+          <textarea id="unsaved-issue-body" rows={8} readOnly value={description} />
+        </label>
+      </section>}
+    {canEdit &&
       <form className={styles.form} onSubmit={event => { void submit(event) }}>
         {message&&<p ref={failureRef} tabIndex={-1} role="alert">发布失败：{message}。内容已保留，请检查后重试。</p>}
         <label htmlFor="create-issue-title">标题
