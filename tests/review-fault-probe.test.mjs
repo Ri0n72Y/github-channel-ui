@@ -13,7 +13,7 @@ test('review fault probes reject the specific regression rather than a broken ru
  const cases=[
   ['Topic write file revision','plugins/topic-page/src/service.ts','expectedFileSha:configSha,confirmed:true','expectedFileSha:headSha,confirmed:true',
    'tests/contracts-topic-browser.test.mjs','Topic Config verifies the actual write outcome','expectedFileSha'],
-  ['Topic write cache invalidation','plugins/topic-page/src/service.ts','snapshots.invalidate(sourceKey(route));pages.invalidate(sourceKey(route))','snapshots.invalidate(sourceKey(route))',
+  ['Topic committed snapshot invalidation','plugins/topic-page/src/service.ts','snapshots.invalidate(sourceKey(route));pages.invalidate(sourceKey(route))','pages.invalidate(sourceKey(route))',
    'tests/contracts-topic-browser.test.mjs','Topic Config verifies the actual write outcome','Missing expected rejection'],
   ['Topic page version requirement','plugins/topic-page/server/_topic-projects.mjs',
    "if (page>1 && !expected) throw new TopicFetchError('分页需要来源快照，请刷新',409,'snapshot')",'// temporary omitted version requirement',
