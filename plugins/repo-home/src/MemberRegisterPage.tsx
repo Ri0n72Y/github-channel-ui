@@ -5,7 +5,7 @@ import { useRepoAccess } from '../../github-access/src/useRepoAccess'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useParams } from 'react-router'
 import { safeHttps, validLogin, validateMemberInput } from './domain.mjs'
-import { memberWriteBranch, repoHomeStatus, type MemberCapability, type MemberSubmitResult,
+import { memberWriteBranch, readDisplayBranch, repoHomeStatus, type MemberCapability, type MemberSubmitResult,
   type RepoHomeApi } from './service'
 import styles from './RepoHome.module.css'
 import { subscribeSessionChanged } from '../../shared/src/session-change'
@@ -153,6 +153,7 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
       i === index ? { ...entry, [key]: value } : entry) }))
   }
   const resultUrl = result ? trustedMemberResultUrl(result, owner, repo) : null
+  const needsMainPreview = result && readDisplayBranch(owner, repo) !== branch
   return <section className={[styles.page, styles.registerPage].join(' ')}>
     <nav className={styles.registerBreadcrumb} aria-label="成员登记导航">
       <Link to={base}>项目</Link><span aria-hidden="true">/</span>
@@ -168,8 +169,9 @@ export default function MemberRegisterPage({ api }: { api: RepoHomeApi }) {
         {result.status === 'pending_pr' ? '等待管理员审核' : '成员资料已提交'}
       </h2>
       <p>{result.status === 'pending_pr'
-        ? '管理员在 GitHub 审核并合并后，新成员才会出现在团队列表中。'
+        ? '管理员在 GitHub 审核并合并到 main 后，登记才会生效。'
         : 'GitHub Commit 已提交，返回团队成员页面后可重新加载查看。'}</p>
+      {needsMainPreview && <p>成员登记写入 main，请在<Link to={base + '/config'}>仓库配置与本机偏好</Link>中将本机展示分支切换为 main 后查看{result.status === 'pending_pr' ? '已合并的成员资料' : '新成员'}。</p>}
       <div className={styles.resultActions}>
         {result.status!=='pending_pr'&&<Link className={styles.resultPrimary} to={base + '/members'}>查看成员列表</Link>}
         {resultUrl ? <a className={result.status==='pending_pr'?styles.resultPrimary:undefined} href={resultUrl}

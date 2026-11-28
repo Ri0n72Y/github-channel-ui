@@ -90,7 +90,7 @@ export default function ConfigView(props: Props) {
       <div className={styles.panelHead}>
         <div><h2 id="state-heading">当前状态</h2>
           <p className={styles.state}>{stateText[state] || state}</p></div>
-        <button type="button" onClick={onRefresh} disabled={loading || busy}>重新读取</button>
+        {snapshot.state !== 'awaiting_pr_merge' && <button type="button" onClick={onRefresh} disabled={loading || busy}>重新读取</button>}
       </div>
       <details className={styles.secondaryDetails}><summary>版本与读取详情</summary>
       <dl className={styles.metadata}>

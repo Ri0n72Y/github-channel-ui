@@ -6,6 +6,8 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { repoIssuesApi, trustedCreatedIssueUrl, type Repo, type RepoIssuesApi } from '../../repo-issues/src/api'
 import { parseGitHubRepositoryUrl } from '../../repo-issues/src/target.mjs'
 import { uncertainWriteResult } from '../../shared/src/browser-http'
+import { subscribeSessionChanged } from '../../shared/src/session-change'
+import { useWriteGate } from '../../shared/src/useWriteGate'
 import styles from './RepoIssueCreatePage.module.css'
 
 type ScopedIssueApi = Pick<RepoIssuesApi, 'getRepositories' | 'getSession' | 'createIssue'>
@@ -30,6 +32,8 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const draftRef=useRef({title:'',description:''})
+  const [storageWarning, setStorageWarning] = useState('')
+  const [unsavedDraft, setUnsavedDraft] = useState(false)
   useEffect(()=>{
     let value={title:'',description:''}
     try{
@@ -39,7 +43,12 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
         value={title:typeof saved?.title==='string'?saved.title.slice(0,256):'',
           description:typeof saved?.description==='string'?saved.description.slice(0,20000):''}
       }
-    }catch{}
+      setStorageWarning('')
+      setUnsavedDraft(false)
+    }catch{
+      setStorageWarning('无法读取本机草稿。')
+      return
+    }
     draftRef.current=value
     setTitle(value.title);setDescription(value.description)
   },[storageKey])
@@ -50,18 +59,33 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
     try{
       if(nextTitle||nextDescription)window.localStorage.setItem(storageKey,JSON.stringify(value))
       else window.localStorage.removeItem(storageKey)
-    }catch{}
+      setStorageWarning('')
+      setUnsavedDraft(false)
+    }catch{
+      setUnsavedDraft(Boolean(nextTitle||nextDescription))
+      setStorageWarning(nextTitle||nextDescription ? '无法保存本机草稿，请在离开前复制内容。' : '无法清除本机草稿，旧内容可能仍会恢复。')
+    }
   }
-  const [pending, setPending] = useState(false)
-  const [unknown, setUnknown] = useState(false)
+  const { gate, pending, unknown } = useWriteGate()
+  const [unknownMessage, setUnknownMessage] = useState('')
   const [created, setCreated] = useState<{ number: number; url: string } | null>(null)
-  const inflight = useRef<AbortController | null>(null)
+  const authorizationReady = useRef(false)
+  const permissionRead = useRef<AbortController | null>(null)
+  useEffect(() => subscribeSessionChanged(() => {
+    authorizationReady.current = false
+    permissionRead.current?.abort()
+    gate.invalidate()
+    setVerified(null); setStatus('checking')
+    setRevision(n => n + 1)
+  }), [gate])
   const resultHeading = useRef<HTMLHeadingElement>(null)
   const failureRef=useRef<HTMLParagraphElement>(null)
   useEffect(()=>{if(status==='ready'&&message&&!unknown&&!created)failureRef.current?.focus()},[status,message,unknown,created])
 
   useEffect(() => {
     const controller = new AbortController()
+    permissionRead.current = controller
+    authorizationReady.current = false
     setVerified(null); setStatus('checking'); setMessage('')
     if (!target) {
       setStatus('error'); setMessage('仓库地址无效')
@@ -75,6 +99,7 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
       const exact = repositories.find(item =>
         item.full_name.toLowerCase() === target.full_name.toLowerCase())
       if (!exact) throw Error('GitHub Installation 未确认此仓库')
+      authorizationReady.current = loggedIn
       setVerified(exact)
       setStatus(loggedIn ? 'ready' : 'anonymous')
     }).catch(error => {
@@ -86,7 +111,6 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
     return () => controller.abort()
   }, [api, target, revision, report])
 
-  useEffect(() => () => { inflight.current?.abort() }, [])
   useEffect(() => {
     if (created || unknown) resultHeading.current?.focus()
   }, [created, unknown])
@@ -96,44 +120,47 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
     const submittedTitle = title
     const name = submittedTitle.trim()
     const body = description
-    if (!verified || status !== 'ready' || pending || inflight.current ||
+    if (!verified || status !== 'ready' || !authorizationReady.current || pending ||
         created || unknown || !name || name.length > 256 || description.length > 20000 ||
         !window.confirm('确认以你的 GitHub 身份在 ' + verified.full_name + ' 公开发布此动态？')) return
-    const controller = new AbortController()
-    inflight.current = controller
-    setPending(true); setMessage('')
+    const controller = gate.begin()
+    if (!controller) return
+    setMessage('')
     try {
       const result = await api.createIssue(verified, name, body, controller.signal)
-      if (controller.signal.aborted) return
+      if (!gate.isCurrent(controller)) return
       const url = trustedCreatedIssueUrl(result.html_url, result.number, verified)
       if (!url) {
-        setUnknown(true)
-        setMessage('GitHub 返回的发布链接无法确认；请先在目标仓库核实动态（Issue），禁止直接重试。')
+        gate.markUnknown(controller)
+        setUnknownMessage('GitHub 返回的发布链接无法确认；请先在目标仓库核实动态（Issue），禁止直接重试。')
         return
       }
       if(draftRef.current.title===submittedTitle&&draftRef.current.description===body){
-        try{window.localStorage.removeItem(storageKey)}catch{}
+        try{window.localStorage.removeItem(storageKey);setStorageWarning('')}
+        catch{setStorageWarning('已发布，但无法清除本机草稿，旧内容可能仍会恢复。')}
         draftRef.current={title:'',description:''}
+        setUnsavedDraft(false)
         setTitle('');setDescription('')
       }
       setCreated({ number: result.number, url })
     } catch (error) {
-      if (!controller.signal.aborted) {
-        setUnknown(uncertainWriteResult(error))
-        setMessage(error instanceof Error ? error.message : '发布动态失败')
+      if (gate.isCurrent(controller)) {
+        const detail = error instanceof Error ? error.message : '发布动态失败'
+        if (uncertainWriteResult(error)) {
+          gate.markUnknown(controller)
+          setUnknownMessage(detail)
+        } else setMessage(detail)
       }
-    } finally {
-      if (inflight.current === controller) {
-        inflight.current = null
-        if (!controller.signal.aborted) setPending(false)
-      }
-    }
+    } finally { gate.finish(controller) }
   }
+
+  const canEdit = status === 'ready' && verified && !created && !unknown
 
   return <section className={styles.page}>
     <nav aria-label="面包屑"><Link to={base}>项目主页</Link> / 发布动态</nav>
     <h1>发布动态</h1>
     <p>发布到 <strong>{owner}/{repo}</strong>，动态公开可见。</p>
+    {storageWarning && <p role="status">{storageWarning}</p>}
     {status === 'checking' && <p role="status">正在检查发布权限…</p>}
     {accessReason&&<RepoAccessNotice owner={owner} repo={repo} reason={accessReason} onRetry={()=>setRevision(n=>n+1)}/>}
     {status === 'error' && !accessReason && <p role="alert">{message}
@@ -142,7 +169,7 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
       <a href={login}>登录 GitHub 后返回此仓库</a></p>}
     {unknown && <section className={styles.warning} role="alert">
       <h2 ref={resultHeading} tabIndex={-1}>发布结果尚未确认</h2>
-      <p>{message}</p>
+      <p>{unknownMessage || '会话已变化，GitHub 可能已接收发布请求。请先核查，禁止直接重复提交。'}</p>
       {target && <a href={target.url + '/issues'} target="_blank" rel="noopener noreferrer">
         在 GitHub 核查目标仓库 Issues（新标签）</a>}
     </section>}
@@ -154,7 +181,18 @@ export default function RepoIssueCreatePage({ owner, repo, api = repoIssuesApi }
         <a href={created.url} target="_blank" rel="noopener noreferrer">在 GitHub 查看（新标签）</a>
       </div>
     </section>}
-    {status === 'ready' && verified && !created && !unknown &&
+    {!canEdit && unsavedDraft && (title || description) &&
+      <section className={styles.form} aria-labelledby="unsaved-issue-heading">
+        <h2 id="unsaved-issue-heading">未保存的本机草稿</h2>
+        <p>当前无法编辑或提交，请在离开页面前选择并复制需要保留的内容。</p>
+        <label htmlFor="unsaved-issue-title">标题
+          <input id="unsaved-issue-title" readOnly value={title} />
+        </label>
+        <label htmlFor="unsaved-issue-body">正文
+          <textarea id="unsaved-issue-body" rows={8} readOnly value={description} />
+        </label>
+      </section>}
+    {canEdit &&
       <form className={styles.form} onSubmit={event => { void submit(event) }}>
         {message&&<p ref={failureRef} tabIndex={-1} role="alert">发布失败：{message}。内容已保留，请检查后重试。</p>}
         <label htmlFor="create-issue-title">标题
