@@ -1,6 +1,5 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { validIssueForPage, validChannelIssue } from '../plugins/issue-detail/src/domain.mjs'
 import { loadIssueContent } from '../plugins/issue-detail/src/load-issue.mjs'
 
 const issue = (number = 1, labels = [], state = 'open') => ({
@@ -29,30 +28,6 @@ function fakeApi(value, options = {}) {
   }
   return { service, calls }
 }
-
-test('universal validity accepts ordinary, multiple-Channel and Open/Closed Issues', () => {
-  for (const labels of [[], ['status:todo'], [{ name: 'channel:discussion' }],
-    [{ name: 'channel:discussion' }, { name: 'channel:other' }],
-    [{ name: 'channel:unconfigured' }]]) {
-    for (const state of ['open', 'closed']) {
-      assert.equal(validIssueForPage(issue(1, labels, state)), true)
-    }
-  }
-  assert.equal(validIssueForPage(issue(1, [], 'draft')), false)
-  assert.equal(validIssueForPage({ ...issue(), pull_request: {} }), false)
-  assert.equal(validIssueForPage(null), false)
-  assert.equal(validIssueForPage(issue(0)), false)
-  assert.equal(validIssueForPage(issue(1.5)), false)
-})
-
-test('independent Channel membership keeps configured single-label validation', () => {
-  const allowed = ['channel:discussion']
-  assert.equal(validChannelIssue(issue(1, [{ name: 'channel:discussion' }]), allowed), true)
-  assert.equal(validChannelIssue(issue(1, []), allowed), false)
-  assert.equal(validChannelIssue(issue(1, [{ name: 'channel:other' }]), allowed), false)
-  assert.equal(validChannelIssue(issue(1, ['channel:discussion', 'channel:other']), allowed), false)
-  assert.equal(validChannelIssue({ ...issue(), pull_request: {} }, allowed), false)
-})
 
 test('generic Issue loading does not depend on Config', async () => {
   for (const labels of [[], ['channel:discussion', 'channel:other']]) {

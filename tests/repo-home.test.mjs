@@ -1,7 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { generateKeyPairSync, randomBytes } from 'node:crypto'
-import { parseTeamFile, validateMemberInput, appendMemberFile, summarizeReadme, safeHttps, previewMarkdown, memberRegistrationScope } from '../plugins/repo-home/src/domain.mjs'
 import { paramsFor } from '../api/_repo-home-access.mjs'
 import feedEndpoint from '../api/_repo-feed.mjs'
 import homeEndpoint from '../api/_repo-home.mjs'
@@ -103,42 +102,6 @@ const origin = 'https://labour.example'
 const session = () => SESSION_COOKIE + '=' + seal({ token: 'user-token', exp: Date.now() + 60_000 }, 'session', key)
 const request = (path, init) => new Request(origin + path, init)
 
-test('repo-home: v1 member file distinguishes missing, empty, invalid and duplicate identities', () => {
-  assert.equal(parseTeamFile(null).state, 'missing')
-  assert.equal(parseTeamFile('{"version":1,"members":[]}').state, 'empty')
-  assert.equal(parseTeamFile('{broken').state, 'invalid')
-  assert.equal(parseTeamFile('{"version":2,"members":[]}').state, 'invalid')
-  assert.equal(parseTeamFile(JSON.stringify({ version: 1, members: [
-    { id: 'a', name: 'Alice' }, { id: 'a', name: 'Bob' },
-  ] })).state, 'invalid')
-  assert.equal(parseTeamFile(JSON.stringify({ version: 1, members: [
-    { id: 'a', name: 'Alice', avatarUrl: 'javascript:alert(1)' },
-  ] })).state, 'invalid')
-})
-test('repo-home: registration validates HTTPS, trims fields and never overwrites the file', () => {
-  assert.equal(safeHttps('https://example.org/a'), true)
-  assert.equal(safeHttps('data:image/png;base64,123'), false)
-  assert.throws(() => validateMemberInput({ name: ' ', links: [] }))
-  assert.throws(() => validateMemberInput({ name: 'Alice', avatarUrl: 'http://example.org/' }))
-  assert.throws(() => validateMemberInput({ name: 'Alice', links: [{ label: 'Bad', url: 'javascript:alert(1)' }] }))
-  const input = validateMemberInput({ name: '  New Person  ', githubUsername: 'new-person', bio: ' Hi ' })
-  const existing = JSON.stringify({ version: 1, members: [{ id: 'old', name: 'Old Person' }] })
-  const next = JSON.parse(appendMemberFile(existing, input, 'uuid'))
-  assert.equal(next.members.length, 2)
-  assert.equal(next.members[0].id, 'old')
-  assert.deepEqual(next.members[1], { id: 'uuid', name: 'New Person', bio: 'Hi', githubUsername: 'new-person' })
-  assert.throws(() => appendMemberFile(existing, input, 'old'), /冲突/)
-  assert.throws(() => appendMemberFile('{invalid', input, 'uuid'), /JSON/)
-})
-test('repo-home: README summary rejects title badge navigation and code', () => {
-  const source = '# demo\n\n![badge](https://a.example/x.svg)\n\n## Table of Contents\n- [Section](#section)\n\n' +
-    '## About\n\nReadable **introduction** with [link](https://example.org)\n\n' +
-    '~~~js\nalert(1)\n~~~'
-  const value = summarizeReadme(source, 'demo')
-  assert.match(value, /Readable introduction with link/)
-  assert.doesNotMatch(value, /badge|Section|alert|Table of Contents|# demo/)
-  assert.equal(summarizeReadme('# demo\n\n![badge](https://a.example/x.svg)', 'demo'), '')
-})
 test('repo-home: display branch and page parameter validation is fail-closed', () => {
   assert.equal(paramsFor(request('/api/repo-feed?owner=octocat&repo=hello&page=2'), true).page, 2)
   assert.throws(() => paramsFor(request('/api/repo-home?owner=octocat&repo=hello&branch=../main')))
@@ -237,29 +200,6 @@ test('repo-home: forged cross-origin submission is rejected before Bot write', a
 })
 
 
-test('repo-home review B1: collapsed prefix keeps complete Markdown/media links in source order', () => {
-  const body = '# Update\n\n**News** [release notes](https://example.org/release)\n\n' +
-    '![screenshot](https://example.org/pic.jpg)\n\n@[video](https://youtu.be/example)\n\n' +
-    'Later details that may be previewed ' + 'very-long-followup '.repeat(70) +
-    '[hidden action](https://example.org/hidden)'
-  const preview = previewMarkdown(body, 460)
-  assert.match(preview, /^# Update/)
-  assert.ok(preview.includes('**News**'))
-  const link = preview.indexOf('[release notes](https://example.org/release)')
-  const image = preview.indexOf('![screenshot](https://example.org/pic.jpg)')
-  const video = preview.indexOf('@[video](https://youtu.be/example)')
-  assert.ok(link >= 0 && image > link && video > image, 'media and text links retain original sequence')
-  assert.ok(preview.length < body.length, 'hidden continuation must be absent, not CSS-clipped')
-  assert.doesNotMatch(preview, /\[hidden action\]\(https:\/\/example.org\/hidden\)/,
-    'links after the preview boundary must not be in the rendered Markdown tree')
-  assert.match(preview, /…$/)
-})
-test('repo-home review B2: registration target scope separates repo and display branch', () => {
-  const a = memberRegistrationScope('octocat', 'hello', 'main')
-  assert.equal(a, memberRegistrationScope('Octocat', 'HELLO', 'main'))
-  assert.notEqual(a, memberRegistrationScope('octocat', 'other', 'main'))
-  assert.notEqual(a, memberRegistrationScope('octocat', 'hello', 'feature/member'))
-})
 test('repo-home review P1: effective pull-request Ruleset requires PR even without branch.protected', async () => {
   await mocked({ protected: false, rules: [{ type: 'pull_request', ruleset_id: 42 }] }, async mock => {
     const result = await permissionEndpoint.fetch(request('/api/repo-member-permission?owner=octocat&repo=hello&branch=main', {
@@ -332,27 +272,4 @@ test('repo-home review P1: unavailable effective branch rules fail closed', asyn
     assert.equal(mock.writes.filter(c => c.path.endsWith('/git/refs') || c.path.endsWith('/pulls') ||
       c.method === 'PUT').length, 0)
   })
-})
-
-
-test('Markdown preview respects visible text budget before, at and after the boundary',()=>{
-  for(const [char,capacity] of [['A',160],['中',80]]){
-    for(const size of [capacity-1,capacity,capacity+1]){
-      const source=char.repeat(size)
-      assert.equal(previewMarkdown(source,160),char.repeat(Math.min(size,capacity))+
-        (size>capacity?'\n\n…':''))
-    }
-    const hidden='[hidden action](https://example.org/hidden)'
-    assert.equal(previewMarkdown(char.repeat(capacity+1)+'\n\n'+hidden,160),
-      char.repeat(capacity)+'\n\n…')
-  }
-})
-
-test('an oversized leading structured Markdown token stays atomic without leaking the next token',()=>{
-  const tokens=['![示例图片](https://example.org/pic.jpg)',
-    '[result](https://example.org/'+'a'.repeat(220)+')']
-  for(const token of tokens){
-    const body=token+'\n\n[hidden action](https://example.org/hidden)'
-    assert.equal(previewMarkdown(body,100),token+'\n\n…')
-  }
 })

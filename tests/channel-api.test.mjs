@@ -2,8 +2,6 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createRepoChannelsHandler } from '../api/_repo-channels.mjs'
 import { IssueAccessError } from '../api/_issue-access.mjs'
-import { selectChannelIssues, channelTargetKey } from '../plugins/channel/src/domain.mjs'
-import { parseConfigNamespaces } from '../plugins/repo-config/src/domain.mjs'
 
 const HEAD = 'a'.repeat(40)
 const CONFIG_SHA = 'b'.repeat(40)
@@ -68,40 +66,6 @@ function mockSource(options = {}) {
   }
 }
 const request = () => new Request('https://labour.test/api/repo-channels?owner=octocat&repo=demo')
-
-test('#28 selects newest valid Open Issue per configured channel; never selects PR or ambiguous tags', () => {
-  const config = parseConfigNamespaces(CONFIG)
-  assert.equal(config.state, 'ready')
-  const choices = selectChannelIssues(config, [
-    item(1, ['channel:discussion'], { createdAt: '2026-11-01T00:00:00Z' }),
-    item(2, ['channel:discussion'], { createdAt: '2026-11-04T00:00:00Z' }),
-    item(3, ['channel:discussion'], { createdAt: '2026-11-08T00:00:00Z', state: 'closed' }),
-    item(4, ['channel:discussion'], { createdAt: '2026-11-09T00:00:00Z', pr: true }),
-    item(5, ['channel:discussion', 'channel:unknown'], { createdAt: '2026-11-10T00:00:00Z' }),
-    item(6, ['channel:unknown'], { createdAt: '2026-11-11T00:00:00Z' }),
-    item(7, ['channel:wishlist'], { createdAt: '2026-11-02T00:00:00Z' }),
-  ])
-  assert.deepEqual(choices.map(c => [c.label, c.issue?.number]),
-    [['channel:discussion', 2], ['channel:wishlist', 7]])
-})
-
-test('#28 uses creation time, not updated time or fetched order; empty channel remains visible', () => {
-  const config = parseConfigNamespaces(CONFIG)
-  const old = item(9, ['channel:discussion'], { createdAt: '2026-11-01T00:00:00Z' })
-  old.updated_at = '2026-11-12T00:00:00Z'
-  const recent = item(8, ['CHANNEL:DISCUSSION'], { createdAt: '2026-11-08T00:00:00Z' })
-  const choices = selectChannelIssues(config, [recent, old])
-  assert.equal(choices[0].issue.number, 8)
-  assert.equal(choices[1].issue, null)
-})
-
-test('#28 duplicate Issue and ambiguous creation metadata fail closed', () => {
-  const config = parseConfigNamespaces(CONFIG)
-  assert.throws(() => selectChannelIssues(config,
-    [item(1, ['channel:discussion']), item(1, ['channel:discussion'])]), /Duplicate/)
-  assert.throws(() => selectChannelIssues(config,
-    [item(1, ['channel:discussion'], { createdAt: 'invalid' })]), /metadata/)
-})
 
 test('#28 public API reads only main Config and complete Open Issue pagination', async () => {
   const mock = mockSource({ pages: [
@@ -176,9 +140,4 @@ test('#28 API preserves 429/permission failures, blocks POST and non-main branch
   const wrong = await mock.handler.fetch(new Request(request().url + '&branch=feature'))
   assert.equal(wrong.status, 400)
   assert.equal(mock.calls.some(p => p.includes('feature')), false)
-})
-
-test('#28 Channel identity isolates A/B routes without ambiguous slash keys', () => {
-  assert.notEqual(channelTargetKey('octocat', 'a'), channelTargetKey('octocat', 'b'))
-  assert.notEqual(channelTargetKey('a/b', 'c'), channelTargetKey('a', 'b/c'))
 })

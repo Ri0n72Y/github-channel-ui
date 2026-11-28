@@ -96,3 +96,9 @@ npm run test:dom
 对四个修改后的测试回调，直接加载基线实际生产源码，使用 V8 小型断言适配器执行原函数及单点内存变异；原实现均通过，四个错误实现均拒绝：不更新 Masonry top、删除 Config 长度限制、截断首个原子 Markdown token、放宽工时半小时精度。这是定向区分能力实验，不是 Node 测试运行或全面 mutation coverage；变异未写入仓库。旧 Masonry 断言确实接受完全不更新位置的结果。其他改动待真实 CI 运行。
 
 本轮减少 5 个声明测试（Config preview、Repo Home、Topic p1、Issue universal、DOM 各 1），保留独立权限、签名、并发、持久化、读取预算及数据契约。对于不同授权调用点或错误传播路径，不因历史标题相似直接删除。其余用例仍未全部逐项证明区分能力；继续保持集成门槛，不将本轮记录称为完整审计结论。
+
+
+## 领域测试重建（第一批）
+以生产责任为起点，不按历史 Issue 文件迁移。四个新的 domain-* 入口直接调用实际领域函数，无 mock、DOM 或 Vite。Issue/劳动：外部 YAML、精度、冲突、不完整汇总、引用安全；Config/Channel：授权删除范围、完整性、选择排序与并列；仓库/成员：文件身份、输入边界、保留已有数据、README 和可安全截断 Markdown；Topic：配置/来源、图片信任、筛选、布局几何与稳定性。删除旧 issue-domain、topic-masonry 入口；从 config-preview、repo-home、channel-api、topic-api、issue-universal 中移除领域重复检查，保留真正不同的读取、错误、取消、HTTP 与写入组合风险。移除 CI policy 固定旧测试文件名清单，验证选择存在、无重复且新增 domain suite 全部进入 critical；不更改既有 CI workflow、批准门槛或 Private 顶层 glob。精确视觉断点由真实浏览器验收，领域几何测试不固定具体断点值。
+
+本批仍需真实线上运行；后续继续重建授权/HTTP 与组件组合层，不将保留的旧入口视为最终体系。

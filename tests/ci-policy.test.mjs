@@ -33,17 +33,12 @@ test('light CI selects explicit, non-overlapping business scenarios without hidd
     }
   }
   assert.equal(new Set(selected).size, selected.length, 'light CI must not run the same suite twice')
-  for (const required of [
-    'tests/installation-probe.test.mjs', 'tests/oauth-return.test.mjs',
-    'tests/config-api.test.mjs', 'tests/config-preview.test.mjs',
-    'tests/channel-api.test.mjs', 'tests/issue-create-installation.test.mjs',
-    'tests/repo-home.test.mjs', 'tests/issue-api.test.mjs', 'tests/issue-view.test.mjs',
-    'tests/topic-p1-83.test.mjs', 'tests/topic-read-budget.test.mjs', 'tests/topic-pagination.test.mjs',
-    'tests/topic-report.test.mjs', 'tests/react-lifecycle-86.dom.mjs',
-    'tests/functional-apis.test.mjs', 'tests/shared-theme.test.mjs',
-    'tests/installation-token-422.test.mjs', 'tests/issue-domain.test.mjs',
-    'tests/api-routing.test.mjs',
-  ]) assert.ok(selected.includes(required), 'missing business protection: ' + required)
+  const entries = new Set(readdirSync(new URL('.', import.meta.url)).map(file=>'tests/'+file))
+  for (const target of selected) assert.ok(entries.has(target), 'missing test entry: '+target)
+  // Domain suites exercise real production functions and belong to routine CI.
+  for (const entry of entries) {
+    if (/^tests\/domain-.*\.test\.mjs$/.test(entry)) assert.ok(selected.includes(entry),entry)
+  }
   for (const file of readdirSync(new URL('.', import.meta.url)).filter(f => f.endsWith('.test.mjs') || f.endsWith('.dom.mjs'))) {
     const source = readFileSync(new URL(file, import.meta.url), 'utf8')
     assert.doesNotMatch(source, /^\s*import\s+(?:[^'"]+\s+from\s+)?['"]\.\/[^'"]+\.test\.mjs['"]/m,

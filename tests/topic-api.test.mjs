@@ -1,7 +1,5 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readmeFields, parseTopicYaml, accumulateTopicProjects,
-  validTopicRepository } from '../plugins/topic-page/src/domain.mjs'
 import { createTopicPageEndpoint } from '../api/_topic-page.mjs'
 import { topicReadFixture, HEAD } from './helpers/topic-read-fixture.mjs'
 import { createTopicProjectsEndpoint } from '../api/_topic-projects.mjs'
@@ -19,28 +17,6 @@ function fixture(options={}){
 }
 const url = endpoint => 'https://example.test/api/' + endpoint + '?owner=sample&repo=repo'
 
-test('#31 README description starts strictly below first H1 and removes only approved footnotes', () => {
-  const fields = readmeFields('preamble\nfront matter\n# Actual title\nline A\nline B\nemail: a@example.org\ndatetime: 2026-11-12')
-  assert.deepEqual(fields, { title: 'Actual title', description: 'line A\nline B',
-    email: 'a@example.org', datetime: '2026-11-12' })
-  assert.equal(readmeFields('no heading').description, '')
-})
-
-test('#31 Topic YAML is restricted, has whitelist enabled by default, and rejects unknown fields', () => {
-  assert.deepEqual(parseTopicYaml('topic: labourchain\n'),
-    { topic: 'labourchain', whitelist: true })
-  assert.deepEqual(parseTopicYaml('topic: labourchain\nwhitelist: false\n'),
-    { topic: 'labourchain', whitelist: false })
-  assert.deepEqual(parseTopicYaml('repository: Me/Repo\n', 'project'), {
-    repository: 'me/repo' })
-  for(const source of ['topic: name\nother: unsafe\n','topic: abc\nwhitelist: yes\n',
-    'topic: value\nwhitelist: false\nwhitelist: false\n']) {
-    assert.throws(() => parseTopicYaml(source))
-  }
-  assert.equal(validTopicRepository('a','repo'), true)
-  assert.equal(validTopicRepository('../escape', 'repo'), false)
-})
-
 test('#31 read-only metadata endpoint logs failed whitelist file without leaking headers', async () => {
   const m = fixture()
   const response = await createTopicPageEndpoint({
@@ -56,21 +32,6 @@ test('#31 read-only metadata endpoint logs failed whitelist file without leaking
   assert.ok(!m.errors[0].join(' ').includes('Bearer'))
   assert.ok(m.calls.every(call => !call.auth), 'public GitHub fetch must not expose OAuth')
   assert.equal(m.calls.some(call => call.path.includes('/issues')), false)
-})
-
-test('legacy exported aggregation excludes source and deduplicates case-insensitive names', () => {
-  const meta = { repository: { full_name: 'sample/repo' },
-    config: { whitelist: true }, allowedRepositories: Array.from(
-      { length: 12 }, (_, i) => 'member/p' + i) }
-  const make = name => ({ full_name: name, html_url: 'https://github.com/' + name })
-  const pages = [{ hasNext: true, windowExhausted: false, items: [
-    make('other/ignored'), make('member/p0'), make('MEMBER/P0'), make('sample/repo')] },
-  { hasNext: false, windowExhausted: true, items: Array.from({ length: 8 },
-    (_, i) => make('member/p' + (i + 1))) }]
-  const result = accumulateTopicProjects(meta, pages)
-  assert.deepEqual(result.items.map(item=>item.full_name),Array.from({length:9},(_,i)=>'member/p'+i))
-  assert.equal(result.windowExhausted, true)
-  assert.equal(result.ended, true)
 })
 
 test('private source repository cannot expose Topic metadata',async()=>{

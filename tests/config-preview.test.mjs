@@ -1,7 +1,5 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { defaultConfigPreview, parseConfigNamespaces, planLabelChanges } from
-  '../plugins/repo-config/src/domain.mjs'
 import { readRepoConfigPreview } from '../api/_repo-config-preview.mjs'
 
 const CONFIG = 'namespaces:\n  status:\n    - todo\n    - done\n  foo: []\n'
@@ -59,101 +57,6 @@ function mockRead(options = {}) {
   }
   return { accessFactory, read, calls }
 }
-
-test('#47 Config parsing distinguishes absent, empty, managed, and default suggested values', () => {
-  const missing = parseConfigNamespaces(null)
-  assert.equal(missing.state, 'config_missing')
-  assert.equal(parseConfigNamespaces(missing.defaultPreview).state,'ready')
-  assert.equal(missing.defaultPreview,defaultConfigPreview())
-  const parsed = parseConfigNamespaces(CONFIG)
-  assert.equal(parsed.state, 'ready')
-  assert.deepEqual(parsed.namespaces.status, ['status:todo', 'status:done'])
-  assert.deepEqual(parsed.namespaces.foo, [])
-  assert.deepEqual(parseConfigNamespaces(CONFIG.replace(/\n/g, '\r\n')).namespaces, parsed.namespaces)
-  assert.deepEqual(parseConfigNamespaces('namespaces:\n  channel: [wishlist, channel:general]\n')
-    .namespaces.channel, ['channel:wishlist', 'channel:general'])
-})
-
-test('#47 malformed, ambiguous or unsupported YAML fails closed', () => {
-  for (const source of [
-    'namespaces:\n  foo:', 'namespaces:\n  foo: [a]\n  foo: []',
-    'namespaces:\n  foo: [a, a]', 'namespaces:\n  foo: &shared [a]',
-    'namespaces:\n  foo:\n    - *shared', 'namespaces:\n  foo: [a]\nother: x',
-    'namespaces:\n  foo: [a]\n  foobar: [foo:bad]',
-    'namespaces:\n  foo: [a\n', 'namespaces:\n  foo:\n    - a\n      bad: value',
-    '---\nnamespaces:\n  foo: []', 'namespaces:\n  foo: []\n  bar:',
-    'namespaces:\n  foo: [a]\n  FOO: [b]', 'namespaces:\n  foo: [] #comment',
-    'namespaces:\n  foo: [a, A]', 'namespaces:\n  foo:[]\n', 'namespaces:\n  foo:[bar]\n',
-    'namespaces:\n  foo:\u00a0[]\n',
-  ]) {
-    assert.equal(parseConfigNamespaces(source).state, 'invalid_config', source)
-  }
-})
-
-test('Config size boundary rejects otherwise valid oversized documents',()=>{
-  const base='namespaces:\n  status: [todo]\n'
-  const limit=256*1024
-  const valid=size=>base+'#'+'x'.repeat(size-base.length-1)
-  for(const size of [limit-1,limit])assert.deepEqual(parseConfigNamespaces(valid(size)),{state:'ready',namespaces:{status:['status:todo']}})
-  assert.equal(parseConfigNamespaces(valid(limit+1)).state,'invalid_config')
-})
-
-test('#47 full namespace-prefix matching never touches foobar or unmanaged tags; PRs excluded', () => {
-  const parsed = parseConfigNamespaces(CONFIG)
-  const labels = ['status:todo', 'foo:unused', 'foobar:legacy'].map(name => ({ name }))
-  const issues = [
-    issue(1, ['status:obsolete', 'foo:unused', 'foobar:legacy', 'channel:other']),
-    issue(2, ['status:done', 'foo:orphan'], 'closed'),
-    issue(3, ['foo:unused'], 'open', { pull_request: { url: 'https://example.test/pr' } }),
-  ]
-  const result = planLabelChanges(parsed, labels, issues, { complete: true })
-  assert.equal(result.state, 'changes')
-  assert.deepEqual(result.createLabels, [{ name: 'status:done' }])
-  assert.deepEqual(result.removeIssueLabels, [
-    { number: 1, labels: ['status:obsolete', 'foo:unused'] },
-    { number: 2, labels: ['foo:orphan'] },
-  ])
-  assert.deepEqual(result.impact, { definitions: 1, issues: 2, removals: 3 })
-  assert.equal(result.requiresConfirmation, true)
-})
-
-test('#47 missing namespace means no management; empty namespace schedules removal', () => {
-  const bare = parseConfigNamespaces('namespaces:\n  status: [todo]\n')
-  const explicit = parseConfigNamespaces('namespaces:\n  status: [todo]\n  foo: []\n')
-  const issues = [issue(1, ['foo:obsolete', 'foobar:still-there'])]
-  assert.deepEqual(planLabelChanges(bare, [], issues, { complete: true }).removeIssueLabels, [])
-  assert.deepEqual(planLabelChanges(explicit, [], issues, { complete: true }).removeIssueLabels,
-    [{ number: 1, labels: ['foo:obsolete'] }])
-})
-
-test('#47 no changes is idempotent and never schedules deleting existing Label definitions', () => {
-  const ready = parseConfigNamespaces(CONFIG)
-  const labels = [{ name: 'status:todo' }, { name: 'status:done' },
-    { name: 'foo:unused' }, { name: 'foobar:legacy' }]
-  const issues = [issue(1, ['status:todo', 'foobar:legacy'])]
-  const plan = planLabelChanges(ready, labels, issues, { complete: true })
-  assert.equal(plan.state, 'no_changes')
-  assert.equal(plan.hasChanges, false)
-  assert.deepEqual(plan.createLabels, [])
-  assert.deepEqual(plan.removeIssueLabels, [])
-  assert.equal('deleteDefinitions' in plan, false)
-})
-
-test('#47 incomplete pagination and invalid snapshots cannot yield a deletion plan', () => {
-  const parsed = parseConfigNamespaces('namespaces:\n  foo: []\n')
-  const issueOne = issue(1, ['foo:orphan'])
-  const result = planLabelChanges(parsed, [{ name: 'foo:orphan' }], [issueOne])
-  assert.equal(result.state, 'snapshot_incomplete')
-  assert.deepEqual(result.removeIssueLabels, [])
-  assert.equal(planLabelChanges(parseConfigNamespaces(null), [], [issueOne],
-    { complete: true }).state, 'config_missing')
-  assert.equal(planLabelChanges(parseConfigNamespaces('broken'), [], [issueOne],
-    { complete: true }).state, 'invalid_config')
-  assert.throws(() => planLabelChanges(parsed, [], [issueOne, issueOne],
-    { complete: true }), /repeated/)
-  assert.throws(() => planLabelChanges(parsed, [], [issue(1, ['bad'], 'draft')],
-    { complete: true }), /Incomplete/)
-})
 
 test('#47 read-only installed-repository snapshot returns provenance and exact diff', async () => {
   const mock = mockRead()
