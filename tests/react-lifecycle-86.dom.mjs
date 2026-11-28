@@ -1785,9 +1785,13 @@ test('RepoPanel publication preserves draft and write lock through delayed same-
  const posts=[],writeSignals=[],pending=deferred(),reads=[]
  let mode='success',nextRead
  const listed=title=>Response.json({issues:[{number:1,title,comments:0,html_url:'https://github.com/sample/repo/issues/1'}]})
- const api=createRepoIssuesApi(observeHttp(async(address,init={})=>{
+ const request=observeHttp(async(address,init={})=>{
   const url=new URL(address,'https://local.test'),method=init.method||'GET'
   if(url.pathname==='/api/github-session'&&method==='GET')return Response.json({authenticated:true})
+  if(url.pathname==='/api/github-installation-probe'&&method==='GET'){
+   assert.deepEqual(Object.fromEntries(url.searchParams),{owner:'sample',repo:'repo'})
+   return Response.json({state:'needs_repository_authorization',repository:'sample/repo'})
+  }
   if(url.pathname==='/api/issues'&&method==='GET'){
    assert.deepEqual(Object.fromEntries(url.searchParams),{owner:'sample',repo:'repo'})
    reads.push(url.pathname)
@@ -1804,16 +1808,11 @@ test('RepoPanel publication preserves draft and write lock through delayed same-
   }
   // Permission notice can check the current session; every external mutation still goes through the actual service.
   throw Error('Unexpected RepoPanel request: '+address)
- }))
- const originalFetch=globalThis.fetch
- // RepoAccessNotice uses a separate request port. Never allow a real request while denied.
- const noticeCalls=[]
- globalThis.fetch=observeHttp(async(address,init={})=>{
-  noticeCalls.push(String(address))
-  assert.equal(String(address),'/api/github-session')
-  assert.equal(init.method||'GET','GET')
-  return Response.json({authenticated:false})
  })
+ const api=createRepoIssuesApi(request)
+ const originalFetch=globalThis.fetch
+ // RepoAccessNotice uses the same controlled HTTP boundary.
+ globalThis.fetch=request
  const store=makeRepoStore(api)
  let app
  const confirm=window.confirm
@@ -1821,12 +1820,13 @@ test('RepoPanel publication preserves draft and write lock through delayed same-
  const form=()=>app.host.querySelector('section form')
  const submit=()=>form().dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))
  const edit=async(title,body)=>act(async()=>{input(form().querySelector('input'),title);input(form().querySelector('textarea'),body)})
- const draft=()=>[form().querySelector('input').value,form().querySelector('textarea').value]
+ const draft=()=>{assert.ok(form(),'same-target recheck must preserve publication form');return [form().querySelector('input').value,form().querySelector('textarea').value]}
  async function recheck(viaForm=false){
   const read=deferred(),count=reads.length
   nextRead=read
   await act(async()=>{
-   if(viaForm)app.host.querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))
+   if(viaForm==='notice')button('重新核验并读取').click()
+   else if(viaForm)app.host.querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))
    else button('重新核验').click()
   })
   assert.equal(reads.length,count+1)
@@ -1855,6 +1855,23 @@ test('RepoPanel publication preserves draft and write lock through delayed same-
   mode='rejected'
   await act(async()=>submit());await flush()
   assert.match(app.host.textContent,/Validation failed/)
+  assert.equal(button('确认发布').disabled,false)
+  assert.deepEqual(draft(),['Review','Keep this draft'])
+  // Without an unknown lock, a loading or denied repository must still block new writes.
+  const unverified=await recheck()
+  assert.deepEqual(draft(),['Review','Keep this draft'])
+  assert.equal(button('确认发布').disabled,true)
+  await act(async()=>submit())
+  unverified.resolve(Response.json({state:'repo_access_required',error:'Access revoked'},{status:403}))
+  await flush()
+  assert.equal(store.getSnapshot().availability,'repo_access_required')
+  assert.equal(button('确认发布').disabled,true)
+  assert.deepEqual(draft(),['Review','Keep this draft'])
+  await act(async()=>submit())
+  assert.equal(posts.length,2)
+  const verified=await recheck('notice')
+  verified.resolve(listed('Recovered issue'));await flush()
+  assert.match(app.host.textContent,/Recovered issue/)
   assert.equal(button('确认发布').disabled,false)
   assert.deepEqual(draft(),['Review','Keep this draft'])
   mode='unknown'
