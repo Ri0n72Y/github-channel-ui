@@ -2198,7 +2198,10 @@ test('the shared Markdown renderer produces accessible headings and never create
    const element=app.host.querySelector('[role="heading"][aria-level="'+level+'"],h'+level)
    assert.ok(element);assert.equal(element.textContent,'Heading '+level)
   }
-  assert.ok(app.host.querySelector('a[href="https://example.org"]'))
+  const safeLink=[...app.host.querySelectorAll('a')].find(a=>a.textContent==='Safe')
+  assert.ok(safeLink)
+  assert.equal(safeLink.href,'https://example.org/')
+  assert.ok(safeLink.relList.contains('noopener'))
   assert.equal(app.host.querySelector('script,iframe,object,embed,[href^="javascript:"],[src^="data:"]'),null)
  }finally{await app.close()}
 })
