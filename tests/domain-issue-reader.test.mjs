@@ -40,6 +40,11 @@ test('upstream read errors retain their status and stop the next read',async()=>
 })
 test('a canceled route does not fetch comments even if the earlier Issue request still resolves successfully',async()=>{
   const controller=new AbortController()
+  const canceled=new AbortController()
+  canceled.abort()
+  const skipped=port(async()=>item)
+  await assert.rejects(loadIssueContent(skipped.service,...route,canceled.signal),{name:'AbortError'})
+  assert.deepEqual(skipped.requests,[])
   let complete
   const first=new Promise(resolve=>{complete=resolve})
   const {service,requests}=port(()=>first)

@@ -1170,24 +1170,37 @@ test('Topic pending config PR survives failed or unchanged rechecks and unlocks 
  const draft='topic: edited-topic\nwhitelist: false\n'
  let nextRead=()=>Promise.resolve(baseline),writes=0
  const refreshes=[]
- const api={
-  reportAvailable:false,getSession:async()=>true,
-  getSnapshot:async(route,signal,refresh)=>{
-   assert.deepEqual(route,{owner:'sample',repo:'repo'})
-   if(refresh)refreshes.push(signal)
-   return nextRead()
-  },
-  getProjects:async(route,page,signal,offset)=>({page,offset,perPage:100,totalCount:0,
-   hasNext:false,nextPage:null,nextOffset:null,windowExhausted:false,items:[]}),
-  saveConfig:async(route,content,head,config)=>{
-   assert.deepEqual(route,{owner:'sample',repo:'repo'})
-   assert.equal(content,draft)
-   assert.equal(head,baseline.headSha)
-   assert.equal(config,baseline.configSha)
+ const {createTopicPageApi}=await server.ssrLoadModule('/plugins/topic-page/src/service.ts')
+ const requests=[]
+ const api=createTopicPageApi(observeHttp(async(address,init={})=>{
+  const url=new URL(address,'https://local.test'),method=init.method||'GET'
+  requests.push({path:url.pathname,method})
+  assert.equal(url.origin,'https://local.test')
+  if(url.pathname==='/api/github-session'&&method==='GET')return Response.json({authenticated:true})
+  if(url.pathname==='/api/topic-page'&&method==='GET'){
+   assert.equal(url.searchParams.get('owner'),'sample')
+   assert.equal(url.searchParams.get('repo'),'repo')
+   if(url.searchParams.get('refresh')==='1')refreshes.push(init.signal)
+   try{return Response.json(await nextRead())}
+   catch(error){return Response.json({error:error.message,stage:'source'},{status:503})}
+  }
+  if(url.pathname==='/api/topic-projects'&&method==='GET'){
+   assert.equal(url.searchParams.get('owner'),'sample')
+   assert.equal(url.searchParams.get('repo'),'repo')
+   assert.equal(url.searchParams.get('page'),'1')
+   return Response.json({page:1,offset:0,perPage:100,totalCount:0,
+    hasNext:false,nextPage:null,nextOffset:null,windowExhausted:false,items:[]})
+  }
+  if(url.pathname==='/api/topic-config'&&method==='POST'){
    writes++
-   return {state:'pending_pr',effective:false,branch:'maintenance',prUrl:'https://github.com/sample/repo/pull/81'}
-  },
- }
+   assert.equal(init.credentials,'same-origin')
+   assert.equal(init.headers['X-LabourChain-Write'],'1')
+   assert.deepEqual(JSON.parse(init.body),{owner:'sample',repo:'repo',content:draft,
+    expectedHeadSha:baseline.headSha,expectedFileSha:baseline.configSha,confirmed:true})
+   return Response.json({state:'pending_pr',effective:false,branch:'maintenance',prUrl:'https://github.com/sample/repo/pull/81'})
+  }
+  throw Error('Unexpected Topic HTTP request: '+address)
+ }))
  const app=await mount('/topic/sample/repo','/topic/:owner/:repo',Topic,{owner:'sample',repo:'repo',api})
  const field=()=>app.host.querySelector('#topic-config-yaml')
  const button=text=>[...app.host.querySelectorAll('button')].find(b=>b.textContent===text)

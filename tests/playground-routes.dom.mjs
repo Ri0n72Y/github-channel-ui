@@ -108,8 +108,28 @@ const visible = {
   'topic-page': /Topic 样例活动/,
 }
 
+// Both globals are isolated while the real fixture runtime is mounted.
+function isolatedFixture(run){
+ return async()=>{
+  const original=globalThis.fetch,originalWindow=window.fetch
+  const calls=[]
+  const reject=async(address,init)=>{
+   calls.push({address:String(address),method:init?.method||'GET'})
+   throw Error('Unexpected fixture network request')
+  }
+  globalThis.fetch=window.fetch=reject
+  try{await run()}
+  finally{
+   const unchanged=globalThis.fetch===reject&&window.fetch===reject
+   globalThis.fetch=original
+   window.fetch=originalWindow
+   assert.equal(unchanged,true,'fixture must not replace fetch')
+   assert.deepEqual(calls,[],'fixture runtime must make no real HTTP requests')
+  }
+ }
+}
 for (const plugin of PLAYGROUND_PLUGINS) {
-  test('#94 deep link mounts only ' + plugin.slug + ' and renders its controlled plugin page', async () => {
+  test('#94 deep link mounts only ' + plugin.slug + ' and renders its controlled plugin page', isolatedFixture(async () => {
     const runtime = await start(plugin.slug)
     const registered = runtime.ui.getSnapshot().filter(row => 'path' in row)
       .map(row => row.path).sort()
@@ -137,7 +157,7 @@ for (const plugin of PLAYGROUND_PLUGINS) {
         }
       } finally { await deep.close() }
     } finally { await runtime.dispose() }
-  })
+  }))
 }
 
 
@@ -303,7 +323,7 @@ test('production registers source route only; direct slug is confined to Playgro
   assert.equal(requests,0)
 })
 
-test('Topic slug direct/refresh/back/forward and invalid slug remain isolated', async () => {
+test('Topic slug direct/refresh/back/forward and invalid slug remain isolated', isolatedFixture(async () => {
   const runtime = await start('topic-page')
   const basename = '/playground/topic-page'
   const slugPath = basename + '/topic/dsh-plugin'
@@ -364,9 +384,9 @@ test('Topic slug direct/refresh/back/forward and invalid slug remain isolated', 
       assert.doesNotMatch(invalid.host.textContent, /确认提交配置|编辑问题报告/)
     } finally { await invalid.close() }
   } finally { await runtime.dispose() }
-})
+}))
 
-test('generic UI owns no Header; host may explicitly place theme and session controls',async()=>{
+test('generic UI owns no Header; host may explicitly place theme and session controls',isolatedFixture(async()=>{
  const runtime=await start('repo-home',true)
  try{
   const wrap=element=>h(MemoryRouter,{initialEntries:['/playground/repo-home/sample/repo'],
@@ -385,7 +405,7 @@ test('generic UI owns no Header; host may explicitly place theme and session con
   try{assert.ok(withHost.host.querySelector('button[aria-label*="切换为"]'))}
   finally{await withHost.close()}
  }finally{await runtime.dispose()}
-})
+}))
 
 test('real Public runtime deep link NotFound -> root -> resource -> back, same mounted host',async()=>{
  const {startRuntime}=await vite.ssrLoadModule('/apps/playground/src/runtime.tsx')

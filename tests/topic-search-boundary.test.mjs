@@ -81,6 +81,10 @@ test('invalid raw page and offset are rejected before reading any GitHub resourc
     const response=await fixture.endpoint.fetch(request(page,offset))
     assert.equal(response.status,400)
   }
+  const missingHead=await fixture.endpoint.fetch(new Request(origin+'/api/topic-projects?owner=sample&repo=repo&page=2&offset=0'))
+  assert.equal(missingHead.status,409)
+  assert.equal((await missingHead.json()).stage,'snapshot')
+  assert.deepEqual(fixture.observed,[])
   assert.deepEqual(fixture.github.calls,[])
 })
 

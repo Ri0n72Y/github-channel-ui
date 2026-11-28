@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {createServer} from 'vite'
 import react from '@vitejs/plugin-react'
 import {resolve} from 'node:path'
+import {observeHttp} from './helpers/observe-http.mjs'
 const root=resolve(import.meta.dirname,'..')
 let vite
 before(async()=>{
@@ -134,4 +135,78 @@ test('browser API revalidates configured cover and ignores standalone legacy URL
   assert.equal((await apiFor({...sample,config:{...sample.config,cover}}).getSnapshot(route,signal())).coverUrl,cover)
   await assert.rejects(apiFor({...sample,config:{...sample.config,cover:'javascript:alert(1)'}})
     .getSnapshot(route,signal()),{status:502,stage:'config'})
+})
+
+test('Topic Config verifies the actual write outcome and invalidates only the committed source caches',async()=>{
+ const {createTopicPageApi}=await vite.ssrLoadModule('/plugins/topic-page/src/service.ts')
+ const sample=sourceSnapshot(),other={owner:'sample',repo:'other'}
+ const otherSnapshot={...sample,repository:{owner:'sample',name:'other',full_name:'sample/other',
+  html_url:'https://github.com/sample/other'}}
+ const draft='topic: edited-topic\nwhitelist: true\n'
+ const calls=[]
+ let reply=()=>Response.json({state:'pending_pr',branch:'maintenance',effective:false,prUrl:'https://github.com/sample/repo/pull/81'})
+ let generation=0
+ const api=createTopicPageApi(observeHttp(async(address,init={})=>{
+  const u=new URL(address,'https://local.test'),method=init.method||'GET'
+  assert.equal(u.origin,'https://local.test')
+  assert.equal(init.credentials,'same-origin')
+  assert.equal(init.cache,'no-store')
+  if(u.pathname==='/api/topic-config'&&method==='POST'){
+   calls.push('write')
+   assert.equal(u.search,'')
+   assert.equal(init.headers['X-LabourChain-Write'],'1')
+   assert.deepEqual(JSON.parse(init.body),{...route,content:draft,expectedHeadSha:sample.headSha,
+    expectedFileSha:sample.configSha,confirmed:true})
+   return reply()
+  }
+  assert.equal(method,'GET')
+  assert.equal(u.searchParams.get('owner'),'sample')
+  const repo=u.searchParams.get('repo')
+  assert.ok(['repo','other'].includes(repo))
+  if(u.pathname==='/api/topic-page'){
+   calls.push('snapshot:'+repo)
+   return Response.json(repo==='repo'?sample:otherSnapshot)
+  }
+  assert.equal(u.pathname,'/api/topic-projects')
+  assert.equal(u.searchParams.get('head'),sample.headSha)
+  assert.equal(u.searchParams.get('page'),'1')
+  assert.equal(u.searchParams.get('offset'),'0')
+  calls.push('projects:'+repo)
+  return Response.json({page:1,offset:0,perPage:100,totalCount:30,hasNext:false,nextPage:null,
+   nextOffset:null,windowExhausted:false,items:Array.from({length:30},(_,i)=>({
+    id:1+i+(repo==='repo'?generation*100:1000),full_name:'member/p'+i,name:'p'+i,
+    owner:'member',description:'',html_url:'https://github.com/member/p'+i,stargazers_count:0,language:null}))})
+ }))
+ const read=async target=>{
+  const snapshot=await api.getSnapshot(target,signal())
+  return api.getProjects(target,1,signal(),0,snapshot.headSha)
+ }
+ const save=()=>api.saveConfig(route,draft,sample.headSha,sample.configSha,signal())
+ assert.equal((await read(route)).items[0].id,1)
+ assert.equal((await read(other)).items[0].id,1001)
+ assert.deepEqual(await save(),{state:'pending_pr',branch:'maintenance',effective:false,prUrl:'https://github.com/sample/repo/pull/81'})
+ for(const [response,expected] of [
+  [()=>Response.json({error:'stale version'},{status:409}),{status:409,outcomeUnknown:false}],
+  [()=>Response.json({state:'pending_pr',branch:'maintenance',effective:true,prUrl:'https://github.com/sample/repo/pull/81'}),{status:502,outcomeUnknown:true}],
+  [()=>{throw TypeError('connection lost')},{status:502,outcomeUnknown:true}],
+ ]){
+  reply=response
+  const before=calls.length
+  await assert.rejects(save(),expected)
+  assert.deepEqual(calls.slice(before),['write'])
+ }
+ // Pending/failed/uncertain writes must not evict either cached source.
+ assert.equal((await read(route)).items[0].id,1)
+ assert.equal((await read(other)).items[0].id,1001)
+ assert.deepEqual(calls,['snapshot:repo','projects:repo','snapshot:other','projects:other',...Array(4).fill('write')])
+ reply=()=>Response.json({state:'committed',branch:'main',effective:true,commitSha:'c'.repeat(40)})
+ generation=1
+ assert.equal((await save()).state,'committed')
+ await assert.rejects(api.getProjects(route,1,signal(),0,sample.headSha),{status:409,stage:'snapshot'})
+ // A subsequent source read may still observe the previous HEAD. Its old local slices must not be reused.
+ await api.getSnapshot(route,signal())
+ await assert.rejects(api.getProjects(route,1,signal(),25,sample.headSha),{status:409,stage:'snapshot'})
+ assert.equal((await read(route)).items[0].id,101)
+ assert.equal((await read(other)).items[0].id,1001)
+ assert.deepEqual(calls.slice(-3),['write','snapshot:repo','projects:repo'])
 })
