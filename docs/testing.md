@@ -4,21 +4,21 @@
 
 从实际生产契约设计最小充分保护。依据 [effective-testing](https://github.com/Ri0n72Y/agent-identity/blob/main/.agents/skills/effective-testing/SKILL.md) 及 Owner 指定的 [Change-Detector Tests](https://testing.googleblog.com/2015/01/testing-on-toilet-change-detector-tests.html)、[Increase Test Fidelity](https://testing.googleblog.com/2024/02/increase-test-fidelity-by-avoiding-mocks.html)、[Unit Testing](https://abseil.io/resources/swe-book/html/ch12.html)、[Practical Test Pyramid](https://martinfowler.com/articles/practical-test-pyramid.html)、[Testing Implementation Details](https://kentcdodds.com/blog/testing-implementation-details)。历史 Issue、文件、测试数量与既有绿色结果均不是保留依据。按实际消费者、独立风险、可观察结果和维护成本选择最小稳定边界；预期结果须独立于实现。已有充分保护时可以不新增测试。外部端口替身应验证实际请求目标，并拒绝未预期的交互；避免生产错误处理吞掉替身内断言。重要的新建或实质修改测试在可行时验证预期缺陷能导致失败，不要求逐项风险记录、固定测试比例或 mutation score。不要为单纯重构修改测试结果。
 
-| 责任与执行边界 | 保护 |
+| 责任与执行边界 | 保留的独立契约 |
 |---|---|
-| domain-*：直接运行真实生产规则 | 工时和引用按独立的 GitHub 评论文本与汇总结果验证；Label 计划按授权的删除/新增集合及应用后的稳定状态验证；成员按实际文档持久化内容验证；Topic 按声明、游标、筛选和几何契约验证。 |
-| GitHub 安装和会话 | 签名、会话来源、安装范围、最小读权限、撤销与用户权限；每种入口的组合风险；不复跑全部领域分区 |
-| HTTP 读取与写入契约 | 真 Request/Response、生产 Handler、授权与解析；外部 GitHub HTTP 替身。Config/Topic 写入不再注入 writeContext 或 Installation 假结果。Config preview 与 Channel 读取不再绕过真实授权和 HTTP 解析 |
-| 浏览器 service 契约 | 真实 service 调用、HTTP 参数、响应校验、状态/错误转换、缓存和取消；模拟浏览器 HTTP 而非服务返回值 |
-| 用户行为、Cordis 注册及 Host 组合 | 生产插件注册/卸载、实际 React 组件、真实路由；独立组件只验证自己拥有的状态；可控 service port 用于时序状态，代表性的 Channel 读取执行真实 browser service 到 HTTP。真实 GitHub 兼容性不由替身证明 |
-| 渲染契约 | Markdown 语法与安全在实际共享渲染器的 DOM 验证；Issue 组合只保留正文/讨论与劳动文本语义的差异及独立状态反馈。报告权限通过真实注册路由、browser service 与受控 HTTP 验证，禁止把任意 disabled 属性当作写入保护。 |
-| 工程检查 | 正式 API/SPA 映射、Function 上限、已批准 CI 配置、真实插件隔离；不固化历史测试文件或复制 Actions 调度算法 |
+| 纯领域规则（domain-*） | 劳动记录格式、主观工时与冲突；引用与目标安全；Label 计划与 Channel 选择；成员文档追加和字段限制；README、Topic 声明、游标、布局算法；读缓存及写入 gate 的时序 |
+| GitHub 安装、会话与实际 HTTP Handler | 实际请求目标、授权主体、安装签名、最小读取范围、撤销及错误状态；完整原始数据、分页、配置来源与完整性；实际提交内容、分支、冲突与回读；不确定写入保留证据且不盲重试 |
+| 浏览器 service | 独立 wire 响应校验、请求体、状态转换、读取缓存与取消；不重复验证页面已经实际发送并核对的 HTTP 交互 |
+| 真实 DOM、Cordis 注册与 Public Host | 真实路由和组件中的用户操作、异步生命周期、草稿、权限变化及迟到结果；重要写入流程使用生产 service 和受控 HTTP，实际请求必须符合授权目标；独立 UI 行为可直接使用最小稳定端口 |
+| 工程检查 | 正式 API/SPA 映射、Function 上限、已批准 CI 配置和真实插件隔离 |
 
-Channel HTTP 使用真实 Handler、安装授权、生产解析与选择；仅外部 GitHub HTTP 替身。所有实际请求在执行完成后核对，验证安装签名、只读 token 范围、main Config、完整分页和失败后无成功结果；不在可能被捕获的替身断言中证明请求正确。
+测试保留依据是独立故障及其可观察后果。删除重复的成功/失败矩阵、旧兼容辅助函数的重复行为测试、Playground 替身自检、直接构造视图模型的重复渲染测试和不能证明真实布局的 DOM 几何断言。生产兼容导出与现行功能保持不变；真实领域布局算法仍验证其几何结果。
 
-Config Save/Sync 结果未知、Config 跨仓库切换、Topic 报告权限与防重使用真实 browser service 和真实注册路由，只在 HTTP 边界控制响应、失败及迟到结果；检查实际请求体、目标、取消和禁止副作用。重复的控制器替身场景删除；独立 wire 解析错误类别仍在 service 层保护。
+外部 HTTP 使用可观察替身，检查实际目标、方法、身份、请求体及禁止的副作用。observeHttp 在每个测试结束时暴露被生产错误处理吞掉的断言和意外请求。不要把替身自身的返回值当作生产行为的验证。重要写入场景通过持久化的 fixture 数据或服务端真实请求序列核对成功、部分成功、失败及不确定结果。测试不得访问实际用户数据或修改真实 GitHub 资源。
 
-重构保持 Private 使用的顶层 `tests/*.test.mjs` 和 `tests/react-lifecycle-86.dom.mjs` 兼容；不新增框架。Config 与 Member 共用生产 write gate，集中保护同步单飞、会话失效取消、未知结果锁与过期完成；各页面独立保留真实授权刷新、用户确认、请求接线和反馈验证。保留两套现有 DOM 入口是 Hosted 兼容性与独立 Playground 组合的选择。历史审查过程在 PR #122 的记录中保留，当前文件只维护现行契约。
+Issue 正文、讨论与劳动记录的差异由真实 Issue 页面和生产 service 验证；Theme 由真实 DOM 操作和重新挂载验证持久化。Config、Member、Issue、Topic 的写入 gate 与页面操作分层验证，避免在每个页面重复穷举共享规则。Topic 的缓存、完整 Search 页、局部分页及迟到响应在各自实际消费边界验证，避免重复跑相同的通用缓存矩阵。
+
+保留 Private 兼容入口 `tests/*.test.mjs`、`tests/react-lifecycle-86.dom.mjs`，以及独立 Playground DOM 入口和现有 CI 门槛。不新增测试框架。历史审查过程在 PR #122 中追踪，当前文档只维护现行契约。
 
 ## 执行口径
 
@@ -46,5 +46,5 @@ npm run test:dom
 
 ## 完成条件
 
-候选全量 Node/DOM 与 build 有真实结果，独立 Reviewer 核对删减是否丢失现行产品契约、架构或安全边界；未完成的视觉验收继续明确跟踪。不要为了维持旧计数、绿色结果或配额修改断言含义。
+候选全量 Node/DOM 与 build 有真实结果；若常规 CI 的显式选择与全量入口集合完全一致，可使用各步骤的实际结果证明覆盖，无需仅为重复执行改动批准流程。独立 Reviewer 核对删减是否丢失现行产品契约、架构或安全边界；未完成的视觉验收继续明确跟踪。不得为了维持旧计数、绿色结果或配额修改断言含义。
 

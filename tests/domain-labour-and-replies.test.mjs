@@ -1,7 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { parseLabourComment, formatLabourComment, summarizeIssueComments,
-  validIssueForPage, validIssueTarget, validChannelIssue, parseIssueLabels } from '../plugins/issue-detail/src/domain.mjs'
+import { parseLabourComment, formatLabourComment, summarizeIssueComments } from '../plugins/issue-detail/src/domain.mjs'
 import { commentPermalink, createQuoteReply, buildCommentReply } from '../plugins/issue-detail/src/quote-reply.mjs'
 
 const fence = '\x60\x60\x60'
@@ -88,16 +87,6 @@ test('the labour total excludes every owner of a conflicting commit and counts d
   assert.equal(result.complete,false)
 })
 
-
-test('legacy Channel membership accepts exactly one declared label',()=>{
-  const labels=parseIssueLabels('namespaces:\n  channel: [Review, planning]\n')
-  assert.deepEqual(labels,['channel:review','channel:planning'])
-  assert.deepEqual(parseIssueLabels('channel:\n  - review\n'),['channel:review'])
-  assert.throws(()=>parseIssueLabels('channel: [one]\nnamespaces:\n  channel: [two]'),/Ambiguous/)
-  for(const [tags,expected] of [[['CHANNEL:REVIEW'],true],[[],false],
-    [['channel:other'],false],[['channel:review','channel:other'],false]])
-    assert.equal(validChannelIssue({number:8,state:'open',labels:tags},labels),expected)
-})
 
 test('a quoted labour registration becomes ordinary discussion rather than an additional registration',()=>{
   const original=item(20,record('  work: Audit','  hr: ~1.5'))

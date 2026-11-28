@@ -47,20 +47,6 @@ test('#83 cold 50-file source: 4 core REST, 52 Raw, one Search per page; concurr
   assert.equal((await get(meta,source)).status,200)
   assert.deepEqual(counts(m.calls),[4,52,2])
 })
-test('#83 missing, empty and disabled whitelist avoid unnecessary requests',async()=>{
-  for(const [config,files,expected,status] of [
-    [null,{},[3,1,0],404],
-    ['topic: labourchain\n',null,[3,2,0],200],
-    ['topic: labourchain\n',{},[4,2,0],200],
-    ['topic: labourchain\nwhitelist: false\n',{'p.yaml':'repository: member/p1\n'},[3,2,1],200],
-  ]){
-    const m=topicReadFixture({config,projects:files})
-    const {meta,list}=endpoints(m)
-    assert.equal((await get(meta,source)).status,200)
-    assert.equal((await get(list,projects)).status,status)
-    assert.deepEqual(counts(m.calls),expected)
-  }
-})
 test('#83 cache TTL, refresh and effective-config invalidation; cold version mismatch refuses pagination',async()=>{
   let now=0,head=HEAD
   const versions=[topicReadFixture({projects:null,config:'topic: labourchain\nwhitelist: false\n'}),

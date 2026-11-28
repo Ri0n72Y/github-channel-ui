@@ -5,7 +5,7 @@ import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
 
 const root = resolve(import.meta.dirname, '..')
-let server, validateVisibleFields, trustedMemberResultUrl
+let server, trustedMemberResultUrl
 
 before(async () => {
   server = await createServer({
@@ -13,16 +13,9 @@ before(async () => {
     plugins: [react()], server: { middlewareMode: true },
   })
   const registration = await server.ssrLoadModule('/plugins/repo-home/src/MemberRegisterPage.tsx')
-  validateVisibleFields = registration.validateVisibleFields
   trustedMemberResultUrl = registration.trustedMemberResultUrl
 })
 after(async () => { await server?.close() })
-
-const draft = () => ({
-  name: 'Alice', githubUsername: '', role: '', bio: '', avatarUrl: '',
-  links: [{ label: '', url: '' }, { label: '', url: '' }, { label: '', url: '' }],
-})
-
 
 test('member registration exposes only exact GitHub PR and Commit destinations', () => {
   const result = {status:'pending_pr',url:'https://github.com/sample/repo/pull/17'}

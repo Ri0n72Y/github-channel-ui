@@ -2,7 +2,7 @@ import {observeHttp} from './helpers/observe-http.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { generateKeyPairSync, randomBytes } from 'node:crypto'
-import { resolveInstalledRepository, inspectInstallation } from '../api/_installation-probe.mjs'
+import { resolveInstalledRepository } from '../api/_installation-probe.mjs'
 import { issueReadAccess, issueGitHubGet } from '../api/_issue-access.mjs'
 import issueDetail from '../api/_issue-detail.mjs'
 import issueComments from '../api/_issue-comments.mjs'
@@ -23,7 +23,7 @@ const result = (status, body, headers = {}) => new Response(
   body === undefined ? null : JSON.stringify(body),
   { status, headers: { 'content-type': 'application/json', ...headers } })
 
-function fakeGitHub({ install = true, membership = true, rate = false } = {}) {
+function fakeGitHub({ membership = true } = {}) {
   const calls = []
   const fetcher = observeHttp(async (url, options) => {
     const u = new URL(url)
@@ -33,8 +33,7 @@ function fakeGitHub({ install = true, membership = true, rate = false } = {}) {
       search: u.search })
     assert.equal(u.origin, 'https://api.github.com')
     if (path === '/repos/sample/repo' && method === 'GET') return result(200, repo)
-    if (path === '/repos/sample/repo/installation') return install
-      ? result(200, installation) : result(404)
+    if (path === '/repos/sample/repo/installation') return result(200, installation)
     if (path === '/app/installations/77') return result(200, {
       ...installation, permissions: { issues: 'write', contents: 'read', metadata: 'read' },
     })
@@ -48,8 +47,7 @@ function fakeGitHub({ install = true, membership = true, rate = false } = {}) {
       return result(201, { token: 'installation-read-token' })
     }
     if (path === '/repos/sample/repo/issues/1' && method === 'GET') {
-      return rate ? result(403, { message: 'rate' }, { 'x-ratelimit-remaining': '0' }) :
-        result(200, issue)
+      return result(200, issue)
     }
     if (path === '/repos/sample/repo/issues/1/comments' && method === 'GET') {
       return result(200, [{ id: 111, body: 'Raw GitHub comment', extra: 'preserved' }], {

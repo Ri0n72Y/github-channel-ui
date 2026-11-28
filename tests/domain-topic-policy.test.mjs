@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { parseTopicYaml, validTopicSlug, validTopicRepository, safeTopicCoverUrl,
-  readmeFields, accumulateTopicProjects, loadInstalledTopicBatch } from '../plugins/topic-page/src/domain.mjs'
+  readmeFields, loadInstalledTopicBatch } from '../plugins/topic-page/src/domain.mjs'
 import { layoutMasonry } from '../plugins/topic-page/src/masonry.mjs'
 
 test('Topic declaration defaults to a closed whitelist and only an explicit false opens it',()=>{
@@ -64,18 +64,6 @@ test('a sparse whitelist advances the actual cursor, excludes the source and dup
   assert.deepEqual(result.cursor,{page:2,offset:0})
   assert.equal(result.ended,false)
   assert.equal(result.windowExhausted,false)
-})
-
-test('legacy aggregation keeps a true end distinct from exhaustion of the accessible Search window',()=>{
-  const pages=[{items:first,hasNext:true},{items:second,hasNext:false,windowExhausted:true}]
-  const filtered=accumulateTopicProjects(metadata,pages)
-  assert.deepEqual(filtered.items.map(p=>p.id),[2,4,5])
-  assert.equal(filtered.ended,true)
-  assert.equal(filtered.windowExhausted,true)
-  const open=accumulateTopicProjects({...metadata,config:{whitelist:false}},[
-    pages[0],{...pages[1],windowExhausted:false}])
-  assert.deepEqual(open.items.map(p=>p.id),[2,3,4,5])
-  assert.equal(open.windowExhausted,false)
 })
 
 test('Masonry keeps existing cards stationary when appending and only shifts cards below a resized card in the same column',()=>{

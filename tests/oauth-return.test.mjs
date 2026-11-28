@@ -1,7 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
-import { repositoryLinkPath } from '../plugins/repo-issues/src/target.mjs'
 import { FLOW_COOKIE, newFlow, readFlow, validLoginReturnPath } from '../api/_oauth.mjs'
 
 test('OAuth return targets are explicitly allowlisted', () => {
@@ -55,6 +54,9 @@ test('#115 OAuth canonicalizes only static route segments and preserves reposito
     ['/OwNeR/RePo/ISSUES/','/OwNeR/RePo/issues/'],
     ['/Topic/OwNeR/RePo','/topic/OwNeR/RePo'],
     ['/TOPIC/OwNeR/CONFIG','/topic/OwNeR/CONFIG'],
+    ['/ToPiC/RePo/CHANNELS','/topic/RePo/CHANNELS'],
+    ['/ToPiC/RePo/MEMBERS','/topic/RePo/MEMBERS'],
+    ['/ToPiC/RePo/ISSUES','/topic/RePo/ISSUES'],
     ['/TOPIC/Api/Repo','/topic/Api/Repo'],
     ['/Topic/RePo','/Topic/RePo'],
     ['/Topic/RePo/ISSUES/28','/Topic/RePo/issues/28'],
@@ -76,23 +78,3 @@ test('#115 OAuth canonicalizes only static route segments and preserves reposito
   ]) assert.equal(validLoginReturnPath(input),'/',input)
 })
 
-test('#115 ordinary link intent remains distinct from Topic navigation', () => {
-  for (const kind of ['CONFIG','CHANNELS','MEMBERS','ISSUES']) {
-    const input='/ToPiC/RePo/'+kind
-    assert.equal(repositoryLinkPath(input),null,input)
-    assert.equal(validLoginReturnPath(input),'/topic/RePo/'+kind,input)
-  }
-  for (const [input,expected] of [
-    ['/OwNeR/RePo/ISSUES/NEW','/OwNeR/RePo/issues/new'],
-    ['/OwNeR/RePo/CONFIG','/OwNeR/RePo/config'],
-    ['/OwNeR/RePo/CHANNELS','/OwNeR/RePo/channels'],
-    ['/OwNeR/RePo/MEMBERS','/OwNeR/RePo/members'],
-    ['/ToPiC/RePo/MEMBERS/REGISTER','/ToPiC/RePo/members/register'],
-    ['/ToPiC/RePo/ISSUES/28','/ToPiC/RePo/issues/28'],
-  ]) assert.equal(repositoryLinkPath(input),expected,input)
-  for (const input of ['/API/RePo/ISSUES','/ASSETS/RePo/ISSUES/1','/Playground/RePo',
-    '/OwNeR/RePo/ISSUES/0','/OwNeR/RePo/ISSUES/1?next=evil',
-    '/OwNeR/RePo/%49SSUES','//evil.example/ISSUES','/OwNeR/RePo/ISSUES/']) {
-    assert.equal(repositoryLinkPath(input),null,input)
-  }
-})
