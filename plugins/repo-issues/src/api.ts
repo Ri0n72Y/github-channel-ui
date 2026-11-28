@@ -4,6 +4,22 @@ import { browserRequest, readResponse, record, requestFailure,
 
 export interface Repo { readonly owner:string; readonly name:string; readonly full_name:string }
 export type RepoLookupError = Error & { readonly status:number; readonly state?:string; readonly actionUrl?:string }
+/** Reject cross-repository, protocol, redirect, and non-Issue links after a possibly successful write. */
+export function trustedCreatedIssueUrl(url: string, number: number, repo: Repo): string | null {
+  try {
+    const target = new URL(url)
+    if (target.origin !== 'https://github.com' || target.username || target.password ||
+        target.search || target.hash || target.port ||
+        !Number.isSafeInteger(number) || number < 1) return null
+    const parts = target.pathname.split('/')
+    if (parts.length !== 5 || parts[0] !== '' ||
+        parts[1].toLowerCase() !== repo.owner.toLowerCase() ||
+        parts[2].toLowerCase() !== repo.name.toLowerCase() ||
+        parts[3] !== 'issues' || parts[4] !== String(number)) return null
+    return target.href
+  } catch { return null }
+}
+
 export interface Issue { readonly number:number; readonly title:string;
   readonly html_url:string; readonly comments:number }
 export interface Verification {

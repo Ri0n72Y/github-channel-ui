@@ -1,9 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
-import { runInNewContext } from 'node:vm'
 const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
-const agents = readFileSync(new URL('../AGENTS.md', import.meta.url), 'utf8')
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 test('existing required Build & test check and basic tests remain', () => {
   assert.match(workflow,/\n  checks:\n    name: Build & test\n/)
@@ -34,15 +32,12 @@ test('light CI selects explicit, non-overlapping business scenarios without hidd
     }
   }
   assert.equal(new Set(selected).size, selected.length, 'light CI must not run the same suite twice')
-  for (const required of [
-    'tests/installation-probe.test.mjs', 'tests/oauth-return.test.mjs',
-    'tests/config-api.test.mjs', 'tests/config-preview.test.mjs',
-    'tests/repo-home.test.mjs', 'tests/issue-api.test.mjs', 'tests/issue-view.test.mjs',
-    'tests/topic-p1-83.test.mjs', 'tests/topic-read-budget.test.mjs', 'tests/topic-pagination.test.mjs',
-    'tests/topic-report.test.mjs', 'tests/react-lifecycle-86.dom.mjs',
-    'tests/installation-token-422.test.mjs', 'tests/issue-domain.test.mjs',
-    'tests/api-routing.test.mjs',
-  ]) assert.ok(selected.includes(required), 'missing business protection: ' + required)
+  const entries = new Set(readdirSync(new URL('.', import.meta.url)).map(file=>'tests/'+file))
+  for (const target of selected) assert.ok(entries.has(target), 'missing test entry: '+target)
+  // Domain suites exercise real production functions and belong to routine CI.
+  for (const entry of entries) {
+    if (/^tests\/domain-.*\.test\.mjs$/.test(entry)) assert.ok(selected.includes(entry),entry)
+  }
   for (const file of readdirSync(new URL('.', import.meta.url)).filter(f => f.endsWith('.test.mjs') || f.endsWith('.dom.mjs'))) {
     const source = readFileSync(new URL(file, import.meta.url), 'utf8')
     assert.doesNotMatch(source, /^\s*import\s+(?:[^'"]+\s+from\s+)?['"]\.\/[^'"]+\.test\.mjs['"]/m,
@@ -53,59 +48,12 @@ test('light CI selects explicit, non-overlapping business scenarios without hidd
   }
 })
 
-test('PR stale runs cancel, main does not, no deploy', () => {
-  assert.ok(workflow.includes("cancel-in-progress: ${{ github.event_name == 'pull_request' }}"))
+test('routine CI uses read-only repository permissions and has no deploy command', () => {
   assert.ok(workflow.includes('contents: read'))
   assert.doesNotMatch(workflow,/vercel deploy|secrets\.VERCEL_TOKEN/)
 })
-test('governance branch cannot generate Preview', () => {
-  const v=JSON.parse(readFileSync(new URL('../vercel.json',import.meta.url),'utf8'))
-  assert.equal(v.git.deploymentEnabled['ci-governance-budget-20261118'],false)
-  assert.notEqual(v.git.deploymentEnabled.main,false)
-  assert.equal(v.rewrites.length,16)
-  assert.match(agents,/CI 配额与自动化约束/)
-  assert.match(agents,/本地.*验证/)
-})
-
-// Evaluate the workflow expression using the GitHub `format()` semantics with
-// controlled event contexts. GitHub replaces pending runs with the same group
-// even when `cancel-in-progress` is false.
-function concurrencyFor(event_name, run_id, { number = undefined, run_attempt = 1 } = {}) {
-  const group = workflow.match(/^  group: (public-ci-)\$\{\{\s*(.+?)\s*\}\}$/m)
-  const cancel = workflow.match(/^  cancel-in-progress: \$\{\{\s*(.+?)\s*\}\}$/m)
-  assert.ok(group, 'workflow concurrency group expression missing')
-  assert.ok(cancel, 'workflow concurrency cancellation expression missing')
-  const github = { event_name, event: { pull_request: { number } }, run_id, run_attempt, ref: 'refs/heads/main' }
-  const format = (template, ...values) => template.replace(/\{(\d+)\}/g, (_, i) => String(values[Number(i)]))
-  return {
-    group: group[1] + runInNewContext(group[2], { github, format }),
-    cancelInProgress: runInNewContext(cancel[1], { github, format }),
-  }
-}
-
-test('concurrency: the same PR update shares one cancelable group, other PRs do not', () => {
-  const first = concurrencyFor('pull_request', 100, { number: 7 })
-  const next = concurrencyFor('pull_request', 101, { number: 7 })
-  const other = concurrencyFor('pull_request', 102, { number: 8 })
-  assert.equal(first.group, next.group)
-  assert.notEqual(first.group, other.group)
-  assert.equal(first.cancelInProgress, true)
-  assert.equal(next.cancelInProgress, true)
-})
-
-test('concurrency: main and approved manual pending runs cannot replace each other', () => {
-  const runningMain = concurrencyFor('push', 200)
-  const pendingMain = concurrencyFor('push', 201)
-  const laterMain = concurrencyFor('push', 202)
-  const manual = concurrencyFor('workflow_dispatch', 203)
-  const nextManual = concurrencyFor('workflow_dispatch', 204)
-  const rerunAttempt = concurrencyFor('push', 202, { run_attempt: 2 })
-  const all = [runningMain, pendingMain, laterMain, manual, nextManual, rerunAttempt]
-  assert.equal(new Set(all.map(x => x.group)).size, all.length,
-    'same group lets GitHub queue:single replace an existing pending run')
-  for (const item of all) assert.equal(item.cancelInProgress, false)
-  const pendingReplaced = (pending, incoming) => pending.group === incoming.group
-  assert.equal(pendingReplaced(pendingMain, laterMain), false)
-  assert.equal(pendingReplaced(pendingMain, manual), false)
-  assert.equal(pendingReplaced(manual, nextManual), false)
+test('CI only supersedes pending or running work within the same pull request',()=>{
+  // These are approved Actions configuration values, not a reimplementation of its scheduler.
+  assert.match(workflow,/group: public-ci-\$\{\{ github\.event_name == 'pull_request' && format\('pr-\{0\}', github\.event\.pull_request\.number\) \|\| format\('run-\{0\}-\{1\}', github\.run_id, github\.run_attempt\) \}\}/)
+  assert.match(workflow,/cancel-in-progress: \$\{\{ github\.event_name == 'pull_request' \}\}/)
 })

@@ -4,6 +4,7 @@ import { JSDOM } from 'jsdom'
 import React, { act } from 'react'
 import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
+import { configSnapshot } from './helpers/config-wire-fixture.mjs'
 import { MemoryRouter, matchRoutes, useNavigate } from 'react-router'
 import { PLAYGROUND_PLUGINS } from '../apps/playground/src/playground-paths.mjs'
 
@@ -63,7 +64,7 @@ async function expectMasonry(host, label) {
   assert.fail('Topic projects did not finish loading: ' + label)
 }
 
-test('#94 public catalog renders six independent deep links and a working directory return', async () => {
+test('public catalog renders six independent deep links and a working directory return', async () => {
   const view = await mounted(h(catalog.PlaygroundCatalog))
   try {
     const links = [...view.host.querySelectorAll('a[href^="/playground/"]')]
@@ -107,8 +108,28 @@ const visible = {
   'topic-page': /Topic 样例活动/,
 }
 
+// Both globals are isolated while the real fixture runtime is mounted.
+function isolatedFixture(run){
+ return async()=>{
+  const original=globalThis.fetch,originalWindow=window.fetch
+  const calls=[]
+  const reject=async(address,init)=>{
+   calls.push({address:String(address),method:init?.method||'GET'})
+   throw Error('Unexpected fixture network request')
+  }
+  globalThis.fetch=window.fetch=reject
+  try{await run()}
+  finally{
+   const unchanged=globalThis.fetch===reject&&window.fetch===reject
+   globalThis.fetch=original
+   window.fetch=originalWindow
+   assert.equal(unchanged,true,'fixture must not replace fetch')
+   assert.deepEqual(calls,[],'fixture runtime must make no real HTTP requests')
+  }
+ }
+}
 for (const plugin of PLAYGROUND_PLUGINS) {
-  test('#94 deep link mounts only ' + plugin.slug + ' and renders its controlled plugin page', async () => {
+  test('#94 deep link mounts only ' + plugin.slug + ' and renders its controlled plugin page', isolatedFixture(async () => {
     const runtime = await start(plugin.slug)
     const registered = runtime.ui.getSnapshot().filter(row => 'path' in row)
       .map(row => row.path).sort()
@@ -136,21 +157,165 @@ for (const plugin of PLAYGROUND_PLUGINS) {
         }
       } finally { await deep.close() }
     } finally { await runtime.dispose() }
-  })
+  }))
 }
 
 
-test('#83 production registers source route only; direct slug is confined to Playground', async () => {
+// Mount the real plugin registration and UI service; replace only the remote API.
+async function pluginRuntime(plugin) {
+  const {Context}=await import('@deepseek-ai/cordis')
+  const {ReactUIService}=await vite.ssrLoadModule('/plugins/react-ui/src/index.tsx')
+  const ctx=new Context()
+  const core=ctx.plugin(ReactUIService)
+  let fiber
+  try{
+    await core
+    fiber=ctx.plugin(plugin)
+    await fiber
+    return {ui:ctx.reactUI,dispose:async()=>{try{await fiber.dispose()}finally{await core.dispose()}}}
+  }catch(error){try{await fiber?.dispose()}finally{await core.dispose()}throw error}
+}
+function navigationControls(target){
+  return function Controls(){const go=useNavigate();return h('button',{id:'target-nav',onClick:()=>go(target)},'切换仓库')}
+}
+test('Channel registered route cancels the old repository and ignores late success after switching',async()=>{
+  const {createChannelPlugin}=await vite.ssrLoadModule('/plugins/channel/src/index.tsx')
+  let resolveOld,oldSignal
+  const old=new Promise(resolve=>{resolveOld=resolve})
+  const snapshot=(number,title)=>({state:'ready',branch:'main',channels:[
+    {name:'discussion',label:'channel:discussion',issue:{number,title,createdAt:'2026-11-10T00:00:00Z',comments:0,author:'writer'}},
+    {name:'wishlist',label:'channel:wishlist',issue:null}]})
+  const {createChannelApi}=await vite.ssrLoadModule('/plugins/channel/src/service.ts')
+  const api=createChannelApi(async(address,init)=>{
+    const url=new URL(address,'https://local.test')
+    assert.equal(url.pathname,'/api/repo-channels')
+    assert.equal(url.searchParams.get('owner'),'sample')
+    assert.equal(init.credentials,'same-origin')
+    const repo=url.searchParams.get('repo')
+    if(repo==='alpha'){oldSignal=init.signal;return old}
+    assert.equal(repo,'beta')
+    return Response.json(snapshot(22,'Beta discussion'))
+  })
+  const runtime=await pluginRuntime(createChannelPlugin(api))
+  const Controls=navigationControls('/sample/beta/channels')
+  let view
+  try{
+    view=await mounted(h(MemoryRouter,{initialEntries:['/sample/alpha/channels']},h(Controls),h(App,{ui:runtime.ui})))
+    await expectLoaded(view.host,/正在加载频道/,'alpha pending')
+    for(let i=0;!oldSignal&&i<40;i++)await act(async()=>sleep(50))
+    assert.ok(oldSignal)
+    await act(async()=>view.host.querySelector('#target-nav').click())
+    await expectLoaded(view.host,/Beta discussion/,'beta channel')
+    assert.equal(oldSignal.aborted,true)
+    await act(async()=>resolveOld(Response.json(snapshot(11,'Late alpha discussion'))))
+    assert.doesNotMatch(view.host.textContent,/Late alpha discussion/)
+    assert.equal(view.host.querySelectorAll('a[href="/sample/beta/issues/22"]').length,1)
+    assert.equal(view.host.querySelector('a[href$="/issues/11"]'),null)
+    assert.match(view.host.textContent,/暂无进行中的讨论/)
+  }finally{await view?.close();await runtime.dispose()}
+})
+test('Config registered route isolates draft and late write result between repositories',async()=>{
+  const {createRepoConfigPlugin}=await vite.ssrLoadModule('/plugins/repo-config/src/index.tsx')
+  const {createRepoConfigApi}=await vite.ssrLoadModule('/plugins/repo-config/src/service.ts')
+  const writes=[]
+  let resolveWrite
+  const pending=new Promise(resolve=>{resolveWrite=resolve})
+  const betaText='namespaces:\n  status: [beta]\n'
+  const reads=[],unexpected=[]
+  const api=createRepoConfigApi(async(address,init={})=>{
+    const url=new URL(address,'https://local.test')
+    if(url.pathname==='/api/repo-config'&&(init.method||'GET')==='GET'){
+      const owner=url.searchParams.get('owner'),repo=url.searchParams.get('repo')
+      reads.push([owner,repo])
+      return Response.json(repo==='beta'?configSnapshot(betaText):configSnapshot())
+    }
+    if(url.pathname==='/api/repo-config'&&init.method==='POST'){
+      writes.push({body:JSON.parse(init.body),signal:init.signal,write:init.headers['X-LabourChain-Write']})
+      return pending
+    }
+    unexpected.push([String(address),init.method]);throw Error('Unexpected request')
+  })
+  const runtime=await pluginRuntime(createRepoConfigPlugin(api))
+  const Controls=navigationControls('/sample/beta/config')
+  let view
+  try{
+    view=await mounted(h(MemoryRouter,{initialEntries:['/sample/alpha/config']},h(Controls),h(App,{ui:runtime.ui})))
+    await expectLoaded(view.host,/提交 Config 变更/,'alpha editor')
+    const field=view.host.querySelector('textarea')
+    const draft=field.value+'\n# alpha-only edit'
+    await act(async()=>{
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(field,draft)
+      field.dispatchEvent(new Event('input',{bubbles:true}))
+    })
+    const submit=view.host.querySelector('button[type="submit"]')
+    assert.ok(submit&&!submit.disabled)
+    await act(async()=>submit.click())
+    assert.equal(writes.length,1)
+    assert.deepEqual(writes[0].body,{action:'save_config',owner:'sample',repo:'alpha',branch:'main',content:draft,expectedHeadSha:'a'.repeat(40),expectedFileSha:'b'.repeat(40)})
+    assert.equal(writes[0].write,'1')
+    await act(async()=>view.host.querySelector('#target-nav').click())
+    await expectLoaded(view.host,/配置没有未提交的本地修改/,'beta editor')
+    assert.equal(writes[0].signal.aborted,true)
+    assert.equal(view.host.querySelector('textarea').value,betaText)
+    await act(async()=>resolveWrite(Response.json({state:'awaiting_pr_merge',prUrl:'https://github.com/sample/alpha/pull/88'})))
+    assert.equal(view.host.querySelector('textarea').value,betaText)
+    assert.equal(view.host.querySelector('a[href="https://github.com/sample/alpha/pull/88"]'),null)
+    assert.doesNotMatch(view.host.textContent,/等待 GitHub 审核与合并/)
+    assert.equal(writes.length,1)
+    assert.deepEqual(reads,[['sample','alpha'],['sample','beta']])
+    assert.deepEqual(unexpected,[])
+  }finally{await view?.close();await runtime.dispose()}
+})
+test('Topic registered source route clears old draft and aborts previous metadata on repository change',async()=>{
+  const {createTopicPagePlugin}=await vite.ssrLoadModule('/plugins/topic-page/src/index.tsx')
+  const snapshot=repo=>({repository:{owner:'sample',name:repo,full_name:'sample/'+repo,html_url:'https://github.com/sample/'+repo},
+    readme:'# '+repo+' activity',coverUrl:null,config:{topic:repo,whitelist:false},configState:'ready',
+    configText:'topic: '+repo+'\nwhitelist: false\n',headSha:'a'.repeat(40),configSha:'b'.repeat(40),
+    defaultBranch:'main',allowedRepositories:[]})
+  let resolveOld,oldSignal
+  const pending=new Promise(resolve=>{resolveOld=resolve})
+  const api={reportAvailable:false,getSession:async()=>false,
+    getSnapshot(route,signal,refresh){
+      assert.equal(route.owner,'sample')
+      if(route.repo==='alpha'&&refresh){oldSignal=signal;return pending}
+      return Promise.resolve(snapshot(route.repo))
+    },getProjects:async(route,page,signal,offset)=>({page,offset,perPage:100,totalCount:0,
+      hasNext:false,nextPage:null,nextOffset:null,windowExhausted:false,items:[]})}
+  const runtime=await pluginRuntime(createTopicPagePlugin(api))
+  const Controls=navigationControls('/topic/sample/beta')
+  let view
+  try{
+    view=await mounted(h(MemoryRouter,{initialEntries:['/topic/sample/alpha']},h(Controls),h(App,{ui:runtime.ui})))
+    await expectLoaded(view.host,/当前可访问搜索范围没有符合配置的项目/,'alpha loaded')
+    const field=view.host.querySelector('textarea')
+    await act(async()=>{
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(field,'topic: local-alpha\n')
+      field.dispatchEvent(new Event('input',{bubbles:true}))
+    })
+    await act(async()=>view.host.querySelector('[aria-label="刷新项目"]').click())
+    assert.ok(oldSignal)
+    await act(async()=>view.host.querySelector('#target-nav').click())
+    await expectLoaded(view.host,/beta activity/,'beta loaded')
+    assert.equal(oldSignal.aborted,true)
+    assert.equal(view.host.querySelector('textarea').value,snapshot('beta').configText)
+    await act(async()=>resolveOld(snapshot('alpha')))
+    assert.doesNotMatch(view.host.textContent,/alpha activity/)
+    assert.equal(view.host.querySelector('textarea').value,snapshot('beta').configText)
+  }finally{await view?.close();await runtime.dispose()}
+})
+
+test('production registers source route only; direct slug is confined to Playground', async () => {
   const {createTopicPagePlugin}=await vite.ssrLoadModule('/plugins/topic-page/src/index.tsx')
   const {createTopicPageApi}=await vite.ssrLoadModule('/plugins/topic-page/src/service.ts')
-  const registered=[]
-  createTopicPagePlugin().apply({effect: fn=>fn(),
-    reactUI:{registerPage: row=>{registered.push(row.path);return ()=>{}}}})
-  assert.deepEqual(registered,['/topic/:owner/:repo'])
-  const routes=registered.map(path=>({path}))
-  assert.equal(matchRoutes(routes,'/topic/dsh-plugin'),null)
-  assert.equal(matchRoutes(routes,'/topic/sample/repo')?.at(-1)?.route.path,
-    '/topic/:owner/:repo')
+  const runtime=await pluginRuntime(createTopicPagePlugin())
+  try{
+    const registered=runtime.ui.getSnapshot().filter(row=>'path' in row).map(row=>row.path)
+    assert.deepEqual(registered,['/topic/:owner/:repo'])
+    const routes=registered.map(path=>({path}))
+    assert.equal(matchRoutes(routes,'/topic/dsh-plugin'),null)
+    assert.equal(matchRoutes(routes,'/topic/sample/repo')?.at(-1)?.route.path,
+      '/topic/:owner/:repo')
+  }finally{await runtime.dispose()}
   let requests=0
   const api=createTopicPageApi(async()=>{requests++;throw Error('unexpected network')})
   await assert.rejects(api.getProjects({topic:'dsh-plugin'},1,new AbortController().signal),
@@ -158,7 +323,7 @@ test('#83 production registers source route only; direct slug is confined to Pla
   assert.equal(requests,0)
 })
 
-test('#83 Topic slug direct/refresh/back/forward and invalid slug remain isolated', async () => {
+test('Topic slug direct/refresh/back/forward and invalid slug remain isolated', isolatedFixture(async () => {
   const runtime = await start('topic-page')
   const basename = '/playground/topic-page'
   const slugPath = basename + '/topic/dsh-plugin'
@@ -219,9 +384,9 @@ test('#83 Topic slug direct/refresh/back/forward and invalid slug remain isolate
       assert.doesNotMatch(invalid.host.textContent, /确认提交配置|编辑问题报告/)
     } finally { await invalid.close() }
   } finally { await runtime.dispose() }
-})
+}))
 
-test('generic UI owns no Header; host may explicitly place theme and session controls',async()=>{
+test('generic UI owns no Header; host may explicitly place theme and session controls',isolatedFixture(async()=>{
  const runtime=await start('repo-home',true)
  try{
   const wrap=element=>h(MemoryRouter,{initialEntries:['/playground/repo-home/sample/repo'],
@@ -240,9 +405,9 @@ test('generic UI owns no Header; host may explicitly place theme and session con
   try{assert.ok(withHost.host.querySelector('button[aria-label*="切换为"]'))}
   finally{await withHost.close()}
  }finally{await runtime.dispose()}
-})
+}))
 
-test('#115 real Public runtime deep link NotFound -> root -> resource -> back, same mounted host',async()=>{
+test('real Public runtime deep link NotFound -> root -> resource -> back, same mounted host',async()=>{
  const {startRuntime}=await vite.ssrLoadModule('/apps/playground/src/runtime.tsx')
  const original=globalThis.fetch
  const requests=[]
@@ -276,7 +441,7 @@ test('#115 real Public runtime deep link NotFound -> root -> resource -> back, s
   await expectLoaded(view.host,/公开插件 Playground/,'back to real root')
  }finally{await view?.close();await runtime?.dispose();globalThis.fetch=original}
 })
-test('#115 ordinary links never reinterpret a Topic namespace collision',async()=>{
+test('ordinary links never reinterpret a Topic namespace collision',async()=>{
  const {RepositoryLink}=await vite.ssrLoadModule('/plugins/repo-issues/src/RepositoryLink.tsx')
  const view=await mounted(h(MemoryRouter,null,h('div',null,
   h(RepositoryLink,{to:'/topic/repo/config'},'配置'),
@@ -288,4 +453,33 @@ test('#115 ordinary links never reinterpret a Topic namespace collision',async()
   assert.deepEqual([...view.host.querySelectorAll('a')].map(a=>a.getAttribute('href')),['/topic/repo/issues/1','/topic/repo'])
   assert.equal((view.host.textContent.match(/站内路径不可用/g)||[]).length,3)
  }finally{await view.close()}
+})
+
+test('Channel HTTP failure is not displayed as an empty successful page; retry uses the same repository',async()=>{
+  const {createChannelPlugin}=await vite.ssrLoadModule('/plugins/channel/src/index.tsx')
+  const {createChannelApi}=await vite.ssrLoadModule('/plugins/channel/src/service.ts')
+  const requests=[]
+  const api=createChannelApi(async(address,init)=>{
+    const url=new URL(address,'https://local.test')
+    assert.equal(url.pathname,'/api/repo-channels')
+    assert.deepEqual(Object.fromEntries(url.searchParams),{owner:'sample',repo:'repo'})
+    requests.push(url.href)
+    if(requests.length===1)return Response.json({error:'controlled upstream failure'},{status:503})
+    return Response.json({state:'ready',branch:'main',channels:[{name:'discussion',label:'channel:discussion',
+      issue:{number:4,title:'Recovered discussion',createdAt:'2026-11-01T00:00:00Z',comments:1,author:'writer'}}]})
+  })
+  const runtime=await pluginRuntime(createChannelPlugin(api))
+  let view
+  try{
+    view=await mounted(h(MemoryRouter,{initialEntries:['/sample/repo/channels']},h(App,{ui:runtime.ui})))
+    await expectLoaded(view.host,/controlled upstream failure/,'failure')
+    assert.equal(view.host.querySelector('a[href="/sample/repo/issues/4"]'),null)
+    assert.doesNotMatch(view.host.textContent,/暂无进行中的讨论/)
+    const retry=[...view.host.querySelectorAll('button')].find(x=>x.textContent==='重试读取')
+    assert.ok(retry)
+    await act(async()=>retry.click())
+    await expectLoaded(view.host,/Recovered discussion/,'recovery')
+    assert.equal(requests.length,2)
+    assert.ok(view.host.querySelector('a[href="/sample/repo/issues/4"]'))
+  }finally{await view?.close();await runtime.dispose()}
 })

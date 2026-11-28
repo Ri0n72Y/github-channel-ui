@@ -1,0 +1,436 @@
+import {observeHttp} from './helpers/observe-http.mjs'
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { createRepoConfigHandler } from '../api/_repo-config.mjs'
+import { githubHttpFixture } from './helpers/github-http.mjs'
+const http=githubHttpFixture('https://example.test','user-oauth-token')
+
+const OWNER = 'octocat'
+const REPO = 'demo'
+const BASE = '/repos/' + OWNER + '/' + REPO
+const HEAD = 'a'.repeat(40)
+const FILE_SHA = 'b'.repeat(40)
+const COMMIT_SHA = 'c'.repeat(40)
+const NEW_FILE_SHA = 'd'.repeat(40)
+const CONFIG = 'namespaces:\n  status:\n    - todo\n  foo: []\n'
+const NEXT_CONFIG = 'namespaces:\n  status:\n    - todo\n    - done\n  foo: []\n'
+const respond = (status, data, headers = {}) => new Response(
+  data == null ? null : JSON.stringify(data),
+  { status, headers: { 'content-type': 'application/json', ...headers } },
+)
+const file = (content, sha = FILE_SHA) => ({
+  type: 'file', encoding: 'base64', path: 'labourchain.config.yaml',
+  content: Buffer.from(content, 'utf8').toString('base64'),
+  size: Buffer.byteLength(content), sha,
+})
+const issue = (labels = ['foo:old']) => ({
+  number: 1, state: 'open', labels: labels.map(name => ({ name })),
+})
+
+function actorEntries(options = {}) {
+  return {
+    '/user': () => respond(200, { id: 7, login: 'fixture-operator' }),
+    '/user/installations/17/repositories': () => respond(200, {
+      repositories: [{
+        full_name: OWNER + '/' + REPO, private: false,
+        permissions: options.userPermissions || {
+          pull: true, triage: true, push: true, maintain: false, admin: false,
+        },
+      }],
+    }),
+    '/app/installations/17': () => respond(200, {
+      id: 17, account: { login: 'octocat' }, suspended_at: null,
+      permissions: options.appPermissions || {
+        contents: 'write', issues: 'write', pull_requests: 'write',
+      },
+    }),
+    [BASE + '/branches/main']: () => respond(200, {
+      name: 'main', protected: options.protected !== false, commit: { sha: HEAD },
+    }),
+    [BASE + '/rules/branches/main']: () => respond(200, options.mainRules || []),
+  }
+}
+
+function mockFetcher(options = {}) {
+  const calls = []
+  let mainContent = options.content === undefined ? CONFIG : options.content
+  let mainFileSha = options.fileSha || FILE_SHA
+  let mainHead = HEAD
+  let labels = options.labels || [{ name: 'foo:old' }]
+  let currentIssue = options.issue || issue()
+  const branches = new Map()
+  let createdLabelsCount = 0
+  let removedLabelsCount = 0
+  let completedPutCount = 0
+  const fetcher = observeHttp(async (url, init = {}) => {
+    const parsed = new URL(url)
+    assert.equal(parsed.origin,'https://api.github.com')
+    const path = decodeURIComponent(parsed.pathname)
+    const method = (init.method || 'GET').toUpperCase()
+    const authorization = init.headers?.Authorization
+    calls.push({ path, method, authorization, body: init.body || null })
+    if (path === BASE + '/branches/main' && method === 'GET') {
+      if (options.failMainAfterLabelCreate && createdLabelsCount > 0) {
+        return respond(429, { message: 'rate limited' }, { 'retry-after': '60' })
+      }
+      if (options.failMainAfterIssueDeletes && removedLabelsCount >= 10) {
+        return respond(503, { message: 'temporary upstream error' })
+      }
+      if (options.failDirectVerification && completedPutCount > 0) {
+        return respond(503, { message: 'failed to verify main commit' })
+      }
+    }
+    if (options.failBranchVerification && completedPutCount > 0 &&
+        path.startsWith(BASE + '/branches/labourchain/config-')) {
+      return respond(503, { message: 'failed to verify maintenance branch commit' })
+    }
+    if (path === '/user' || path.startsWith('/user/installations/') ||
+        path === '/app/installations/17' ||
+        path === BASE + '/rules/branches/main') {
+      const value = actorEntries(options)[path]
+      if (path==='/user' || path.startsWith('/user/installations/')) {
+        assert.equal(authorization,'Bearer user-oauth-token')
+        if(options.notMember&&path.startsWith('/user/installations/'))return respond(200,{repositories:[]})
+      }
+      if(path==='/app/installations/17')http.assertApp(authorization)
+      if (value) return value()
+    }
+    if (path === BASE) return respond(200, { id:10, private: false, full_name: OWNER + '/' + REPO, owner:{login:OWNER,type:'User'} })
+    if (path === BASE+'/installation') {
+      http.assertApp(authorization)
+      return respond(options.revoked?404:200,{id:17,account:{login:OWNER},suspended_at:null})
+    }
+    if (path === '/app/installations/17/access_tokens') {
+      http.assertApp(authorization)
+      assert.deepEqual(JSON.parse(init.body).repository_ids,[10])
+      return respond(201,{token:'app-install-read-token'})
+    }
+    if (path.startsWith(BASE + '/rules/branches/')) {
+      const name = path.slice((BASE + '/rules/branches/').length)
+      return branches.has(name) && !options.newBranchRulesUnavailable ?
+        respond(200, []) : respond(404, {})
+    }
+    if (path === BASE + '/branches/main') {
+      return respond(200, { name: 'main', protected: options.protected !== false,
+        commit: { sha: mainHead } })
+    }
+    if (path.startsWith(BASE + '/branches/')) {
+      const name = path.slice((BASE + '/branches/').length)
+      const entry = branches.get(name)
+      return entry ? respond(200, { name, protected: false, commit: { sha: entry.head } }) : respond(404, {})
+    }
+    if (path === BASE + '/contents/labourchain.config.yaml' && method === 'GET') {
+      const ref = parsed.searchParams.get('ref') || 'main'
+      if (ref === 'main') return mainContent == null ? respond(404, {}) : respond(200, file(mainContent, mainFileSha))
+      const entry = branches.get(ref)
+      return entry ? respond(200, file(entry.content, entry.fileSha)) : respond(404, {})
+    }
+    if (path === BASE + '/git/refs' && method === 'POST') {
+      const body = JSON.parse(init.body)
+      const name = body.ref.replace('refs/heads/', '')
+      branches.set(name, { content: mainContent, fileSha: mainFileSha, head: body.sha })
+      return respond(201, { ref: body.ref, object: { sha: body.sha } })
+    }
+    if (path.startsWith(BASE + '/git/ref/heads/')) {
+      const name = path.slice((BASE + '/git/ref/heads/').length)
+      const entry = branches.get(name)
+      return entry ? respond(200, { object: { sha: entry.head } }) : respond(404, {})
+    }
+    if (path === BASE + '/contents/labourchain.config.yaml' && method === 'PUT') {
+      const body = JSON.parse(init.body)
+      const next = Buffer.from(body.content, 'base64').toString('utf8')
+      if (body.branch === 'main') {
+        mainContent = next; mainFileSha = NEW_FILE_SHA; mainHead = COMMIT_SHA
+      } else {
+        const entry = branches.get(body.branch)
+        if (!entry) return respond(404, {})
+        entry.content = next; entry.fileSha = NEW_FILE_SHA; entry.head = COMMIT_SHA
+      }
+      completedPutCount++
+      return respond(200, { commit: { sha: COMMIT_SHA }, content: { sha: NEW_FILE_SHA } })
+    }
+    if (path === BASE + '/pulls' && method === 'POST') {
+      return respond(201, { number: 88, html_url: 'https://github.com/octocat/demo/pull/88' })
+    }
+    if (path === BASE + '/labels' && method === 'GET') return respond(200, labels)
+    if (path === BASE + '/labels' && method === 'POST') {
+      const data = JSON.parse(init.body)
+      labels = [...labels, { name: data.name, color: data.color }]
+      createdLabelsCount++
+      return respond(201, { name: data.name, color: data.color })
+    }
+    if (path.startsWith(BASE + '/labels/') && method === 'GET') {
+      const name = path.slice((BASE + '/labels/').length)
+      const label = labels.find(item => item.name === name)
+      return label ? respond(200, label) : respond(404, {})
+    }
+    if (path === BASE + '/issues' && method === 'GET') return respond(200, [currentIssue])
+    if (path === BASE + '/issues/1' && method === 'GET') return respond(200, currentIssue)
+    if (path.startsWith(BASE + '/issues/1/labels/') && method === 'DELETE') {
+      const name = path.slice((BASE + '/issues/1/labels/').length)
+      currentIssue = { ...currentIssue,
+        labels: currentIssue.labels.filter(label => label.name !== name) }
+      removedLabelsCount++
+      return respond(200, currentIssue.labels)
+    }
+    throw Error('Unexpected ' + method + ' ' + path)
+  })
+  http.use(fetcher)
+  return { fetcher, calls, getIssue: () => currentIssue,
+    getLabels: () => labels, getMainContent: () => mainContent,
+    getMainHead: () => mainHead, getBranch: name => branches.get(name) }
+}
+
+const writes = calls => calls.filter(call=>call.method!=='GET' && !call.path.endsWith('/access_tokens'))
+
+
+const savePayload={owner:OWNER,repo:REPO,action:'save_config',branch:'main',
+ content:NEXT_CONFIG,expectedHeadSha:HEAD,expectedFileSha:FILE_SHA}
+const submit=(mock,payload,options)=>createRepoConfigHandler({fetcher:mock.fetcher})
+ .fetch(http.post('/api/repo-config',payload,options))
+function checkWrites(mock,expected){
+ const calls=writes(mock.calls)
+ assert.deepEqual(calls.map(c=>[c.method,c.path]),expected)
+ assert.ok(calls.every(c=>c.authorization==='Bearer user-oauth-token'))
+ return calls
+}
+
+test('Config saves exactly the reviewed bytes to unprotected main and verifies the committed version', async () => {
+  const mock=mockFetcher({protected:false})
+  const handler=createRepoConfigHandler({fetcher:mock.fetcher})
+  const response=await handler.fetch(http.post('/api/repo-config',{
+    owner:OWNER,repo:REPO,action:'save_config',branch:'main',content:NEXT_CONFIG,
+    expectedHeadSha:HEAD,expectedFileSha:FILE_SHA,
+  }))
+  assert.equal(response.status,200)
+  assert.deepEqual(await response.json(),{state:'sync_pending',commitSha:COMMIT_SHA,
+    fileSha:NEW_FILE_SHA,headSha:COMMIT_SHA,requestedBy:'fixture-operator'})
+  assert.equal(mock.getMainContent(),NEXT_CONFIG)
+  assert.equal(mock.getMainHead(),COMMIT_SHA)
+  const [put]=checkWrites(mock,[['PUT',BASE+'/contents/labourchain.config.yaml']])
+  assert.equal(put.method,'PUT')
+  assert.equal(put.path,BASE+'/contents/labourchain.config.yaml')
+  const body=JSON.parse(put.body)
+  assert.equal(body.branch,'main')
+  assert.equal(body.sha,FILE_SHA)
+  assert.equal(Buffer.from(body.content,'base64').toString('utf8'),NEXT_CONFIG)
+  assert.match(body.message,/@fixture-operator/)
+  const after=mock.calls.slice(mock.calls.indexOf(put)+1)
+  assert.ok(after.some(call=>call.method==='GET'&&call.path===BASE+'/branches/main'))
+  assert.ok(after.some(call=>call.method==='GET'&&call.path===put.path))
+})
+
+test('Config protected main receives only a reviewed PR with the exact maintenance branch and content', async () => {
+  const mock=mockFetcher()
+  const handler=createRepoConfigHandler({fetcher:mock.fetcher})
+  const response=await handler.fetch(http.post('/api/repo-config',{
+    owner:OWNER,repo:REPO,action:'save_config',branch:'main',content:NEXT_CONFIG,
+    expectedHeadSha:HEAD,expectedFileSha:FILE_SHA,
+  }))
+  const data=await response.json()
+  assert.equal(response.status,200)
+  assert.equal(data.state,'awaiting_pr_merge')
+  assert.equal(data.prUrl,'https://github.com/octocat/demo/pull/88')
+  assert.equal(data.commitSha,COMMIT_SHA)
+  assert.equal(data.fileSha,NEW_FILE_SHA)
+  assert.match(data.branch,/^labourchain\/config-/)
+  const [ref,put,pr]=checkWrites(mock,[['POST',BASE+'/git/refs'],['PUT',BASE+'/contents/labourchain.config.yaml'],['POST',BASE+'/pulls']])
+  assert.deepEqual([ref.method,ref.path],['POST',BASE+'/git/refs'])
+  assert.deepEqual(JSON.parse(ref.body),{ref:'refs/heads/'+data.branch,sha:HEAD})
+  assert.deepEqual([put.method,put.path],['PUT',BASE+'/contents/labourchain.config.yaml'])
+  const update=JSON.parse(put.body)
+  assert.equal(update.branch,data.branch)
+  assert.equal(update.sha,FILE_SHA)
+  assert.equal(Buffer.from(update.content,'base64').toString('utf8'),NEXT_CONFIG)
+  assert.deepEqual([pr.method,pr.path],['POST',BASE+'/pulls'])
+  const opened=JSON.parse(pr.body)
+  assert.equal(opened.head,data.branch)
+  assert.equal(opened.base,'main')
+  assert.equal(opened.draft,false)
+  assert.match(opened.body,/@fixture-operator/)
+  assert.equal(mock.getMainContent(),CONFIG)
+  assert.equal(mock.getMainHead(),HEAD)
+  assert.deepEqual(mock.getBranch(data.branch),{content:NEXT_CONFIG,fileSha:NEW_FILE_SHA,head:COMMIT_SHA})
+  const verification=mock.calls.slice(mock.calls.indexOf(put)+1,mock.calls.indexOf(pr))
+  assert.ok(verification.some(call=>call.method==='GET'&&call.path===BASE+'/branches/'+data.branch))
+})
+
+async function syncPreviewId(mock) {
+  const response=await createRepoConfigHandler({fetcher:mock.fetcher}).fetch(new Request(
+    'https://example.test/api/repo-config?owner='+OWNER+'&repo='+REPO))
+  assert.equal(response.status,200)
+  const preview=await response.json()
+  assert.equal(preview.state,'sync_pending')
+  assert.match(preview.snapshotId,/^[a-f0-9]{64}$/)
+  mock.calls.length=0
+  return preview.snapshotId
+}
+
+test('Label sync commits only the reviewed current plan after explicit confirmation and becomes idempotent',async()=>{
+ const mock=mockFetcher({content:'namespaces:\n  foo: []\n  status: [new]\n',
+   issue:issue(['foo:old','external:keep']),labels:[{name:'foo:old'},{name:'external:keep'}]})
+ const previewId=await syncPreviewId(mock)
+ const payload={owner:OWNER,repo:REPO,action:'sync_labels',branch:'main',previewId,confirmRemovals:true}
+ for(const [changes,status,state] of [
+  [{previewId:'0'.repeat(64)},409,'stale_preview'],
+  [{confirmRemovals:false},400,'confirmation_required'],
+ ]){
+  const response=await submit(mock,{...payload,...changes})
+  assert.equal(response.status,status)
+  assert.equal((await response.json()).state,state)
+  assert.deepEqual(writes(mock.calls),[])
+  assert.deepEqual(mock.getIssue().labels.map(x=>x.name),['foo:old','external:keep'])
+ }
+ const response=await submit(mock,payload),data=await response.json()
+ assert.equal(response.status,200)
+ assert.equal(data.state,'ready')
+ assert.deepEqual(data.createdLabels,['status:new'])
+ assert.equal(data.removedAssociations,1)
+ const [create]=checkWrites(mock,[['POST',BASE+'/labels'],['DELETE',BASE+'/issues/1/labels/foo:old']])
+ assert.equal(JSON.parse(create.body).name,'status:new')
+ assert.deepEqual(mock.getIssue().labels.map(x=>x.name),['external:keep'])
+ assert.deepEqual(mock.getLabels().map(x=>x.name),['foo:old','external:keep','status:new'])
+ const after=await createRepoConfigHandler({fetcher:mock.fetcher}).fetch(new Request(
+  'https://example.test/api/repo-config?owner='+OWNER+'&repo='+REPO))
+ assert.equal(after.status,200)
+ assert.equal((await after.json()).state,'ready')
+ assert.equal(writes(mock.calls).length,2)
+})
+
+test('Config refuses unauthorized targets or stale reviewed content before any mutation',async()=>{
+ for(const [options,changes,requestOptions,status,state] of [
+  [{},{},{loggedIn:false},401],
+  [{},{},{requestOrigin:'https://wrong.test'},403],
+  [{revoked:true},{},{},403],
+  [{notMember:true},{},{},403],
+  [{appPermissions:{contents:'read',issues:'write',pull_requests:'write'}},{},{},403,'app_permission_missing'],
+  [{},{expectedHeadSha:'0'.repeat(40)},{},409,'stale_preview'],
+  [{},{expectedFileSha:'0'.repeat(40)},{},409,'stale_preview'],
+ ]){
+  const mock=mockFetcher(options)
+  const response=await submit(mock,{...savePayload,...changes},requestOptions)
+  assert.equal(response.status,status,JSON.stringify([options,changes]))
+  if(state)assert.equal((await response.json()).state,state)
+  assert.deepEqual(writes(mock.calls),[])
+  assert.equal(mock.getMainContent(),CONFIG)
+  assert.equal(mock.getMainHead(),HEAD)
+ }
+ const mock=mockFetcher()
+ const response=await createRepoConfigHandler({fetcher:mock.fetcher}).fetch(new Request(
+  'https://example.test/api/repo-config?owner=octocat&repo=demo&branch=feature'))
+ assert.equal(response.status,400)
+ assert.equal((await response.json()).state,'invalid_target')
+ assert.deepEqual(mock.calls,[])
+})
+
+test('protected Config refuses a missing maintenance Ruleset after creating a ref, without PUT', async () => {
+  const mock = mockFetcher({ newBranchRulesUnavailable: true })
+  const payload = {
+    owner: OWNER, repo: REPO, action: 'save_config', branch: 'main',
+    content: NEXT_CONFIG, expectedHeadSha: HEAD, expectedFileSha: FILE_SHA,
+  }
+  const handler = createRepoConfigHandler({
+    fetcher: mock.fetcher,
+  })
+  const response = await handler.fetch(http.post('/api/repo-config',payload))
+  const result = await response.json()
+  assert.equal(response.status, 200)
+  assert.equal(result.state, 'partial_failure')
+  assert.match(result.error, /Rulesets/)
+  assert.ok(result.branchUrl.includes('/tree/labourchain/config-'))
+  const created = mock.calls.find(call => call.path === BASE + '/git/refs' && call.method === 'POST')
+  const inspected = mock.calls.find(call => call.path.startsWith(BASE +
+    '/rules/branches/labourchain/config-'))
+  assert.ok(created)
+  assert.ok(inspected)
+  assert.ok(mock.calls.indexOf(created) < mock.calls.indexOf(inspected))
+  assert.equal(mock.calls.filter(call => call.method === 'PUT').length, 0)
+})
+
+test('Label sync readback throttling preserves the created label and leaves cleanup pending', async () => {
+  const mock = mockFetcher({
+    content: 'namespaces:\n  foo: []\n  status: [new]\n',
+    labels: [{ name: 'foo:old' }],
+    failMainAfterLabelCreate: true,
+  })
+  const previewId = await syncPreviewId(mock)
+  const payload = {
+    owner: OWNER, repo: REPO, action: 'sync_labels', branch: 'main',
+    previewId, confirmRemovals: true,
+  }
+  const handler = createRepoConfigHandler({
+    fetcher: mock.fetcher,
+  })
+  const res = await handler.fetch(http.post('/api/repo-config',payload))
+  const data = await res.json()
+  assert.equal(res.status, 200)
+  assert.equal(data.state, 'partial_failure')
+  assert.deepEqual(data.createdLabels, ['status:new'])
+  assert.deepEqual(data.removedAssociations, [])
+  assert.equal(data.failed[0].kind, 'verify_main')
+  assert.equal(data.failed[0].stage, 'after_label_creation')
+  assert.equal(data.failed[0].retryAfter, '60')
+  assert.equal(data.requiresRefresh, true)
+  assert.deepEqual(data.pending, [{ number: 1, labels: ['foo:old'] }])
+  assert.equal(mock.calls.filter(call => call.method === 'POST' &&
+    call.path === BASE + '/labels').length, 1)
+  assert.equal(mock.calls.filter(call => call.method === 'DELETE').length, 0)
+})
+
+test('Label sync verification failure after a deletion batch preserves every confirmed removal', async () => {
+  const names = Array.from({ length: 10 }, (_, i) => 'foo:old-' + i)
+  const mock = mockFetcher({
+    content: 'namespaces:\n  foo: []\n',
+    labels: names.map(name => ({ name })),
+    issue: issue(names),
+    failMainAfterIssueDeletes: true,
+  })
+  const previewId = await syncPreviewId(mock)
+  const payload = {
+    owner: OWNER, repo: REPO, action: 'sync_labels', branch: 'main',
+    previewId, confirmRemovals: true,
+  }
+  const handler = createRepoConfigHandler({
+    fetcher: mock.fetcher,
+  })
+  const res = await handler.fetch(http.post('/api/repo-config',payload))
+  const data = await res.json()
+  assert.equal(res.status, 200)
+  assert.equal(data.state, 'partial_failure')
+  assert.deepEqual(data.createdLabels, [])
+  assert.equal(data.removedAssociations.length, 10)
+  assert.deepEqual(data.removedAssociations.map(item => item.label), names)
+  assert.equal(data.failed[0].kind, 'verify_main')
+  assert.equal(data.failed[0].stage, 'after_issue_batch')
+  assert.equal(data.requiresRefresh, true)
+  assert.deepEqual(data.pending, [{ number: 1, labels: names }])
+  assert.deepEqual(mock.getIssue().labels, [])
+  assert.equal(mock.calls.filter(call => call.method === 'DELETE').length, 10)
+})
+
+test('a committed Config that cannot be read back retains its evidence and cannot be reported as verified',async()=>{
+ for(const protectedBranch of [false,true]){
+  const mock=mockFetcher({protected:protectedBranch,
+   ...(protectedBranch?{failBranchVerification:true}:{failDirectVerification:true})})
+  const response=await submit(mock,savePayload),data=await response.json()
+  assert.equal(response.status,200)
+  assert.equal(data.state,'partial_failure')
+  assert.equal(data.commitSha,COMMIT_SHA)
+  assert.equal(data.fileSha,NEW_FILE_SHA)
+  assert.equal(data.failed[0].kind,protectedBranch?'verify_branch':'verify_main_commit')
+  assert.equal(data.requiresRefresh,true)
+  const calls=checkWrites(mock,protectedBranch?
+   [['POST',BASE+'/git/refs'],['PUT',BASE+'/contents/labourchain.config.yaml']]:
+   [['PUT',BASE+'/contents/labourchain.config.yaml']])
+  const put=JSON.parse(calls.at(-1).body)
+  assert.equal(Buffer.from(put.content,'base64').toString('utf8'),NEXT_CONFIG)
+  if(protectedBranch){
+   assert.match(data.branchUrl,/\/tree\/labourchain\/config-/)
+   assert.equal(mock.getMainContent(),CONFIG)
+   assert.deepEqual(mock.getBranch(put.branch),{content:NEXT_CONFIG,fileSha:NEW_FILE_SHA,head:COMMIT_SHA})
+  }else{
+   assert.equal(mock.getMainContent(),NEXT_CONFIG)
+   assert.equal(mock.getMainHead(),COMMIT_SHA)
+  }
+ }
+})
