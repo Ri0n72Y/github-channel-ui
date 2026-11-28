@@ -143,7 +143,7 @@ test('Topic Config verifies the actual write outcome and invalidates only the co
  const otherSnapshot={...sample,repository:{owner:'sample',name:'other',full_name:'sample/other',
   html_url:'https://github.com/sample/other'}}
  const draft='topic: edited-topic\nwhitelist: true\n'
- const calls=[]
+ const calls=[],writeBodies=[]
  let reply=()=>Response.json({state:'pending_pr',branch:'maintenance',effective:false,prUrl:'https://github.com/sample/repo/pull/81'})
  let generation=0
  const api=createTopicPageApi(observeHttp(async(address,init={})=>{
@@ -155,8 +155,7 @@ test('Topic Config verifies the actual write outcome and invalidates only the co
    calls.push('write')
    assert.equal(u.search,'')
    assert.equal(init.headers['X-LabourChain-Write'],'1')
-   assert.deepEqual(JSON.parse(init.body),{...route,content:draft,expectedHeadSha:sample.headSha,
-    expectedFileSha:sample.configSha,confirmed:true})
+   writeBodies.push(JSON.parse(init.body))
    return reply()
   }
   assert.equal(method,'GET')
@@ -185,6 +184,8 @@ test('Topic Config verifies the actual write outcome and invalidates only the co
  assert.equal((await read(route)).items[0].id,1)
  assert.equal((await read(other)).items[0].id,1001)
  assert.deepEqual(await save(),{state:'pending_pr',branch:'maintenance',effective:false,prUrl:'https://github.com/sample/repo/pull/81'})
+ const expectedBody={...route,content:draft,expectedHeadSha:sample.headSha,expectedFileSha:sample.configSha,confirmed:true}
+ assert.deepEqual(writeBodies,[expectedBody])
  for(const [response,expected] of [
   [()=>Response.json({error:'stale version'},{status:409}),{status:409,outcomeUnknown:false}],
   [()=>Response.json({state:'pending_pr',branch:'maintenance',effective:true,prUrl:'https://github.com/sample/repo/pull/81'}),{status:502,outcomeUnknown:true}],
@@ -209,4 +210,5 @@ test('Topic Config verifies the actual write outcome and invalidates only the co
  assert.equal((await read(route)).items[0].id,101)
  assert.equal((await read(other)).items[0].id,1001)
  assert.deepEqual(calls.slice(-3),['write','snapshot:repo','projects:repo'])
+ assert.deepEqual(writeBodies,Array(5).fill(expectedBody))
 })
