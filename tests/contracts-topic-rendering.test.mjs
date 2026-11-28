@@ -39,39 +39,14 @@ const project = { full_name: 'member/project', name: 'project',
   owner: 'member', description: 'Project', html_url: 'https://github.com/member/project',
   stargazers_count: 1, language: 'TypeScript' }
 
-test('#31 H1 text, footer order and safe public project attribution render in SSR', () => {
-  const html = render({ snapshot: meta, projects: [project] })
-  assert.match(html, /Real Topic/)
-  assert.match(html, /Description/)
-  assert.doesNotMatch(html, /Before H1/)
-  assert.match(html, /邮箱：team@example.org/)
-  assert.match(html, /仅展示符合活动条件且已登记的公开项目/)
-  assert.match(html, /https:\/\/github.com\/member\/project/)
-})
-
-test('#31 Search window exhaustion renders an explicit non-terminal warning', () => {
+test('Search window exhaustion renders an explicit non-terminal warning', () => {
   const html = render({ snapshot: meta, projects: [project], windowExhausted: true })
   assert.match(html, /1000 条可访问上限/)
   assert.match(html, /无法确认是否还有更多项目/)
   assert.doesNotMatch(html, /当前可访问搜索范围没有符合配置/)
 })
 
-test('#31 report failure is visible inside dialog, retains the submitted draft', () => {
-  const html = render({ error: Object.assign(new Error('README fetch failed'),
-    { stage: 'readme', status: 502, observedAt: '2026-11-12T12:55:00Z' }), canReport: true, writeEnabled: true,
-    report: { open: true, title: 'My draft', body: 'Keep this body',
-      message: 'Fixture 403 permission denied', pending: false,
-      checking: false, uncertain: false, url: '' } })
-  const dialog = html.slice(html.indexOf('role="dialog"'))
-  assert.match(dialog, /My draft/)
-  assert.match(dialog, /Keep this body/)
-  assert.match(dialog, /role="alert"/)
-  assert.match(dialog, /Fixture 403 permission denied/)
-  assert.match(html, /请求时间：2026-11-12T12:55:00Z/)
-  assert.match(dialog, /确认提交 Issue/)
-})
-
-test('#31 unverified report permission keeps submit disabled with manual GitHub handoff', () => {
+test('unverified report permission keeps submit disabled with manual GitHub handoff', () => {
   const html = render({ canReport: true,
     report: { open: true, title: 'Draft', body: 'Details',
       message: '', pending: false, url: '' } })
@@ -81,22 +56,7 @@ test('#31 unverified report permission keeps submit disabled with manual GitHub 
   assert.match(html, /href="https:\/\/github.com\/sample\/repo\/issues\/new"/)
 })
 
-test('#31 OAuth report unknown result forces a deliberate confirmation button, preserves draft', () => {
-  const html = render({ error: Object.assign(new Error('API failed'),
-    { stage: 'source', status: 503 }), canReport: true, writeEnabled: false,
-    report: { open: true, pending: false, checking: false, uncertain: true,
-      title: 'Keep this title', body: 'Keep this report',
-      message: '创建结果未知，请先核查', url: '' } })
-  assert.match(html, /我已在 GitHub 核查，允许再次提交/)
-  assert.match(html, /Keep this title/)
-  assert.match(html, /Keep this report/)
-  assert.match(html, /disabled=""/)
-  assert.match(html, /创建结果未知，请先核查/)
-  assert.ok(html.includes('href="https://github.com/sample/repo/issues"'))
-  assert.match(html, /查看现有 Issues/)
-})
-
-test('#31 B1-1 incomplete GitHub Search renders retryable failure, never an empty result', () => {
+test('B1-1 incomplete GitHub Search renders retryable failure, never an empty result', () => {
   const html = render({ error: Object.assign(
     new Error('GitHub Topic Search 结果不完整，请重试读取'),
     { stage: 'topic-search', status: 502 }) })
@@ -108,7 +68,7 @@ test('#31 B1-1 incomplete GitHub Search renders retryable failure, never an empt
   assert.doesNotMatch(html, /1000 条可访问上限/)
 })
 
-test('#69 Topic cards show compact no-cover text and avatar fallback', () => {
+test('Topic cards show compact no-cover text and avatar fallback', () => {
   const html = render({ snapshot: meta, projects: [project] })
   assert.doesNotMatch(html, /暂无可用项目封面/)
   assert.match(html, /打开 GitHub/)

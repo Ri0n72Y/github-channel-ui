@@ -24,7 +24,10 @@ test('configured cover requires a trusted direct image URL and immutable raw rep
   assert.equal(parseTopicYaml('topic: activity\ncover: '+url).cover,url)
   for(const value of [url.replace('raw.githubusercontent.com','evil.invalid'),
     url.replace('a'.repeat(40),'main'),url+'?download=1',url.replace('/poster','/../poster'),
-    url.replace('.png','.svg'),'javascript:alert(1)']){
+    url.replace('.png','.svg'),'javascript:alert(1)',
+    url.replace('https:','http:'),url.replace('raw.githubusercontent.com','raw.githubusercontent.com@evil.invalid'),
+    url.replace('raw.githubusercontent.com','raw.githubusercontent.com:8443'),url+'#x',url+'\u0000',
+    url.replace('/poster','/%2e%2e/poster'),'data:image/png;base64,AA','//raw.githubusercontent.com/a.png']){
     assert.equal(safeTopicCoverUrl(value),null)
     assert.throws(()=>parseTopicYaml('topic: activity\ncover: '+value))
   }

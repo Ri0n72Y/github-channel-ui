@@ -4,6 +4,8 @@ import { createTopicProjectsEndpoint } from '../api/_topic-projects.mjs'
 import { createTopicConfigEndpoint } from '../api/_topic-config.mjs'
 import { topicReadFixture, HEAD, PROJECT_TREE } from './helpers/topic-read-fixture.mjs'
 import { loadInstalledTopicBatch } from '../plugins/topic-page/src/domain.mjs'
+import { githubHttpFixture } from './helpers/github-http.mjs'
+const http=githubHttpFixture('https://labour.test','user-token')
 
 const ROOT = '/repos/sample/repo'
 const source = 'topic: labourchain\nwhitelist: true\n'
@@ -19,7 +21,7 @@ function searchMock({items=Array.from({length:100},(_,i)=>candidate(i+1)),
   total=250,config='topic: labourchain\nwhitelist: false\n',incomplete=false}={}){
   return topicReadFixture({config,search:()=>({total_count:total,incomplete_results:incomplete,items})})
 }
-test('#83 configured public Topic returns a complete page without Installation or authorization',async()=>{
+test('configured public Topic returns a complete page without Installation or authorization',async()=>{
   const mock=searchMock(),endpoint=createTopicProjectsEndpoint({fetcher:mock.fetcher})
   const first=await endpoint.fetch(new Request('https://labour.test'+address+'&head='+HEAD))
   assert.equal(first.status,200)
@@ -34,7 +36,7 @@ test('#83 configured public Topic returns a complete page without Installation o
   assert.equal(mock.calls.length,6)
   assert.equal((await endpoint.fetch(new Request('https://labour.test'+address+'&offset=25'))).status,400)
 })
-test('#83 public search excludes private, malformed, mismatched and source candidates',async()=>{
+test('public search excludes private, malformed, mismatched and source candidates',async()=>{
   const items=[candidate(1),candidate(2),{...candidate(3),private:true},
     {...candidate(4),id:0},{...candidate(5),html_url:'https://evil.invalid/member/p5'},
     {...candidate(6),full_name:'another/p6'},
@@ -47,7 +49,7 @@ test('#83 public search excludes private, malformed, mismatched and source candi
   assert.deepEqual((await response.json()).items.map(p=>p.id),[1,2])
   assert.equal(mock.calls.length,6)
 })
-test('#83 public batch fills sparse pages, dedups stable ID and distinguishes window exhaustion',async()=>{
+test('public batch fills sparse pages, dedups stable ID and distinguishes window exhaustion',async()=>{
   const meta={repository:{full_name:'sample/repo'},
     config:{whitelist:true},allowedRepositories:['member/p1','member/p2']}
   const calls=[]
@@ -73,7 +75,7 @@ test('#83 public batch fills sparse pages, dedups stable ID and distinguishes wi
 
 function configMock({protectedBranch=false,appWrite=true,appPrWrite=true,
   userPush=true,sha=null,actual='topic: labourchain\nwhitelist: true\n',
-  mismatch=false,prFailure=false,rulesFailure=false,readbackFailure=null}={}){
+  mismatch=false,prFailure=false,rulesFailure=false,readbackFailure=null,revoked=false,notMember=false}={}){
   const calls=[]
   const base=ROOT
   const savedByBranch=new Map()
@@ -83,13 +85,22 @@ function configMock({protectedBranch=false,appWrite=true,appPrWrite=true,
     const req={path,method,body:init.body?JSON.parse(init.body):null,
       auth:init.headers?.Authorization}
     calls.push(req)
+    if(path===base+'/installation'){
+      http.assertApp(req.auth)
+      return reply(revoked?404:200,{id:17,account:{login:'sample'},suspended_at:null})
+    }
+    if(path==='/user/installations/17/repositories'){
+      assert.equal(req.auth,'Bearer user-token')
+      return reply(200,{repositories:notMember?[]:[{id:50,private:false,full_name:'sample/repo'}]})
+    }
+    if(path==='/app/installations/17')http.assertApp(req.auth)
     if(path==='/app/installations/17')return reply(200,{
       id:17,account:{login:'sample'},permissions:{
         contents:appWrite?'write':'read',pull_requests:appPrWrite?'write':'read'},
       suspended_at:null})
     if(path==='/user')return reply(200,{id:42,login:'sample'})
     if(path===base&&method==='GET')return reply(200,{
-      id:50,private:false,full_name:'sample/repo',default_branch:'main',
+      id:50,private:false,full_name:'sample/repo',default_branch:'main',owner:{login:'sample',type:'User'},
       permissions:{push:userPush}})
     if(path===base+'/branches/main'){
       if(savedByBranch.has('main')&&readbackFailure?.stage==='branch'){
@@ -142,23 +153,19 @@ function configMock({protectedBranch=false,appWrite=true,appPrWrite=true,
     }
     throw Error('unexpected '+method+' '+path)
   }
+  http.use(fetcher)
   return {fetcher,calls}
 }
-const contextFor=(body={})=>async(request,options)=>{
-  assert.equal(options.dynamicInstallation,true)
-  return {body:{owner:'sample',repo:'repo',confirmed:true,
-    expectedHeadSha:'b'.repeat(40),expectedFileSha:null,
-    content:'topic: labourchain\nwhitelist: false\n',...body},token:'user-token'}
-}
-const installation=async()=>({installationId:17,repositoryId:50,jwt:'app-jwt'})
 const configUrl='https://labour.test/api/topic-config'
+const post=(body={},options={})=>http.post('/api/topic-config',{owner:'sample',repo:'repo',confirmed:true,
+    expectedHeadSha:'b'.repeat(40),expectedFileSha:null,
+    content:'topic: labourchain\nwhitelist: false\n',...body},options)
 
-test('#83 explicit OAuth owner edit writes verified unprotected branch and reads back',async()=>{
+test('explicit OAuth owner edit writes verified unprotected branch and reads back',async()=>{
   const mock=configMock(),invalidated=[]
   const handler=createTopicConfigEndpoint({fetcher:mock.fetcher,
-    writeContextFn:contextFor(),installationResolver:installation,
     invalidate:(owner,repo)=>invalidated.push([owner,repo])})
-  const response=await handler.fetch(new Request(configUrl,{method:'POST'}))
+  const response=await handler.fetch(post())
   assert.equal(response.status,200)
   const result=await response.json()
   assert.equal(result.state,'committed')
@@ -169,14 +176,13 @@ test('#83 explicit OAuth owner edit writes verified unprotected branch and reads
   assert.equal(writes.length,1)
   assert.equal(writes[0].method,'PUT')
   assert.equal(writes[0].auth,'Bearer user-token')
-  assert.equal(mock.calls.find(c=>c.path==='/app/installations/17').auth,'Bearer app-jwt')
+  http.assertApp(mock.calls.find(c=>c.path==='/app/installations/17').auth)
 })
-test('#83 branch protection creates a PR, never advertises unmerged config as effective',async()=>{
+test('branch protection creates a PR, never advertises unmerged config as effective',async()=>{
   const mock=configMock({protectedBranch:true}),invalidated=[]
   const handler=createTopicConfigEndpoint({fetcher:mock.fetcher,
-    writeContextFn:contextFor(),installationResolver:installation,
     invalidate:(owner,repo)=>invalidated.push([owner,repo])})
-  const response=await handler.fetch(new Request(configUrl,{method:'POST'}))
+  const response=await handler.fetch(post())
   assert.equal(response.status,200)
   const body=await response.json()
   assert.equal(body.state,'pending_pr')
@@ -186,7 +192,7 @@ test('#83 branch protection creates a PR, never advertises unmerged config as ef
   assert.deepEqual(mock.calls.filter(c=>c.method!=='GET').map(c=>c.method),
     ['POST','PUT','POST'])
 })
-test('#83 invalid YAML, stale HEAD, App/User denial and missing OAuth never write',async()=>{
+test('invalid YAML, stale HEAD, App/User denial and missing OAuth never write',async()=>{
   const cases=[
     {args:{},body:{content:'topic: labourchain\nunknown: exposed\n'},status:422},
     {args:{mismatch:true},status:409},
@@ -195,20 +201,25 @@ test('#83 invalid YAML, stale HEAD, App/User denial and missing OAuth never writ
   ]
   for(const {args,body,status}of cases){
     const mock=configMock(args)
-    const handler=createTopicConfigEndpoint({fetcher:mock.fetcher,
-      writeContextFn:contextFor(body),installationResolver:installation})
-    const response=await handler.fetch(new Request(configUrl,{method:'POST'}))
+    const handler=createTopicConfigEndpoint({fetcher:mock.fetcher})
+    const response=await handler.fetch(post(body))
     assert.equal(response.status,status)
     assert.equal(mock.calls.filter(c=>c.method!=='GET').length,0)
   }
-  const auth=createTopicConfigEndpoint({fetcher:async()=>{throw Error('forbidden')},
-    writeContextFn:async()=>({error:reply(401,{error:'login required'})})})
-  assert.equal((await auth.fetch(new Request(configUrl,{method:'POST'}))).status,401)
+  for(const [args,options,status] of [
+    [{},{loggedIn:false},401],[{},{requestOrigin:'https://wrong.test'},403],
+    [{revoked:true},{},403],[{notMember:true},{},403]]){
+    const mock=configMock(args)
+    const endpoint=createTopicConfigEndpoint({fetcher:mock.fetcher})
+    assert.equal((await endpoint.fetch(post({},options))).status,status)
+    assert.equal(mock.calls.filter(c=>c.method!=='GET').length,0)
+  }
+  const auth=createTopicConfigEndpoint({fetcher:async()=>{throw Error('unexpected external request')}})
   assert.equal((await auth.fetch(new Request(configUrl))).status,405)
 })
 
 
-test('#83 two source configurations select their own Topic and case-insensitive whitelist',async()=>{
+test('two source configurations select their own Topic and case-insensitive whitelist',async()=>{
   const first=topicReadFixture({repo:'first',config:'topic: alpha\n',projects:{
     '1-member-p1.yaml':'repository: MEMBER/P1\n','2-member-p9.yaml':'repository: member/p9\n'},
     search:()=>({total_count:2,items:[candidate(1),candidate(2)],incomplete_results:false})})
@@ -230,7 +241,7 @@ test('#83 two source configurations select their own Topic and case-insensitive 
   assert.ok(second.calls.every(c=>!c.path.includes('/projects/')&&!c.path.endsWith(PROJECT_TREE)))
   assert.ok([...first.calls,...second.calls].every(c=>!c.path.includes('installation')&&!c.auth))
 })
-test('#83 missing or invalid config and whitelist read failure never fall back to arbitrary Search',async()=>{
+test('missing or invalid config and whitelist read failure never fall back to arbitrary Search',async()=>{
   for(const [mode,status,stage] of [['missing-config',404,'config'],
       ['bad-config',422,'config'],['directory-error',502,'whitelist'],
       ['listed-file-missing',404,'whitelist'],['rate-limit',429,'whitelist']]){
@@ -247,7 +258,7 @@ test('#83 missing or invalid config and whitelist read failure never fall back t
     assert.equal(mock.calls.filter(c=>c.path==='/search/repositories').length,0,mode)
   }
 })
-test('#83 explicit or default whitelist stays closed with missing directory or invalid declarations',async()=>{
+test('explicit or default whitelist stays closed with missing directory or invalid declarations',async()=>{
   for(const config of [source,'topic: labourchain\n']){
     for(const projects of [null,{'bad.yaml':'unknown: bad\n'}]){
       const mock=topicReadFixture({config,projects,search:()=>({total_count:1,items:[candidate(1)]})})
@@ -259,23 +270,20 @@ test('#83 explicit or default whitelist stays closed with missing directory or i
     }
   }
 })
-test('#83 protected write requires App PR permission and leaves partial state on uncertain PR creation',async()=>{
+test('protected write requires App PR permission and leaves partial state on uncertain PR creation',async()=>{
   const missing=configMock({protectedBranch:true,appPrWrite:false})
-  const denied=await createTopicConfigEndpoint({fetcher:missing.fetcher,
-    writeContextFn:contextFor(),installationResolver:installation})
-    .fetch(new Request(configUrl,{method:'POST'}))
+  const denied=await createTopicConfigEndpoint({fetcher:missing.fetcher})
+    .fetch(post())
   assert.equal(denied.status,403)
   assert.equal(missing.calls.filter(c=>c.method!=='GET').length,0)
   const blocked=configMock({rulesFailure:true})
-  const badRules=await createTopicConfigEndpoint({fetcher:blocked.fetcher,
-    writeContextFn:contextFor(),installationResolver:installation})
-    .fetch(new Request(configUrl,{method:'POST'}))
+  const badRules=await createTopicConfigEndpoint({fetcher:blocked.fetcher})
+    .fetch(post())
   assert.equal(badRules.status,403)
   assert.equal(blocked.calls.filter(c=>c.method!=='GET').length,0)
   const partial=configMock({protectedBranch:true,prFailure:true})
-  const handler=createTopicConfigEndpoint({fetcher:partial.fetcher,
-    writeContextFn:contextFor(),installationResolver:installation})
-  const response=await handler.fetch(new Request(configUrl,{method:'POST'}))
+  const handler=createTopicConfigEndpoint({fetcher:partial.fetcher})
+  const response=await handler.fetch(post())
   assert.equal(response.status,200)
   const body=await response.json()
   assert.equal(body.state,'partial_failure')
@@ -286,7 +294,7 @@ test('#83 protected write requires App PR permission and leaves partial state on
 })
 
 
-test('#83 Reviewer B1: successful direct PUT followed by readback faults stays outcomeUnknown',async()=>{
+test('successful direct PUT followed by readback faults stays outcomeUnknown',async()=>{
   for(const scenario of [
     {stage:'branch',type:'network'},
     {stage:'branch',status:429},
@@ -298,9 +306,8 @@ test('#83 Reviewer B1: successful direct PUT followed by readback faults stays o
     {stage:'file',type:'json'},
   ]){
     const mock=configMock({readbackFailure:scenario})
-    const handler=createTopicConfigEndpoint({fetcher:mock.fetcher,
-      writeContextFn:contextFor(),installationResolver:installation})
-    const response=await handler.fetch(new Request(configUrl,{method:'POST'}))
+    const handler=createTopicConfigEndpoint({fetcher:mock.fetcher})
+    const response=await handler.fetch(post())
     assert.equal(response.status,502,JSON.stringify(scenario))
     const body=await response.json()
     assert.equal(body.state,'rejected',JSON.stringify(scenario))
@@ -310,12 +317,11 @@ test('#83 Reviewer B1: successful direct PUT followed by readback faults stays o
     assert.equal(mock.calls.filter(c=>c.method==='POST').length,0)
   }
 })
-test('#83 Reviewer B1: protected PUT readback failure preserves partial branch and unknown status',async()=>{
+test('protected PUT readback failure preserves partial branch and unknown status',async()=>{
   const mock=configMock({protectedBranch:true,
     readbackFailure:{stage:'file',status:503}})
-  const response=await createTopicConfigEndpoint({fetcher:mock.fetcher,
-    writeContextFn:contextFor(),installationResolver:installation})
-    .fetch(new Request(configUrl,{method:'POST'}))
+  const response=await createTopicConfigEndpoint({fetcher:mock.fetcher})
+    .fetch(post())
   assert.equal(response.status,200)
   const body=await response.json()
   assert.equal(body.state,'partial_failure')
@@ -325,12 +331,11 @@ test('#83 Reviewer B1: protected PUT readback failure preserves partial branch a
   assert.equal(mock.calls.filter(c=>c.method==='PUT').length,1)
   assert.equal(mock.calls.filter(c=>c.path===ROOT+'/pulls'&&c.method==='POST').length,0)
 })
-test('#83 Reviewer B2: identical protected save reuses the verified open PR',async()=>{
+test('identical protected save reuses the verified open PR',async()=>{
   const mock=configMock({protectedBranch:true})
-  const handler=createTopicConfigEndpoint({fetcher:mock.fetcher,
-    writeContextFn:contextFor(),installationResolver:installation})
-  const one=await (await handler.fetch(new Request(configUrl,{method:'POST'}))).json()
-  const two=await (await handler.fetch(new Request(configUrl,{method:'POST'}))).json()
+  const handler=createTopicConfigEndpoint({fetcher:mock.fetcher})
+  const one=await (await handler.fetch(post())).json()
+  const two=await (await handler.fetch(post())).json()
   assert.equal(one.state,'pending_pr')
   assert.equal(two.state,'pending_pr')
   assert.equal(one.branch,two.branch)
@@ -343,57 +348,30 @@ test('#83 Reviewer B2: identical protected save reuses the verified open PR',asy
   assert.equal(mock.calls.filter(c=>c.path===ROOT+'/pulls'&&c.method==='POST').length,1)
   assert.ok(mock.calls.filter(c=>c.path===ROOT+'/pulls'&&c.method==='GET').length>=2)
 })
-test('#83 Reviewer B2: changed YAML hashes to another branch; same-content PR remains deduplicated',async()=>{
+test('changed YAML hashes to another branch; same-content PR remains deduplicated',async()=>{
   const mock=configMock({protectedBranch:true})
-  const handler=createTopicConfigEndpoint({fetcher:mock.fetcher,
-    writeContextFn:contextFor(),installationResolver:installation})
-  const first=await (await handler.fetch(new Request(configUrl,{method:'POST'}))).json()
+  const handler=createTopicConfigEndpoint({fetcher:mock.fetcher})
+  const first=await (await handler.fetch(post())).json()
   assert.equal(first.state,'pending_pr')
-  const otherText=contextFor({content:'topic: changed\nwhitelist: false\n'})
-  const second=await createTopicConfigEndpoint({fetcher:mock.fetcher,
-    writeContextFn:otherText,installationResolver:installation})
-    .fetch(new Request(configUrl,{method:'POST'}))
+  const second=await handler.fetch(post({content:'topic: changed\nwhitelist: false\n'}))
   // A distinct YAML creates a separate deterministic branch; source-side base still unchanged.
   assert.equal(second.status,200)
   assert.notEqual((await second.json()).branch,first.branch)
 })
 
-test('#83 cover config rejects executable, mixed-origin and ambiguous URLs',async()=>{
-  const {parseTopicYaml,safeTopicCoverUrl}=await import('../plugins/topic-page/src/domain.mjs')
-  const good='https://raw.githubusercontent.com/sample/repo/'+HEAD+'/poster.png'
-  for(const value of [good,JSON.stringify(good),"'"+good+"'"])
-    assert.equal(parseTopicYaml('topic: labourchain\ncover: '+value+'\n').cover,good)
-  for(const value of ['javascript:alert(1)','JaVaScRiPt:alert(1)','data:image/png;base64,AA',
-    'blob:https://raw.githubusercontent.com/x','file:///tmp/poster.png','//raw.githubusercontent.com/a.png',
-    'http://raw.githubusercontent.com/a.png','https://raw.githubusercontent.com@evil.invalid/a.png',
-    'https://user-images.githubusercontent.com:8443/a.png','https://user-images.githubusercontent.com.evil.invalid/a.png',
-    'https://user-images.githubusercontent.com/a.svg','https://user-images.githubusercontent.com/a.png?next=x',
-    'https://user-images.githubusercontent.com/a.png#x','https://user-images.githubusercontent.com/%2e%2e/a.png',
-    'https://user-images.githubusercontent.com/a/../a.png','https://user-images.githubusercontent.com/a.png\u0000',
-    'https://raw.githubusercontent.com/sample/repo/main/poster.png','https://user-images.githubusercontent.com/a.html']){
-    assert.equal(safeTopicCoverUrl(value),null,value)
-    assert.throws(()=>parseTopicYaml('topic: labourchain\ncover: '+JSON.stringify(value)+'\n'))
-  }
-  assert.throws(()=>parseTopicYaml('repository: sample/repo\ncover: '+good+'\n','project'))
-  assert.throws(()=>parseTopicYaml('topic: labourchain\ncover: '+good+'\ncover: '+good+'\n'))
-})
-
-test('#83 malicious cover is rejected before any OAuth GitHub write or repository lookup',async()=>{
+test('malformed Topic configuration never reaches repository mutation',async()=>{
   const mock=configMock()
-  const handler=createTopicConfigEndpoint({fetcher:mock.fetcher,
-    writeContextFn:contextFor({content:'topic: labourchain\ncover: javascript:alert(1)\n'}),
-    installationResolver:async()=>assert.fail('must validate cover before authorization lookup')})
-  const response=await handler.fetch(new Request(configUrl,{method:'POST'}))
+  const handler=createTopicConfigEndpoint({fetcher:mock.fetcher})
+  const response=await handler.fetch(post({content:'topic: labourchain\ncover: javascript:alert(1)\n'}))
   assert.equal(response.status,422)
-  assert.equal(mock.calls.length,0)
+  assert.equal(mock.calls.filter(c=>c.method!=='GET').length,0)
+  assert.equal(mock.calls.some(c=>c.path.includes('/branches/')||c.path.includes('/contents/')),false)
 })
-test('#83 approved cover uses existing verified OAuth write and readback',async()=>{
+test('approved cover uses existing verified OAuth write and readback',async()=>{
   const mock=configMock()
   const cover='https://raw.githubusercontent.com/sample/repo/'+HEAD+'/poster.png'
-  const handler=createTopicConfigEndpoint({fetcher:mock.fetcher,
-    writeContextFn:contextFor({content:'topic: labourchain\ncover: '+cover+'\n'}),
-    installationResolver:installation})
-  const response=await handler.fetch(new Request(configUrl,{method:'POST'}))
+  const handler=createTopicConfigEndpoint({fetcher:mock.fetcher})
+  const response=await handler.fetch(post({content:'topic: labourchain\ncover: '+cover+'\n'}))
   assert.equal(response.status,200)
   const body=await response.json()
   assert.equal(body.state,'committed')

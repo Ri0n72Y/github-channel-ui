@@ -37,22 +37,46 @@ before(async () => {
  makeRepoStore=(await server.ssrLoadModule('/plugins/repo-issues/src/index.ts')).createRepoIssuesStore
 })
 after(async () => {await server?.close();dom.window.close()})
-async function mount(path, route, Component, prop, keyFor) {
+// Mount resource routes through their actual Cordis plugin registration.
+// A direct render is reserved for independently owned components/host slots.
+async function mount(path, route, Component, prop) {
  const host=document.createElement('div')
  document.body.append(host)
  const root=createRoot(host)
- let navigate
+ let navigate,core,fiber
  function Nav(){navigate=useNavigate();return null}
- function Scoped(){
-  const params=useParams()
-  return h(Component,{key:keyFor?.(params),...prop})
- }
- await act(async()=>root.render(h(React.StrictMode,null,h(MemoryRouter,{initialEntries:[path]},
-   h(Nav), h(Routes,null,h(Route,{path:route,element:h(Scoped)}))))))
- await flush()
- return {host,go:async path=>{await act(async()=>navigate(path));await flush()},
-   close:async()=>{await act(async()=>root.unmount());host.remove()}}
+ const pluginFactory=Component===Issue?['issue-detail','createIssueDetailPlugin',prop.service]:
+   Component===Config?['repo-config','createRepoConfigPlugin',prop.api]:
+   Component===CreateIssue?['repo-home','createRepoHomePlugin',undefined,{issueApi:prop.api}]:
+   [Home,Member,Members].includes(Component)&&!Object.hasOwn(prop,'coverUrl')?
+     ['repo-home','createRepoHomePlugin',prop.api]:
+   route==='/topic/:owner/:repo'?['topic-page','createTopicPagePlugin',prop.api]:null
+ let entry
+ try{
+  if(pluginFactory){
+   const {Context}=await import('@deepseek-ai/cordis')
+   const {ReactUIService,App}=await server.ssrLoadModule('/plugins/react-ui/src/index.tsx')
+   const [name,factory,...args]=pluginFactory
+   const module=await server.ssrLoadModule('/plugins/'+name+'/src/index.tsx')
+   const ctx=new Context()
+   core=ctx.plugin(ReactUIService);await core
+   fiber=ctx.plugin(module[factory](...args));await fiber
+   entry=h(App,{ui:ctx.reactUI})
+  }else entry=h(Routes,null,h(Route,{path:route,element:h(Component,prop)}))
+  async function settleRoute(){
+   await flush()
+   for(let i=0;pluginFactory&&i<100&&/^正在加载(?:项目页面|创建 Issue 页面|讨论|仓库配置|TopicPage)…$/.test(host.textContent);i++){
+    await act(async()=>{await new Promise(r=>setTimeout(r,20))})
+   }
+   assert.doesNotMatch(host.textContent,/^正在加载(?:项目页面|创建 Issue 页面|讨论|仓库配置|TopicPage)…$/)
+  }
+  await act(async()=>root.render(h(React.StrictMode,null,h(MemoryRouter,{initialEntries:[path]},h(Nav),entry))))
+  await settleRoute()
+  return {host,go:async path=>{await act(async()=>navigate(path));await settleRoute()},
+   close:async()=>{try{await act(async()=>root.unmount())}finally{host.remove();try{await fiber?.dispose()}finally{await core?.dispose()}}}}
+ }catch(error){try{await act(async()=>root.unmount())}finally{host.remove();try{await fiber?.dispose()}finally{await core?.dispose()}}throw error}
 }
+
 function input(element,value) {
  const setter=Object.getOwnPropertyDescriptor(
    element.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value').set
@@ -80,7 +104,7 @@ function issueService(opts={}){
   },
  }
 }
-test('#86 Repo A -> B: StrictMode remount hides old cards and preserves per-repo branch',async()=>{
+test('Repo A -> B: StrictMode remount hides old cards and preserves per-repo branch',async()=>{
  const pending=deferred()
  const calls=[]
  const api={
@@ -94,7 +118,7 @@ test('#86 Repo A -> B: StrictMode remount hides old cards and preserves per-repo
   getCapability:async()=>{throw Error('denied')},
  }
  localStorage.setItem('labourchain:display-branch:sample/beta','feature')
- const app=await mount('/sample/alpha','/:owner/:repo',Home,{api},p=>p.owner+'/'+p.repo)
+ const app=await mount('/sample/alpha','/:owner/:repo',Home,{api})
  try{
   assert.match(app.host.textContent,/Only in alpha/)
   await app.go('/sample/beta')
@@ -107,12 +131,12 @@ test('#86 Repo A -> B: StrictMode remount hides old cards and preserves per-repo
   assert.ok(calls.some(x=>x==='sample/beta:feature'))
  } finally {await app.close()}
 })
-test('#86 Issue A -> B: current-page input and late writes belong to their original controller',async()=>{
+test('Issue A -> B: current-page input and late writes belong to their original controller',async()=>{
  const pending=deferred()
  let writes=0
  const svc=issueService({authorized:true,postComment:()=>{writes++;return pending.promise}})
  const app=await mount('/sample/repo/issues/1','/:owner/:repo/issues/:number',Issue,
-   {service:svc},p=>p.owner+'/'+p.repo+'/issues/'+p.number)
+   {service:svc})
  try{
   const form=app.host.querySelector('form[aria-label="参与讨论"] textarea')
   assert.ok(form)
@@ -141,8 +165,7 @@ test('Issue route change excludes old labour records even when an earlier page c
   return Promise.resolve({items:n===1?[record(101,1,0.5,'old outcome')]:[record(201,2,1.5,'current outcome')],
    hasMore:n===1})
  }})
- const app=await mount('/sample/repo/issues/1','/:owner/:repo/issues/:number',Issue,{service:svc},
-  p=>p.owner+'/'+p.repo+'/'+p.number)
+ const app=await mount('/sample/repo/issues/1','/:owner/:repo/issues/:number',Issue,{service:svc})
  const summary=()=>app.host.querySelector('[aria-label="最近劳动成果与工时摘要"]')
  try{
   assert.match(summary().textContent,/old outcome/)
@@ -162,12 +185,12 @@ test('Issue route change excludes old labour records even when an earlier page c
  }finally{await app.close()}
 })
 
-test('#86 Issue page: two same-tick load-more events are single-flight and IDs dedupe',async()=>{
+test('Issue page: two same-tick load-more events are single-flight and IDs dedupe',async()=>{
  const next=deferred()
  const svc=issueService({comments:(_n,page)=>page===2?next.promise:
    Promise.resolve({items:[comment(101)],hasMore:true})})
  const app=await mount('/sample/repo/issues/1','/:owner/:repo/issues/:number',Issue,
-   {service:svc},p=>p.owner+'/'+p.repo+'/issues/'+p.number)
+   {service:svc})
  try{
   const more=[...app.host.querySelectorAll('button')].find(b=>b.textContent.includes('加载下一页'))
   assert.ok(more,'load-more button exists')
@@ -183,7 +206,7 @@ test('#86 Issue page: two same-tick load-more events are single-flight and IDs d
   assert.equal(app.host.querySelector('[aria-label="读取状态"]').querySelectorAll('[role="status"]').length,0)
  }finally{await app.close()}
 })
-test('#86 Member: session invalidation releases pending without replaying a possibly committed POST',async()=>{
+test('Member: session invalidation releases pending without replaying a possibly committed POST',async()=>{
  const pending=deferred()
  let writes=0
  const api={
@@ -208,7 +231,7 @@ test('#86 Member: session invalidation releases pending without replaying a poss
   assert.equal(writes,1)
  }finally{await app.close()}
 })
-test('#86 Config: dirty draft survives session reads, refresh requires confirmation and slow refresh blocks save',async()=>{
+test('Config: dirty draft survives session reads, refresh requires confirmation and slow refresh blocks save',async()=>{
  const source=configFixture(new URLSearchParams({configCase:'changes'}))
  const lag=deferred()
  let gets=0, saves=0, blockNext=false
@@ -218,7 +241,7 @@ test('#86 Config: dirty draft survives session reads, refresh requires confirmat
   save:(...args)=>{saves++;return source.save(...args)},
  }
  const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
-   {api,owner:'sample',repo:'repo'},p=>p.owner+'/'+p.repo)
+   {api,owner:'sample',repo:'repo'})
  try{
   const area=app.host.querySelector('textarea')
   assert.ok(area,'editor loaded')
@@ -245,7 +268,7 @@ test('#86 Config: dirty draft survives session reads, refresh requires confirmat
  }finally{await app.close()}
 })
 
-test('#86 Config: HTTP 403/409 leave the editor usable and do not automatically retry',async()=>{
+test('Config: HTTP 403/409 leave the editor usable and do not automatically retry',async()=>{
  let attempts=0
  const original=configFixture(new URLSearchParams({configCase:'changes'}))
  const api={...original,save:async()=>{attempts++;const error=Error('GitHub '+(attempts===1?'403':'409'))
@@ -253,7 +276,7 @@ test('#86 Config: HTTP 403/409 leave the editor usable and do not automatically 
    throw error
  }}
  const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
-   {api,owner:'sample',repo:'repo'},p=>p.owner+'/'+p.repo)
+   {api,owner:'sample',repo:'repo'})
  try{
   await act(async()=>input(app.host.querySelector('textarea'),
     app.host.querySelector('textarea').value+'\n# local change'))
@@ -269,12 +292,12 @@ test('#86 Config: HTTP 403/409 leave the editor usable and do not automatically 
   assert.equal(attempts,2)
  }finally{await app.close()}
 })
-test('#86 Config: maintenance PR keeps the draft awaiting merge and disallows another write',async()=>{
+test('Config: maintenance PR keeps the draft awaiting merge and disallows another write',async()=>{
  let writes=0
  const original=configFixture(new URLSearchParams({configCase:'changes'}))
  const api={...original,save:async()=>{writes++;return {state:'awaiting_pr_merge',prUrl:'https://github.com/sample/repo/pull/88'}}}
  const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
-   {api,owner:'sample',repo:'repo'},p=>p.owner+'/'+p.repo)
+   {api,owner:'sample',repo:'repo'})
  try{
   await act(async()=>input(app.host.querySelector('textarea'),
     app.host.querySelector('textarea').value+'\n# pending change'))
@@ -287,7 +310,7 @@ test('#86 Config: maintenance PR keeps the draft awaiting merge and disallows an
  }finally{await app.close()}
 })
 
-test('#86 Config: remote HEAD change preserves dirty content but blocks stale writes',async()=>{
+test('Config: remote HEAD change preserves dirty content but blocks stale writes',async()=>{
  const original=configFixture(new URLSearchParams({configCase:'changes'}))
  let revision=0,attempts=0
  const api={...original,get:async(...args)=>{
@@ -295,7 +318,7 @@ test('#86 Config: remote HEAD change preserves dirty content but blocks stale wr
   return {...value,headSha:revision?'new-head-sha':value.headSha}
  },save:async()=>{attempts++;return {state:'ready'}}}
  const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
-  {api,owner:'sample',repo:'repo'},p=>p.owner+'/'+p.repo)
+  {api,owner:'sample',repo:'repo'})
  try{
   const draft=app.host.querySelector('textarea').value+'\n# local edited'
   await act(async()=>input(app.host.querySelector('textarea'),draft))
@@ -308,7 +331,7 @@ test('#86 Config: remote HEAD change preserves dirty content but blocks stale wr
   assert.equal(attempts,0)
  } finally {await app.close()}
 })
-test('#86 Member: route unmount aborts in-flight submission, with no background replay',async()=>{
+test('Member: route unmount aborts in-flight submission, with no background replay',async()=>{
  const pending=deferred()
  let signal, calls=0
  const api={getCapability:async()=>({user:{login:'operator'},mode:'direct',branch:'main'}),
@@ -326,13 +349,13 @@ test('#86 Member: route unmount aborts in-flight submission, with no background 
  assert.equal(calls,1)
 })
 
-test('#86 Config: session change during write releases busy, preserves unknown outcome warning',async()=>{
+test('Config: session change during write releases busy, preserves unknown outcome warning',async()=>{
  const pending=deferred()
  let sends=0
  const source=configFixture(new URLSearchParams({configCase:'changes'}))
  const api={...source,save:()=>{sends++;return pending.promise}}
  const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
-   {api,owner:'sample',repo:'repo'},p=>p.owner+'/'+p.repo)
+   {api,owner:'sample',repo:'repo'})
  try{
   const area=app.host.querySelector('textarea')
   await act(async()=>input(area,area.value+'\n# pending write'))
@@ -353,7 +376,7 @@ test('#86 Config: session change during write releases busy, preserves unknown o
  } finally {await app.close()}
 })
 
-test('#86 Repo: stale A response after B navigation never leaks A data into B links',async()=>{
+test('Repo: stale A response after B navigation never leaks A data into B links',async()=>{
  const first=deferred()
  const api={
   getHome:(o,r,b)=>r==='alpha'?first.promise:Promise.resolve({
@@ -363,7 +386,7 @@ test('#86 Repo: stale A response after B navigation never leaks A data into B li
    id:2,number:2,title:'Beta issue',state:'open',updated_at:'2026-11-17T00:00:00Z'}]:[]}),
   getCapability:async()=>{throw Error('denied')}
  }
- const app=await mount('/sample/alpha','/:owner/:repo',Home,{api},p=>p.owner+'/'+p.repo)
+ const app=await mount('/sample/alpha','/:owner/:repo',Home,{api})
  try{
   await app.go('/sample/beta')
   first.resolve({repository:{name:'alpha',full_name:'sample/alpha',description:'Alpha stale'},
@@ -374,7 +397,7 @@ test('#86 Repo: stale A response after B navigation never leaks A data into B li
   assert.ok([...app.host.querySelectorAll('a')].some(a=>a.getAttribute('href')?.includes('/sample/beta/issues/2')))
  } finally {await app.close()}
 })
-test('#86 Config: unmount aborts active GitHub write without hidden retry',async()=>{
+test('Config: unmount aborts active GitHub write without hidden retry',async()=>{
  const pending=deferred()
  let signal, calls=0
  const source=configFixture(new URLSearchParams({configCase:'changes'}))
@@ -382,7 +405,7 @@ test('#86 Config: unmount aborts active GitHub write without hidden retry',async
   calls++;signal=currentSignal;return pending.promise
  }}
  const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
-  {api,owner:'sample',repo:'repo'},p=>p.owner+'/'+p.repo)
+  {api,owner:'sample',repo:'repo'})
  await act(async()=>input(app.host.querySelector('textarea'),
   app.host.querySelector('textarea').value+'\n# async write'))
  await act(async()=>app.host.querySelector('button[type="submit"]').click())
@@ -395,7 +418,7 @@ test('#86 Config: unmount aborts active GitHub write without hidden retry',async
 })
 
 
-test('#86 QA: Member session-aborted POST stays locked after new capability until explicit check', async()=>{
+test('Member session-aborted POST stays locked after new capability until explicit check', async()=>{
  const first=deferred()
  let writes=0,capabilityReads=0
  const api={getCapability:async()=>{capabilityReads++;return {user:{login:'operator'},mode:'direct',branch:'main'}},
@@ -432,7 +455,7 @@ test('#86 QA: Member session-aborted POST stays locked after new capability unti
   assert.equal(writes,2)
  } finally {window.confirm=()=>true;await app.close()}
 })
-test('#86 QA: Member transport failure locks POST; 403 explicitly rejected remains retryable',async()=>{
+test('Member transport failure locks POST; 403 explicitly rejected remains retryable',async()=>{
  let writes=0
  const api={getCapability:async()=>({user:{login:'operator'},mode:'direct',branch:'main'}),
   register:async()=>{writes++;if(writes===1)throw new TypeError('Network request failed')
@@ -457,14 +480,14 @@ test('#86 QA: Member transport failure locks POST; 403 explicitly rejected remai
   assert.doesNotMatch(app.host.textContent,/提交结果未知/)
  } finally {await app.close()}
 })
-test('#86 QA: Config save transport failure blocks both writes through subsequent session GET',async()=>{
+test('Config save transport failure blocks both writes through subsequent session GET',async()=>{
  let writes=0,reads=0
  const source=configFixture(new URLSearchParams({configCase:'changes'}))
  const api={...source,get:async(...args)=>{reads++;return source.get(...args)},
   save:async(...args)=>{writes++;if(writes===1)throw new TypeError('Connection reset')
    return source.save(...args)}}
  const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
-  {api,owner:'sample',repo:'repo'},p=>p.owner+'/'+p.repo)
+  {api,owner:'sample',repo:'repo'})
  try{
   const yaml=app.host.querySelector('textarea').value+'\n# new change'
   await act(async()=>input(app.host.querySelector('textarea'),yaml))
@@ -488,13 +511,13 @@ test('#86 QA: Config save transport failure blocks both writes through subsequen
   assert.equal(writes,2)
  } finally {await app.close()}
 })
-test('#86 QA: Config sync transport failure prevents second write until confirmed unlock',async()=>{
+test('Config sync transport failure prevents second write until confirmed unlock',async()=>{
  let calls=0
  const source=configFixture(new URLSearchParams({configCase:'changes'}))
  const api={...source,sync:async(...args)=>{calls++;if(calls===1)throw new TypeError('Connection closed')
    return source.sync(...args)}}
  const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
-  {api,owner:'sample',repo:'repo'},p=>p.owner+'/'+p.repo)
+  {api,owner:'sample',repo:'repo'})
  try{
   await act(async()=>app.host.querySelector('input[type="checkbox"]').click())
   const sync=[...app.host.querySelectorAll('button')].find(b=>b.textContent.includes('确认并执行 Label 同步'))
@@ -519,7 +542,7 @@ test('#86 QA: Config sync transport failure prevents second write until confirme
   assert.equal(calls,2)
  } finally {await app.close()}
 })
-test('#86 QA: failed refresh leaves old Config HEAD unauthorized and draft copyable until valid GET',async()=>{
+test('failed refresh leaves old Config HEAD unauthorized and draft copyable until valid GET',async()=>{
  const source=configFixture(new URLSearchParams({configCase:'changes'}))
  let failNext=false,writes=0
  const api={...source,get:async(...args)=>{
@@ -527,7 +550,7 @@ test('#86 QA: failed refresh leaves old Config HEAD unauthorized and draft copya
     return source.get(...args)
   },save:async()=>{writes++;return {state:'ready'}}}
  const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
-  {api,owner:'sample',repo:'repo'},p=>p.owner+'/'+p.repo)
+  {api,owner:'sample',repo:'repo'})
  try{
   const draft=app.host.querySelector('textarea').value+'\n# local unsaved'
   await act(async()=>input(app.host.querySelector('textarea'),draft))
@@ -549,72 +572,7 @@ test('#86 QA: failed refresh leaves old Config HEAD unauthorized and draft copya
   assert.equal(writes,0)
  } finally {await app.close()}
 })
-test('#86 QA: malformed 200 or non-JSON POST response is classified as unknown',async()=>{
- const { createRepoHomeApi }=await server.ssrLoadModule('/plugins/repo-home/src/service.ts')
- const { createRepoConfigApi }=await server.ssrLoadModule('/plugins/repo-config/src/service.ts')
- const { uncertainWriteResult }=await server.ssrLoadModule('/plugins/shared/src/browser-http.ts')
- const signal=new AbortController().signal
- const badJson=async()=>new Response('invalid json',{status:200})
- const badShape=async()=>new Response(JSON.stringify({state:23}),{
-   status:200,headers:{'Content-Type':'application/json'}})
- const rejected=async()=>new Response(JSON.stringify({error:'Denied',state:'user_permission_missing'}),{
-   status:403,headers:{'Content-Type':'application/json'}})
- for(const request of [badJson,badShape]){
-  const config=createRepoConfigApi(request)
-  await assert.rejects(config.save('sample','repo','yaml','head',null,signal),e=>
-    e.outcomeUnknown===true&&uncertainWriteResult(e))
-  await assert.rejects(config.sync('sample','repo','preview',true,signal),e=>
-    e.outcomeUnknown===true&&uncertainWriteResult(e))
-  const member=createRepoHomeApi(request)
-  await assert.rejects(member.register('sample','repo','main',{name:'Alice',links:[]},signal),
-    e=>e.outcomeUnknown===true&&uncertainWriteResult(e))
- }
- await assert.rejects(createRepoConfigApi(rejected).save('sample','repo','yaml','head',null,signal),
-  e=>e.status===403&&!uncertainWriteResult(e))
-})
-
-
-test('#86 B1: malformed successful Config Save/Sync responses become unknown writes',async()=>{
- const {createRepoConfigApi}=await server.ssrLoadModule('/plugins/repo-config/src/service.ts')
- const {uncertainWriteResult}=await server.ssrLoadModule('/plugins/shared/src/browser-http.ts')
- const signal=new AbortController().signal
- const response=body=>new Response(JSON.stringify(body),{
-  status:200,headers:{'Content-Type':'application/json'}})
- const save=body=>createRepoConfigApi(async()=>response(body)).save(
-  'sample','repo','namespaces:\n  status: [todo]','a'.repeat(40),'b'.repeat(40),signal)
- const sync=body=>createRepoConfigApi(async()=>response(body)).sync(
-  'sample','repo','c'.repeat(64),true,signal)
- for(const body of [
-  {state:'awaiting_pr_merge'},
-  {state:'awaiting_pr_merge',prUrl:''},
-  {state:'awaiting_pr_merge',prUrl:'https://evil.example/sample/repo/pull/1'},
-  {state:'awaiting_pr_merge',prUrl:'https://github.com/sample/repo/issues/1'},
-  {state:'unexpected'},
-  {state:'sync_pending'},
-  {state:'ready'},
-  {state:'partial_failure'},
- ]){
-  await assert.rejects(save(body),e=>e.outcomeUnknown===true&&uncertainWriteResult(e),
-    'save response must be unknown: '+JSON.stringify(body))
- }
- for(const body of [
-  {state:'unexpected'},
-  {state:'awaiting_pr_merge',prUrl:'https://github.com/sample/repo/pull/3'},
-  {state:'sync_pending',commitSha:'a'.repeat(40)},
-  {state:'ready'},
-  {state:'partial_failure'},
- ]){
-  await assert.rejects(sync(body),e=>e.outcomeUnknown===true&&uncertainWriteResult(e),
-    'sync response must be unknown: '+JSON.stringify(body))
- }
- assert.equal((await save({state:'awaiting_pr_merge',
-  prUrl:'https://github.com/sample/repo/pull/88'})).state,'awaiting_pr_merge')
- assert.equal((await save({state:'sync_pending',commitSha:'d'.repeat(40),
-  fileSha:'e'.repeat(40)})).state,'sync_pending')
- assert.equal((await save({state:'ready',noChanges:true})).state,'ready')
- assert.equal((await sync({state:'ready',createdLabels:[],removedAssociations:0})).state,'ready')
-})
-test('#86 B1: malformed 200 Config Save cannot create a second maintenance PR',async()=>{
+test('malformed 200 Config Save cannot create a second maintenance PR',async()=>{
  const {createRepoConfigApi}=await server.ssrLoadModule('/plugins/repo-config/src/service.ts')
  const fixture=configFixture(new URLSearchParams({configCase:'changes'}))
  for(const bad of [{state:'awaiting_pr_merge'},{state:'unexpected'}]){
@@ -623,7 +581,7 @@ test('#86 B1: malformed 200 Config Save cannot create a second maintenance PR',a
    status:200,headers:{'Content-Type':'application/json'}})})
   const api={...fixture,save:(...args)=>wire.save(...args)}
   const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
-   {api,owner:'sample',repo:'repo'},p=>p.owner+'/'+p.repo)
+   {api,owner:'sample',repo:'repo'})
   try{
    const area=app.host.querySelector('#repo-config-source')
    await act(async()=>input(area,area.value+'\n# changed B1'))
@@ -644,7 +602,7 @@ test('#86 B1: malformed 200 Config Save cannot create a second maintenance PR',a
   }finally{await app.close()}
  }
 })
-test('#86 B1: malformed 200 Config Sync blocks retry after capability refresh',async()=>{
+test('malformed 200 Config Sync blocks retry after capability refresh',async()=>{
  const {createRepoConfigApi}=await server.ssrLoadModule('/plugins/repo-config/src/service.ts')
  const fixture=configFixture(new URLSearchParams({configCase:'changes'}))
  let posts=0
@@ -653,7 +611,7 @@ test('#86 B1: malformed 200 Config Sync blocks retry after capability refresh',a
    headers:{'Content-Type':'application/json'}})})
  const api={...fixture,sync:(...args)=>wire.sync(...args)}
  const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
-  {api,owner:'sample',repo:'repo'},p=>p.owner+'/'+p.repo)
+  {api,owner:'sample',repo:'repo'})
  try{
   await act(async()=>app.host.querySelector('input[type="checkbox"]').click())
   let button=[...app.host.querySelectorAll('button')].find(b=>b.textContent.includes('确认并执行 Label 同步'))
@@ -672,7 +630,7 @@ test('#86 B1: malformed 200 Config Sync blocks retry after capability refresh',a
 })
 
 
-test('#96 root RepoPanel: URL target is required, anonymous read works, OAuth write remains disabled',async()=>{
+test('root RepoPanel: URL target is required, anonymous read works, OAuth write remains disabled',async()=>{
  const calls={lookups:[],reads:[],writes:0,session:0}
  const repo={owner:'sample',name:'repo',full_name:'sample/repo'}
  const api=Object.freeze({
@@ -765,7 +723,7 @@ test('Member validation opens the invalid field, links its error and preserves e
  }finally{await app.close()}
 })
 
-test('#99 Member pending PR prioritizes the exact external GitHub link with accessible focus',async()=>{
+test('Member pending PR prioritizes the exact external GitHub link with accessible focus',async()=>{
  localStorage.removeItem('labourchain:display-branch:sample/repo')
  let writes=0
  const api={
@@ -805,14 +763,14 @@ test('#99 Member pending PR prioritizes the exact external GitHub link with acce
  }finally{await app.close()}
 })
 
-test('#99 Config display-branch preference stays local and never invokes repository writes',async()=>{
+test('Config display-branch preference stays local and never invokes repository writes',async()=>{
  const key='labourchain:display-branch:sample/repo'
  localStorage.removeItem(key)
  const fixture=configFixture(new URLSearchParams({configCase:'changes'}))
  let saves=0
  const api={...fixture,save:async()=>{saves++;throw Error('must not write')}}
  const app=await mount('/sample/repo/config','/:owner/:repo/config',Config,
-  {api,owner:'sample',repo:'repo'},p=>p.owner+'/'+p.repo)
+  {api,owner:'sample',repo:'repo'})
  try{
   const inputNode=app.host.querySelector('#display-branch-input')
   assert.ok(inputNode)
@@ -827,14 +785,14 @@ test('#99 Config display-branch preference stays local and never invokes reposit
 })
 
 
-test('#99 Config local preview cannot redirect member write branch across pages',async()=>{
+test('Config local preview cannot redirect member write branch across pages',async()=>{
  const key='labourchain:display-branch:sample/repo'
  localStorage.removeItem(key)
  const configFixtureApi=configFixture(new URLSearchParams({configCase:'changes'}))
  let configWrites=0,memberWrites=0
  const config=await mount('/sample/repo/config','/:owner/:repo/config',Config,
   {api:{...configFixtureApi,save:async()=>{configWrites++;throw Error('unexpected config write')}},
-   owner:'sample',repo:'repo'},p=>p.owner+'/'+p.repo)
+   owner:'sample',repo:'repo'})
  try{
   await act(async()=>input(config.host.querySelector('#display-branch-input'),'feature/docs'))
   const save=[...config.host.querySelectorAll('button')].find(b=>b.textContent==='保存本机偏好')
@@ -889,7 +847,7 @@ test('#99 Config local preview cannot redirect member write branch across pages'
  }finally{localStorage.removeItem(key)}
 })
 
-test('#99 member registration fails closed when server capability branch differs from write target',async()=>{
+test('member registration fails closed when server capability branch differs from write target',async()=>{
  const key='labourchain:display-branch:sample/repo'
  localStorage.setItem(key,'feature/docs')
  let writes=0
@@ -905,7 +863,7 @@ test('#99 member registration fails closed when server capability branch differs
  }finally{await registration.close();localStorage.removeItem(key)}
 })
 
-test('#15 scoped Issue creation requires the exact selected repository and OAuth session', async()=>{
+test('scoped Issue creation requires the exact selected repository and OAuth session', async()=>{
  let writes=0,requested=[]
  const api={
   getRepositories:async(_signal,target)=>{requested.push(target.full_name);return [target]},
@@ -926,7 +884,7 @@ test('#15 scoped Issue creation requires the exact selected repository and OAuth
  } finally {await page.close()}
 })
 
-test('#15 publishing restores and overwrites one repository-scoped draft until GitHub confirms creation', async()=>{
+test('publishing restores and overwrites one repository-scoped draft until GitHub confirms creation', async()=>{
  const target={owner:'sample',name:'repo',full_name:'sample/repo'}
  const pending=deferred()
  const storageKey='labourchain:issue-create:v1:sample/repo'
@@ -963,7 +921,7 @@ test('#15 publishing restores and overwrites one repository-scoped draft until G
   assert.equal(localStorage.getItem(storageKey),null,'a trusted GitHub creation clears the matching latest draft')
  }finally{await page.close();localStorage.removeItem(storageKey)}
 })
-test('#15 a newer in-page edit remains the only saved draft when an earlier publish succeeds',async()=>{
+test('a newer in-page edit remains the only saved draft when an earlier publish succeeds',async()=>{
  const pending=deferred(),storageKey='labourchain:issue-create:v1:sample/repo'
  const api={getRepositories:async()=>[{owner:'sample',name:'repo',full_name:'sample/repo'}],getSession:async()=>true,
   createIssue:async()=>pending.promise}
@@ -979,7 +937,7 @@ test('#15 a newer in-page edit remains the only saved draft when an earlier publ
   assert.deepEqual(JSON.parse(localStorage.getItem(storageKey)),{title:'newer title',description:'newer body'})
  }finally{await page.close();localStorage.removeItem(storageKey)}
 })
-test('#15 invalid Issue creation response retains the draft and never auto-retries after remount',async()=>{
+test('invalid Issue creation response retains the draft and never auto-retries after remount',async()=>{
  let posts=0,page
  const storageKey='labourchain:issue-create:v1:sample/repo'
  const api={
@@ -1004,7 +962,7 @@ test('#15 invalid Issue creation response retains the draft and never auto-retri
   assert.equal(posts,1,'restoring an uncertain draft must not replay the write')
  }finally{await page?.close();localStorage.removeItem(storageKey)}
 })
-test('#99 D2: concise RepoHome retains one members entry, genuine identities and issue source links',async()=>{
+test('concise RepoHome retains one members entry, genuine identities and issue source links',async()=>{
  const api={
   getHome:async()=>({
    repository:{name:'repo',full_name:'sample/repo',
@@ -1074,7 +1032,7 @@ test('#99 D2: concise RepoHome retains one members entry, genuine identities and
  }finally{await app.close()}
 })
 
-test('#99 compact team layout preserves missing, empty, error and unauthorized states',async()=>{
+test('compact team layout preserves missing, empty, error and unauthorized states',async()=>{
  for(const [team,allowed,label] of [
   [{state:'missing'},true,'尚未添加团队成员'],
   [{state:'empty',members:[]},false,'暂无成员'],
@@ -1106,14 +1064,14 @@ test('#99 compact team layout preserves missing, empty, error and unauthorized s
  }
 })
 
-test('#69 Issue Detail Markdown image fallback and keyboard tabs preserve current-page comment input',async()=>{
+test('Issue Detail Markdown image fallback and keyboard tabs preserve current-page comment input',async()=>{
  const svc=issueService({authorized:true,comments:()=>Promise.resolve({items:[
   comment(101,'## Comment heading\n\n**Readable comment**\n\n![broken picture](https://example.com/comment.png)'),
   comment(102,'<script>alert(1)</script>\n\n[unsafe](javascript:alert(1))'),
  ],hasMore:false})})
  svc.getIssue=async(_o,_r,n)=>({...issue(n),body:'# Topic heading\n\n![topic image](https://example.com/topic.png)'})
  const app=await mount('/sample/repo/issues/1','/:owner/:repo/issues/:number',Issue,
-   {service:svc},p=>p.owner+'/'+p.repo+'/issues/'+p.number)
+   {service:svc})
  try{
   assert.match(app.host.textContent,/Topic heading/)
   assert.match(app.host.textContent,/Comment heading/)
@@ -1146,8 +1104,8 @@ const replySend=app=>app.host.querySelector('form[aria-label="参与讨论"] but
 const quoteButtons=app=>[...app.host.querySelectorAll('button[aria-label^="引用回复 "]')]
 const quotePreview=app=>app.host.querySelector('[aria-label="当前引用"]')
 const issueMount=svc=>mount('/sample/repo/issues/1','/:owner/:repo/issues/:number',Issue,
-  {service:svc},p=>p.owner+'/'+p.repo+'/issues/'+p.number)
-test('#69 quote choose/replace/cancel and tabs preserve current-page input; confirmation guards the exact POST',async()=>{
+  {service:svc})
+test('quote choose/replace/cancel and tabs preserve current-page input; confirmation guards the exact POST',async()=>{
  const rows=[replyComment(101,'first line\nsecond line'),replyComment(102,'second target',{user:{login:'bob'}}),
   replyComment(103,'wrong permalink',{html_url:'https://github.com/other/repo/issues/1#issuecomment-103'})]
  const writes=[]
@@ -1189,7 +1147,7 @@ test('#69 quote choose/replace/cancel and tabs preserve current-page input; conf
   assert.match(app.host.textContent,/已发表；讨论列表已重新读取/)
  }finally{window.confirm=originalConfirm;await app.close()}
 })
-test('#69 quote total length, empty reply and unauthorized state prevent writes',async()=>{
+test('quote total length, empty reply and unauthorized state prevent writes',async()=>{
  for(const authorized of [true,false]){
   let writes=0
   const svc=issueService({authorized,comments:()=>Promise.resolve({items:[replyComment(101,'长'.repeat(1500))],hasMore:false}),
@@ -1219,7 +1177,7 @@ test('#69 quote total length, empty reply and unauthorized state prevent writes'
   }finally{await app.close()}
  }
 })
-test('#69 failed/unknown reply keeps current-page input; duplicate submit is blocked and newer edits survive success',async()=>{
+test('failed/unknown reply keeps current-page input; duplicate submit is blocked and newer edits survive success',async()=>{
  for(const outcome of ['failure','unknown','success']){
   const pending=deferred()
   let writes=0
@@ -1258,7 +1216,7 @@ test('#69 failed/unknown reply keeps current-page input; duplicate submit is blo
   }finally{await app.close()}
  }
 })
-test('#20 comment and labour forms are memory-only with no localStorage writes or draft UI',async()=>{
+test('comment and labour forms are memory-only with no localStorage writes or draft UI',async()=>{
  const prototype=Object.getPrototypeOf(localStorage),original=prototype.setItem,writes=[]
  prototype.setItem=function(key,value){writes.push(String(key));return original.call(this,key,value)}
  let app=await issueMount(issueService({authorized:true}))
@@ -1280,7 +1238,7 @@ test('#20 comment and labour forms are memory-only with no localStorage writes o
   assert.deepEqual(writes,[])
  }finally{prototype.setItem=original;await app.close()}
 })
-test('#20 unknown labour write blocks same-page retry without a persistent marker or unlock UI',async()=>{
+test('unknown labour write blocks same-page retry without a persistent marker or unlock UI',async()=>{
  let writes=0
  const svc=issueService({authorized:true,postComment:async()=>{writes++;throw Error('connection lost')}})
  let app=await issueMount(svc)
@@ -1310,7 +1268,7 @@ test('#20 unknown labour write blocks same-page retry without a persistent marke
 const labourWork=app=>[...app.host.querySelectorAll('textarea')].find(el=>el.closest('label')?.textContent.includes('工作内容'))
 const labourSend=app=>labourWork(app)?.closest('form')?.querySelector('button[type="submit"]')
 const issueTabs=app=>app.host.querySelectorAll('[role="tab"]')
-test('#69 comment and labour unknown writes keep independent locks and feedback across cross-kind writes',async()=>{
+test('comment and labour unknown writes keep independent locks and feedback across cross-kind writes',async()=>{
  for(const firstKind of ['comment','labour']){
   for(const secondOutcome of ['failure','success']){
    let writes=0
@@ -1359,7 +1317,7 @@ test('#69 comment and labour unknown writes keep independent locks and feedback 
  }
 })
 
-test('#69 unknown write locks reset on Issue remount and verified account/session change',async()=>{
+test('unknown write locks reset on Issue remount and verified account/session change',async()=>{
  let userId=1,writes=0
  const svc=issueService({authorized:true,userId:()=>userId,postComment:async()=>{writes++;throw Error('connection lost')}})
  const app=await issueMount(svc)
@@ -1393,7 +1351,7 @@ test('#69 unknown write locks reset on Issue remount and verified account/sessio
  }finally{await app.close()}
 })
 
-test('#69 B2 scroll-to-bottom stays in composer dock and targets split reading or the full compact shell',async()=>{
+test('B2 scroll-to-bottom stays in composer dock and targets split reading or the full compact shell',async()=>{
  const descriptor=Object.getOwnPropertyDescriptor(window,'visualViewport')
  const viewport=new window.EventTarget()
  viewport.height=812;viewport.offsetTop=0
@@ -1453,7 +1411,7 @@ test('#69 B2 scroll-to-bottom stays in composer dock and targets split reading o
  }
 })
 
-test('#69 B2 visual viewport resize keeps quote, feedback, last comment and pagination mounted in compact mode',async()=>{
+test('B2 visual viewport resize keeps quote, feedback, last comment and pagination mounted in compact mode',async()=>{
  const descriptor=Object.getOwnPropertyDescriptor(window,'visualViewport')
  const viewport=new window.EventTarget()
  viewport.height=812;viewport.offsetTop=0
@@ -1502,7 +1460,7 @@ test('#69 B2 visual viewport resize keeps quote, feedback, last comment and pagi
  }
 })
 
-test('#99 Title layout uses measured card width, one identity/README/actions/team order, safe optional cover and secondary settings',async()=>{
+test('Title layout uses measured card width, one identity/README/actions/team order, safe optional cover and secondary settings',async()=>{
  const cover='https://raw.githubusercontent.com/sample/repo/'+'a'.repeat(40)+'/banner.png'
  const api={getHome:async()=>({repository:{name:'repo',full_name:'sample/repo',description:'Real description',
   html_url:'https://github.com/sample/repo'},branch:'main',readme:{state:'ready',path:'README.md',content:'# repo\n\nReal description\n\nUnique README prose'},
@@ -1537,7 +1495,7 @@ test('#99 Title layout uses measured card width, one identity/README/actions/tea
  }
 })
 
-test('#99 Title reacts to card width changes without remounting Team or reloading data',async()=>{
+test('Title reacts to card width changes without remounting Team or reloading data',async()=>{
  const original=globalThis.ResizeObserver
  const rect=HTMLElement.prototype.getBoundingClientRect
  let width=1160, callback, observed, disconnects=0
@@ -1570,7 +1528,7 @@ test('#99 Title reacts to card width changes without remounting Team or reloadin
  }finally{if(app)await app.close();HTMLElement.prototype.getBoundingClientRect=rect;if(original===undefined)delete globalThis.ResizeObserver;else globalThis.ResizeObserver=original}
 })
 
-test('#69 Members full cards preserve stored order, complete profile content, safe links and scoped permissions',async()=>{
+test('Members full cards preserve stored order, complete profile content, safe links and scoped permissions',async()=>{
  const key='labourchain:display-branch:sample/repo'
  const original=localStorage.getItem(key)
  localStorage.setItem(key,'feature/docs')
@@ -1655,7 +1613,7 @@ test('structured repository denial coalesces read failures and retry adds no suc
  assert.equal(anonymousCalls,1)
 })
 
-test('#115 actual RepoPanel route keeps current list and refresh after invalid or reserved URL',async()=>{
+test('actual RepoPanel route keeps current list and refresh after invalid or reserved URL',async()=>{
  const reads=[],probes=[]
  const api=Object.freeze({
   getRepositories:async(...args)=>{probes.push(args);throw Error('unexpected probe')},
@@ -1698,7 +1656,7 @@ test('#115 actual RepoPanel route keeps current list and refresh after invalid o
   assert.deepEqual(probes,[])
  }finally{await app.close();store.dispose()}
 })
-test('#115 Issue pagination denial preserves reading nodes, current-page input and uncertain-write feedback through failed and successful recovery',async()=>{
+test('Issue pagination denial preserves reading nodes, current-page input and uncertain-write feedback through failed and successful recovery',async()=>{
  const {RepoAccessRequestProvider}=await server.ssrLoadModule('/plugins/github-access/src/RepoAccessNotice.tsx')
  let blocked=false,failRefresh=false,writes=0
  const reads=[]
@@ -1753,7 +1711,7 @@ test('#115 Issue pagination denial preserves reading nodes, current-page input a
  }finally{await app.close()}
 })
 
-test('#115 case-insensitive resource route emits canonical OAuth return target',async()=>{
+test('case-insensitive resource route emits canonical OAuth return target',async()=>{
  const reads=[]
  const store=makeRepoStore(Object.freeze({
   getRepositories:async()=>{throw Error('unexpected probe')},
@@ -2051,7 +2009,7 @@ test('Session control retries a failed read and emits session invalidation only 
  }
 })
 
-test('#20 account disclosure requires explicit activation; Escape and outside close without new requests',async()=>{
+test('account disclosure requires explicit activation; Escape and outside close without new requests',async()=>{
  const SessionMenu=(await server.ssrLoadModule('/plugins/react-ui/src/SessionMenu.tsx')).default
  const calls=[]
  const request=async(path,init)=>{
@@ -2106,7 +2064,7 @@ test('#20 account disclosure requires explicit activation; Escape and outside cl
 })
 
 
-test('#20 explicit publish rejection displays focusable failure and restores the latest form on reopen',async()=>{
+test('explicit publish rejection displays focusable failure and restores the latest form on reopen',async()=>{
  let posts=0,app
  const storageKey='labourchain:issue-create:v1:sample/repo'
  const api={getRepositories:async()=>[{owner:'sample',name:'repo',full_name:'sample/repo'}],getSession:async()=>true,
@@ -2130,7 +2088,7 @@ test('#20 explicit publish rejection displays focusable failure and restores the
   assert.equal(posts,1)
  }finally{await app?.close();localStorage.removeItem(storageKey)}
 })
-test('#20 report modal keeps keyboard focus and restores opener, pending Escape cannot close',async()=>{
+test('report modal keeps keyboard focus and restores opener, pending Escape cannot close',async()=>{
  const Dialog=(await server.ssrLoadModule('/plugins/topic-page/src/TopicReportDialog.tsx')).default
  function Report(){
   const [open,setOpen]=React.useState(false),[pending,setPending]=React.useState(false)
@@ -2164,7 +2122,7 @@ test('#20 report modal keeps keyboard focus and restores opener, pending Escape 
 })
 
 
-test('#20 feed card preserves title, independent markdown link, expansion, selection and modifiers',async()=>{
+test('feed card preserves title, independent markdown link, expansion, selection and modifiers',async()=>{
  const Card=(await server.ssrLoadModule('/plugins/repo-home/src/RepoIssueActivityCard.tsx')).RepoIssueActivityCard
  const issue={number:11,title:'Controlled card',state:'open',updated_at:'2026-11-26T00:00:00Z',html_url:'https://github.com/sample/repo/issues/11',
   body:'[reference](https://example.org/) '+ 'long body '.repeat(100)}
@@ -2201,7 +2159,7 @@ test('#20 feed card preserves title, independent markdown link, expansion, selec
 })
 
 
-test('#20 round four: permalink stays verifiable and refresh success/failure are distinct',async()=>{
+test('permalink stays verifiable and refresh success/failure are distinct',async()=>{
  for(const refreshFails of [false,true]){
   let posted=false
   const svc=issueService({authorized:true,
@@ -2217,4 +2175,30 @@ test('#20 round four: permalink stays verifiable and refresh success/failure are
    else assert.match(app.host.textContent,/已发表；讨论列表已重新读取/)
   }finally{await app.close()}
  }
+})
+
+test('anonymous Issue route permits reading but never provides an editable write form',async()=>{
+ const svc=issueService({comments:()=>Promise.resolve({items:[comment(1,'Public comment')],hasMore:false})})
+ const app=await issueMount(svc)
+ try{
+  assert.match(app.host.textContent,/Public comment/)
+  assert.match(app.host.textContent,/登录后即可发表评论/)
+  assert.equal(app.host.querySelector('form[aria-label="参与讨论"] textarea'),null)
+  assert.equal(app.host.querySelector('button[aria-label^="引用回复 "]'),null)
+ }finally{await app.close()}
+})
+
+test('the shared Markdown renderer produces accessible headings and never creates executable markup',async()=>{
+ const {SafeMarkdown}=await server.ssrLoadModule('/plugins/shared/src/SafeMarkdown.tsx')
+ const body=Array.from({length:6},(_,i)=>'#'.repeat(i+1)+' Heading '+(i+1)).join('\n\n')+
+   '\n\n[Safe](https://example.org)\n\n[bad](javascript:alert(1))\n\n<script>window.bad=true</script>\n\n![bad](data:image/png;base64,AA)'
+ const app=await mount('/','/',SafeMarkdown,{body})
+ try{
+  for(let level=1;level<=6;level++){
+   const element=app.host.querySelector('[role="heading"][aria-level="'+level+'"],h'+level)
+   assert.ok(element);assert.equal(element.textContent,'Heading '+level)
+  }
+  assert.ok(app.host.querySelector('a[href="https://example.org"]'))
+  assert.equal(app.host.querySelector('script,iframe,object,embed,[href^="javascript:"],[src^="data:"]'),null)
+ }finally{await app.close()}
 })

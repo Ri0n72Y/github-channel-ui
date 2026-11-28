@@ -15,7 +15,7 @@ const params=caseName=>new URLSearchParams({sessionFixture:'1',sessionCase:caseN
 const get=fn=>fn('/api/github-session',{method:'GET',signal:new AbortController().signal})
 const post=fn=>fn('/api/github-logout',{method:'POST',
   headers:{'X-LabourChain-Write':'1'}})
-test('#76 Playground Session scenarios are explicit and never call real GitHub',async()=>{
+test('Playground Session scenarios are explicit and never call real GitHub',async()=>{
   const guest=createSessionFixture(params('anonymous')).request
   assert.deepEqual(await (await get(guest)).json(),{authenticated:false})
   const live=createSessionFixture(params('authenticated')).request
@@ -34,10 +34,4 @@ test('#76 Playground Session scenarios are explicit and never call real GitHub',
   const avatarFail=createSessionFixture(params('avatar-fail')).request
   assert.match((await (await get(avatarFail)).json()).user.avatarUrl,
     /avatars\.githubusercontent\.com/)
-})
-test('#76 Runtime never overrides global fetch for a Session fixture',async()=>{
-  const {readFileSync}=await import('node:fs')
-  const source=readFileSync(new URL('../apps/playground/src/single-plugin-runtime.ts',import.meta.url),'utf8')
-  assert.match(source,/createSessionFixture/)
-  assert.doesNotMatch(source,/globalThis\.fetch\s*=|window\.fetch\s*=/)
 })

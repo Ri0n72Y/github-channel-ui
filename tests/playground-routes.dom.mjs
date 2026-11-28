@@ -63,7 +63,7 @@ async function expectMasonry(host, label) {
   assert.fail('Topic projects did not finish loading: ' + label)
 }
 
-test('#94 public catalog renders six independent deep links and a working directory return', async () => {
+test('public catalog renders six independent deep links and a working directory return', async () => {
   const view = await mounted(h(catalog.PlaygroundCatalog))
   try {
     const links = [...view.host.querySelectorAll('a[href^="/playground/"]')]
@@ -164,12 +164,17 @@ test('Channel registered route cancels the old repository and ignores late succe
   const snapshot=(number,title)=>({state:'ready',branch:'main',channels:[
     {name:'discussion',label:'channel:discussion',issue:{number,title,createdAt:'2026-11-10T00:00:00Z',comments:0,author:'writer'}},
     {name:'wishlist',label:'channel:wishlist',issue:null}]})
-  const api={getChannels(owner,repo,signal){
-    assert.equal(owner,'sample')
-    if(repo==='alpha'){oldSignal=signal;return old}
+  const {createChannelApi}=await vite.ssrLoadModule('/plugins/channel/src/service.ts')
+  const api=createChannelApi(async(address,init)=>{
+    const url=new URL(address,'https://local.test')
+    assert.equal(url.pathname,'/api/repo-channels')
+    assert.equal(url.searchParams.get('owner'),'sample')
+    assert.equal(init.credentials,'same-origin')
+    const repo=url.searchParams.get('repo')
+    if(repo==='alpha'){oldSignal=init.signal;return old}
     assert.equal(repo,'beta')
-    return Promise.resolve(snapshot(22,'Beta discussion'))
-  }}
+    return Response.json(snapshot(22,'Beta discussion'))
+  })
   const runtime=await pluginRuntime(createChannelPlugin(api))
   const Controls=navigationControls('/sample/beta/channels')
   let view
@@ -181,7 +186,7 @@ test('Channel registered route cancels the old repository and ignores late succe
     await act(async()=>view.host.querySelector('#target-nav').click())
     await expectLoaded(view.host,/Beta discussion/,'beta channel')
     assert.equal(oldSignal.aborted,true)
-    await act(async()=>resolveOld(snapshot(11,'Late alpha discussion')))
+    await act(async()=>resolveOld(Response.json(snapshot(11,'Late alpha discussion'))))
     assert.doesNotMatch(view.host.textContent,/Late alpha discussion/)
     assert.equal(view.host.querySelectorAll('a[href="/sample/beta/issues/22"]').length,1)
     assert.equal(view.host.querySelector('a[href$="/issues/11"]'),null)
@@ -270,7 +275,7 @@ test('Topic registered source route clears old draft and aborts previous metadat
   }finally{await view?.close();await runtime.dispose()}
 })
 
-test('#83 production registers source route only; direct slug is confined to Playground', async () => {
+test('production registers source route only; direct slug is confined to Playground', async () => {
   const {createTopicPagePlugin}=await vite.ssrLoadModule('/plugins/topic-page/src/index.tsx')
   const {createTopicPageApi}=await vite.ssrLoadModule('/plugins/topic-page/src/service.ts')
   const runtime=await pluginRuntime(createTopicPagePlugin())
@@ -289,7 +294,7 @@ test('#83 production registers source route only; direct slug is confined to Pla
   assert.equal(requests,0)
 })
 
-test('#83 Topic slug direct/refresh/back/forward and invalid slug remain isolated', async () => {
+test('Topic slug direct/refresh/back/forward and invalid slug remain isolated', async () => {
   const runtime = await start('topic-page')
   const basename = '/playground/topic-page'
   const slugPath = basename + '/topic/dsh-plugin'
@@ -373,7 +378,7 @@ test('generic UI owns no Header; host may explicitly place theme and session con
  }finally{await runtime.dispose()}
 })
 
-test('#115 real Public runtime deep link NotFound -> root -> resource -> back, same mounted host',async()=>{
+test('real Public runtime deep link NotFound -> root -> resource -> back, same mounted host',async()=>{
  const {startRuntime}=await vite.ssrLoadModule('/apps/playground/src/runtime.tsx')
  const original=globalThis.fetch
  const requests=[]
@@ -407,7 +412,7 @@ test('#115 real Public runtime deep link NotFound -> root -> resource -> back, s
   await expectLoaded(view.host,/公开插件 Playground/,'back to real root')
  }finally{await view?.close();await runtime?.dispose();globalThis.fetch=original}
 })
-test('#115 ordinary links never reinterpret a Topic namespace collision',async()=>{
+test('ordinary links never reinterpret a Topic namespace collision',async()=>{
  const {RepositoryLink}=await vite.ssrLoadModule('/plugins/repo-issues/src/RepositoryLink.tsx')
  const view=await mounted(h(MemoryRouter,null,h('div',null,
   h(RepositoryLink,{to:'/topic/repo/config'},'配置'),
@@ -419,4 +424,33 @@ test('#115 ordinary links never reinterpret a Topic namespace collision',async()
   assert.deepEqual([...view.host.querySelectorAll('a')].map(a=>a.getAttribute('href')),['/topic/repo/issues/1','/topic/repo'])
   assert.equal((view.host.textContent.match(/站内路径不可用/g)||[]).length,3)
  }finally{await view.close()}
+})
+
+test('Channel HTTP failure is not displayed as an empty successful page; retry uses the same repository',async()=>{
+  const {createChannelPlugin}=await vite.ssrLoadModule('/plugins/channel/src/index.tsx')
+  const {createChannelApi}=await vite.ssrLoadModule('/plugins/channel/src/service.ts')
+  const requests=[]
+  const api=createChannelApi(async(address,init)=>{
+    const url=new URL(address,'https://local.test')
+    assert.equal(url.pathname,'/api/repo-channels')
+    assert.deepEqual(Object.fromEntries(url.searchParams),{owner:'sample',repo:'repo'})
+    requests.push(url.href)
+    if(requests.length===1)return Response.json({error:'controlled upstream failure'},{status:503})
+    return Response.json({state:'ready',branch:'main',channels:[{name:'discussion',label:'channel:discussion',
+      issue:{number:4,title:'Recovered discussion',createdAt:'2026-11-01T00:00:00Z',comments:1,author:'writer'}}]})
+  })
+  const runtime=await pluginRuntime(createChannelPlugin(api))
+  let view
+  try{
+    view=await mounted(h(MemoryRouter,{initialEntries:['/sample/repo/channels']},h(App,{ui:runtime.ui})))
+    await expectLoaded(view.host,/controlled upstream failure/,'failure')
+    assert.equal(view.host.querySelector('a[href="/sample/repo/issues/4"]'),null)
+    assert.doesNotMatch(view.host.textContent,/暂无进行中的讨论/)
+    const retry=[...view.host.querySelectorAll('button')].find(x=>x.textContent==='重试读取')
+    assert.ok(retry)
+    await act(async()=>retry.click())
+    await expectLoaded(view.host,/Recovered discussion/,'recovery')
+    assert.equal(requests.length,2)
+    assert.ok(view.host.querySelector('a[href="/sample/repo/issues/4"]'))
+  }finally{await view?.close();await runtime.dispose()}
 })

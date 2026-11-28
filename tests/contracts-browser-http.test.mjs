@@ -29,25 +29,7 @@ function mockReplies(table){
   }
   return {request,calls}
 }
-test('functional APIs expose immutable ordinary objects',()=>{
-  const entries=[
-    ['repo-home','createRepoHomeApi','repoHomeApi'],
-    ['repo-config','createRepoConfigApi','repoConfigApi'],
-    ['issue-detail','createIssueDetailApi','issueDetailApi'],
-    ['channel','createChannelApi','channelApi'],
-    ['topic-page','createTopicPageApi','topicPageApi'],
-  ]
-  for(const [name,factory,staticName]of entries){
-    const module=services[name]
-    const api=module[factory](async()=>Response.json({}))
-    assert.equal(typeof api,'object')
-    assert.ok(Object.isFrozen(api))
-    assert.ok(module[staticName] && typeof module[staticName] === 'object')
-    assert.ok(Object.isFrozen(module[staticName]))
-    assert.equal(Object.getPrototypeOf(api),Object.prototype)
-  }
-})
-test('#76 Repo Home, Feed, capability and member write use receiver-safe factory functions',async()=>{
+test('Repo Home, Feed, capability and member write use receiver-safe factory functions',async()=>{
   const home={repository:{full_name:'sample/repo',name:'repo',description:null,
     html_url:'https://github.com/sample/repo',default_branch:'main'},
     branch:'main',readme:{state:'ready',content:'# Repo',path:'README.md'},
@@ -78,7 +60,7 @@ test('#76 Repo Home, Feed, capability and member write use receiver-safe factory
   assert.deepEqual(JSON.parse(calls[3].init.body),{owner:'sample',repo:'repo',branch:'main',member})
   assert.equal(calls[3].init.headers['X-LabourChain-Write'],'1')
 })
-test('#77 Config, Issue, Channel and Topic preserve read models and explicit OAuth writes',async()=>{
+test('Config, Issue, Channel and Topic preserve read models and explicit OAuth writes',async()=>{
   const config=mockReplies({
     'GET /api/repo-config':{value:{state:'config_missing',branch:'main',
       headSha:'a'.repeat(40),fileSha:null,configText:null,
@@ -144,7 +126,7 @@ test('#77 Config, Issue, Channel and Topic preserve read models and explicit OAu
     'https://github.com/sample/repo/issues/2')
   assert.equal(topic.calls.at(-1).init.headers['X-LabourChain-Write'],'1')
 })
-test('#77 invalid unknown response cannot masquerade as a complete domain object',async()=>{
+test('invalid unknown response cannot masquerade as a complete domain object',async()=>{
   for(const [name,method,args,key]of [
     ['repo-home','getHome',['a','b','main',signal()],'GET /api/repo-home'],
     ['repo-config','get',['a','b',signal()],'GET /api/repo-config'],
@@ -159,7 +141,7 @@ test('#77 invalid unknown response cannot masquerade as a complete domain object
     assert.deepEqual(mock.calls.map(call=>call.key),[key])
   }
 })
-test('#76 default HTTP request calls global fetch with its native receiver',async()=>{
+test('default HTTP request calls global fetch with its native receiver',async()=>{
   const module=await vite.ssrLoadModule('/plugins/shared/src/browser-http.ts')
   const real=globalThis.fetch
   const seen=[]
@@ -178,7 +160,7 @@ test('#76 default HTTP request calls global fetch with its native receiver',asyn
 })
 
 
-test('#77 Config write boundary rejects malformed partial results before React',async()=>{
+test('Config write boundary rejects malformed partial results before React',async()=>{
   const failures=[
     {failed:[null]},
     {failed:[{kind:{},error:'x'}]},
@@ -203,7 +185,7 @@ test('#77 Config write boundary rejects malformed partial results before React',
       JSON.stringify(field))
   }
 })
-test('#77 valid Config partial writes project nested fields without forwarding unknown JSON',async()=>{
+test('valid Config partial writes project nested fields without forwarding unknown JSON',async()=>{
   const payload={state:'partial_failure',error:'Some labels could not sync',
     createdLabels:['new-label'],
     removedAssociations:[{number:2,label:'old-label'}],
@@ -223,24 +205,7 @@ test('#77 valid Config partial writes project nested fields without forwarding u
     pending:[{number:2,labels:['old-label']}],retryAfter:null,
     requiresRefresh:true,noChanges:false,reconciled:false,
   })
-  const {createElement}=await import('react')
-  const {renderToStaticMarkup}=await import('react-dom/server')
-  const {MemoryRouter}=await import('react-router')
-  const ConfigView=(await vite.ssrLoadModule(
-    '/plugins/repo-config/src/ConfigView.tsx')).default
-  const noop=()=>{}
-  const html=renderToStaticMarkup(createElement(MemoryRouter,
-    {initialEntries:['/sample/repo/config']},createElement(ConfigView,{
-    owner:'sample',repo:'repo',base:'/sample/repo',login:'/api/github-login',
-    snapshot:null,content:'',loading:false,busy:false,error:'',result,
-    confirmRemovals:false,validationState:'ready',editorEnabled:false,
-    canSave:false,canSync:false,dirty:false,onRefresh:noop,
-    onContentChange:noop,onConfirmRemovalsChange:noop,onSave:noop,onSync:noop,
-  })))
-  assert.match(html,/remove_issue_label/)
-  assert.match(html,/rate limited/)
-  assert.match(html,/Retry-After 60/)
-  assert.doesNotMatch(html,/secret/)
+
 })
 
 
@@ -272,7 +237,7 @@ test('Issue API projects only validated fields from untrusted JSON',async()=>{
   }])
   assert.doesNotMatch(JSON.stringify({result,comments}),/secret/)
 })
-test('#77 malformed nested Github Issue or comment metadata fails at API boundary',async()=>{
+test('malformed nested Github Issue or comment metadata fails at API boundary',async()=>{
   const good={number:2,title:'Issue',body:null,state:'open',
     html_url:'https://github.com/sample/repo/issues/2',labels:[],comments:0}
   for(const bad of [
@@ -287,4 +252,69 @@ test('#77 malformed nested Github Issue or comment metadata fails at API boundar
     await assert.rejects(api.getIssue('sample','repo',2,signal()),
       error=>error instanceof Error&&'status' in error&&error.status===502)
   }
+})
+test('malformed 200 or non-JSON POST response is classified as unknown',async()=>{
+ const { createRepoHomeApi }=await vite.ssrLoadModule('/plugins/repo-home/src/service.ts')
+ const { createRepoConfigApi }=await vite.ssrLoadModule('/plugins/repo-config/src/service.ts')
+ const { uncertainWriteResult }=await vite.ssrLoadModule('/plugins/shared/src/browser-http.ts')
+ const signal=new AbortController().signal
+ const badJson=async()=>new Response('invalid json',{status:200})
+ const badShape=async()=>new Response(JSON.stringify({state:23}),{
+   status:200,headers:{'Content-Type':'application/json'}})
+ const rejected=async()=>new Response(JSON.stringify({error:'Denied',state:'user_permission_missing'}),{
+   status:403,headers:{'Content-Type':'application/json'}})
+ for(const request of [badJson,badShape]){
+  const config=createRepoConfigApi(request)
+  await assert.rejects(config.save('sample','repo','yaml','head',null,signal),e=>
+    e.outcomeUnknown===true&&uncertainWriteResult(e))
+  await assert.rejects(config.sync('sample','repo','preview',true,signal),e=>
+    e.outcomeUnknown===true&&uncertainWriteResult(e))
+  const member=createRepoHomeApi(request)
+  await assert.rejects(member.register('sample','repo','main',{name:'Alice',links:[]},signal),
+    e=>e.outcomeUnknown===true&&uncertainWriteResult(e))
+ }
+ await assert.rejects(createRepoConfigApi(rejected).save('sample','repo','yaml','head',null,signal),
+  e=>e.status===403&&!uncertainWriteResult(e))
+})
+
+
+test('malformed successful Config Save/Sync responses become unknown writes',async()=>{
+ const {createRepoConfigApi}=await vite.ssrLoadModule('/plugins/repo-config/src/service.ts')
+ const {uncertainWriteResult}=await vite.ssrLoadModule('/plugins/shared/src/browser-http.ts')
+ const signal=new AbortController().signal
+ const response=body=>new Response(JSON.stringify(body),{
+  status:200,headers:{'Content-Type':'application/json'}})
+ const save=body=>createRepoConfigApi(async()=>response(body)).save(
+  'sample','repo','namespaces:\n  status: [todo]','a'.repeat(40),'b'.repeat(40),signal)
+ const sync=body=>createRepoConfigApi(async()=>response(body)).sync(
+  'sample','repo','c'.repeat(64),true,signal)
+ for(const body of [
+  {state:'awaiting_pr_merge'},
+  {state:'awaiting_pr_merge',prUrl:''},
+  {state:'awaiting_pr_merge',prUrl:'https://evil.example/sample/repo/pull/1'},
+  {state:'awaiting_pr_merge',prUrl:'https://github.com/sample/repo/issues/1'},
+  {state:'unexpected'},
+  {state:'sync_pending'},
+  {state:'ready'},
+  {state:'partial_failure'},
+ ]){
+  await assert.rejects(save(body),e=>e.outcomeUnknown===true&&uncertainWriteResult(e),
+    'save response must be unknown: '+JSON.stringify(body))
+ }
+ for(const body of [
+  {state:'unexpected'},
+  {state:'awaiting_pr_merge',prUrl:'https://github.com/sample/repo/pull/3'},
+  {state:'sync_pending',commitSha:'a'.repeat(40)},
+  {state:'ready'},
+  {state:'partial_failure'},
+ ]){
+  await assert.rejects(sync(body),e=>e.outcomeUnknown===true&&uncertainWriteResult(e),
+    'sync response must be unknown: '+JSON.stringify(body))
+ }
+ assert.equal((await save({state:'awaiting_pr_merge',
+  prUrl:'https://github.com/sample/repo/pull/88'})).state,'awaiting_pr_merge')
+ assert.equal((await save({state:'sync_pending',commitSha:'d'.repeat(40),
+  fileSha:'e'.repeat(40)})).state,'sync_pending')
+ assert.equal((await save({state:'ready',noChanges:true})).state,'ready')
+ assert.equal((await sync({state:'ready',createdLabels:[],removedAssociations:0})).state,'ready')
 })

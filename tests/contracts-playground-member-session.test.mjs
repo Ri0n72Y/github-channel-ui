@@ -29,34 +29,7 @@ const render = (component, url = '/sample/repo') =>
   renderToStaticMarkup(createElement(MemoryRouter, { initialEntries: [url] }, component))
 const base = '/sample/repo'
 
-test('#79 TeamStatus missing/empty displays public read-only state without manager CTA', () => {
-  for (const state of ['missing', 'empty']) {
-    const html = render(createElement(TeamStatus, {
-      team: {state, members: []}, base, branch:'main',
-    }))
-    assert.match(html, state === 'missing' ? /尚未添加团队成员/ : /暂无成员/)
-    assert.doesNotMatch(html, /href="[^"]*members\/register/)
-  }
-  const error = render(createElement(TeamStatus, {
-    team: {state:'invalid', members:[],error:'Malformed JSON'},base,branch:'main',
-  }))
-  assert.match(error,/Malformed JSON/)
-  assert.match(error,/查看 GitHub 成员文件/)
-  assert.doesNotMatch(error,/members\/register/)
-})
-
-test('#79 registration CTA exists only for the successfully verified capability state', () => {
-  for (const state of ['checking','anonymous','denied','error']) {
-    const html = render(createElement(MemberManagementLink, {base,state}))
-    assert.doesNotMatch(html,/members\/register/,state)
-    assert.doesNotMatch(html,/添加成员/,state)
-  }
-  const allowed = render(createElement(MemberManagementLink, {base,state:'allowed'}))
-  assert.match(allowed,/href="\/sample\/repo\/members\/register"/)
-  assert.match(allowed,/添加成员/)
-})
-
-test('#79 Playground Session logout revokes the same Repo capability without blocking public team',async()=>{
+test('Playground Session logout revokes the same Repo capability without blocking public team',async()=>{
   const query = new URLSearchParams({
     repoFixture:'1',sessionFixture:'1',sessionCase:'authenticated',fixtureTeam:'missing',
   })

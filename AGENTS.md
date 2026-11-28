@@ -6,16 +6,17 @@ This repository provides reusable React/Cordis client plugins, pure domain modul
 - Ordinary business APIs use immutable functional objects. Cordis Services are lifecycle adapters, with a single browser Context and React Root. Route contributions use `ctx.reactUI.registerPage`; cleanup belongs to Cordis disposal.
 - Keep component-specific styles in CSS Modules. Maintain request AbortSignal, stale response rejection, authorization boundaries and unknown GitHub POST result protection.
 - Public owns resource routes, reusable UI, and business handlers. Hosts own their product Header, root page, Navigator and HTTP dispatch. Keep explicit Fixture paths isolated from real reads/writes. The approved source reorganization does not authorize merge or deployment.
-- Run `npm run build` and relevant Node/DOM/route tests and document actual evidence. Use existing behavioral tests; no new pure CSS assertions or temporary verification files. No real GitHub write tests without explicit authorization.
+- Run `npm run build` and relevant Node/DOM/route tests and document actual evidence. Design behavioral verification around current public contracts; no new pure CSS assertions or temporary verification files. No real GitHub write tests without explicit authorization.
 - Do not publish packages, embed credentials, or make production settings changes in source migration PRs.
 - License: AGPL-3.0-only for original code. Preserve authorship, original Git history and third-party notices. Deployment of modified network services may trigger Corresponding Source obligations; review them before distribution or use.
 
 ## 测试维护
 
+- 采用 Google Change-Detector Tests、Increase Test Fidelity、Software Engineering at Google Unit Testing、Practical Test Pyramid 和 Testing Implementation Details 的原则；不继承历史 Issue 测试清单，不通过私有方法、源码文本或固定 DOM 包装层检测实现变化。领域、HTTP 契约、实际注册路由、独立工程配置及真实浏览器验收分别负责其可观察风险。
 - 遵循 [dependency-risk-testing](https://github.com/Ri0n72Y/agent-identity/blob/main/.agents/skills/dependency-risk-testing/SKILL.md)：从实际生产责任边界出发，说明结构性依赖风险、能拒绝错误实现的用例及可观察失败。优先最近的有效保护；不得以历史 Issue、测试数量或 CI 绿色替代意义判断。
 - 永久回归用例应证明可重复的结构性风险：列出可能的错误实现、能使错误显现的输入或状态转换、可观察失败及最近的保护边界。长度/数值/分页/权限等边界须用合法基准与临界反例，避免仅用原始事故样本、先天无效输入、OR 断言掩盖独立条件、永真或未被实际调用的 mock 断言。必要时用定向反例验证区分能力；不要求新增全套 mutation 框架。
 - 以现行产品契约和实际行为为测试依据。修改或删除功能时，同步更新、合并或删除对应旧测试；新增回归前先检查现有覆盖。
-- 业务计算、数据契约、授权、真实写入防重、未知结果、并发、分页、缓存、路由和生命周期保护不得因精简而丢失。用可控 mock/fixture 验证，不对真实 GitHub 写入。
+- 业务计算、数据契约、授权、真实写入防重、未知结果、并发、分页、缓存、路由和生命周期保护不得因精简而丢失。真实内部依赖优先；外部 GitHub HTTP 使用可控替身，不对真实 GitHub 写入。独立 UI 状态机可在公开 service port 注入时序；必须另有必要的真实组合测试，不能据此证明完整链路。
 - 优先调用公共 API、渲染组件或触发实际 DOM 事件。避免固定 CSS 数值、选择器、属性排列、变量名和内部函数调用顺序的源码断言。仅对稳定架构、安全或构建配置契约保留必要的静态检查；不得用 JSDOM 或 CSS 字符串冒充真实浏览器布局验收。
 - 视觉、响应式、触控尺寸及焦点可见性按 [测试与验收说明](docs/testing.md) 进行真实浏览器检查。测试数量不设固定指标。合并或删除测试须说明覆盖归属及未验证风险。
 - 测试维护候选须完成 build、完整 Node 回归与两套 DOM 回归；记录实际命令、精确 SHA 和退出码。只报告真实运行结果。

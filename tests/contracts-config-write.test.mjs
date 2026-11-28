@@ -1,7 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createRepoConfigHandler } from '../api/_repo-config.mjs'
-import { readRepoConfigPreview } from '../api/_repo-config-preview.mjs'
+import { githubHttpFixture } from './helpers/github-http.mjs'
+const http=githubHttpFixture('https://example.test','user-oauth-token')
 
 const OWNER = 'octocat'
 const REPO = 'demo'
@@ -25,9 +26,6 @@ const issue = (labels = ['foo:old']) => ({
   number: 1, state: 'open', labels: labels.map(name => ({ name })),
 })
 
-function installed() {
-  return { installationId: 17, repositoryId: 10, jwt: 'app-jwt' }
-}
 function actorEntries(options = {}) {
   return {
     '/user': () => respond(200, { id: 7, login: 'fixture-operator' }),
@@ -88,9 +86,23 @@ function mockFetcher(options = {}) {
         path === '/app/installations/17' || path === BASE + '/branches/main' ||
         path === BASE + '/rules/branches/main') {
       const value = actorEntries(options)[path]
+      if (path==='/user' || path.startsWith('/user/installations/')) {
+        assert.equal(authorization,'Bearer user-oauth-token')
+        if(options.notMember&&path.startsWith('/user/installations/'))return respond(200,{repositories:[]})
+      }
+      if(path==='/app/installations/17')http.assertApp(authorization)
       if (value) return value()
     }
-    if (path === BASE) return respond(200, { private: false, full_name: OWNER + '/' + REPO })
+    if (path === BASE) return respond(200, { id:10, private: false, full_name: OWNER + '/' + REPO, owner:{login:OWNER,type:'User'} })
+    if (path === BASE+'/installation') {
+      http.assertApp(authorization)
+      return respond(options.revoked?404:200,{id:17,account:{login:OWNER},suspended_at:null})
+    }
+    if (path === '/app/installations/17/access_tokens') {
+      http.assertApp(authorization)
+      assert.deepEqual(JSON.parse(init.body).repository_ids,[10])
+      return respond(201,{token:'app-install-read-token'})
+    }
     if (path.startsWith(BASE + '/rules/branches/')) {
       const name = path.slice((BASE + '/rules/branches/').length)
       return branches.has(name) && !options.newBranchRulesUnavailable ?
@@ -161,23 +173,17 @@ function mockFetcher(options = {}) {
     }
     return respond(404, { message: 'Unexpected ' + method + ' ' + path })
   }
+  http.use(fetcher)
   return { fetcher, calls, getIssue: () => currentIssue,
     getLabels: () => labels, getMainContent: () => mainContent }
 }
 
-const resolve = async () => installed()
-const writeContext = async (_request, options) => {
-  assert.equal(options.dynamicInstallation, true)
-  return { body: writeContext.body, token: 'user-oauth-token' }
-}
+const writes = calls => calls.filter(call=>call.method!=='GET' && !call.path.endsWith('/access_tokens'))
 
 test('repo-config public GET reads only main and exposes a default preview without login', async () => {
   const mock = mockFetcher({ content: null })
   const handler = createRepoConfigHandler({
     fetcher: mock.fetcher,
-    resolveInstalledRepository: resolve,
-    previewAccessFactory: async () => ({ token: 'app-install-read-token' }),
-    readSession: () => null,
   })
   const response = await handler.fetch(new Request(
     'https://example.test/api/repo-config?owner=octocat&repo=demo'))
@@ -188,7 +194,7 @@ test('repo-config public GET reads only main and exposes a default preview witho
   assert.equal(data.config.state, 'config_missing')
   assert.match(data.config.defaultPreview, /channel:/)
   assert.equal(data.canApply, false)
-  assert.ok(!mock.calls.some(call => call.method !== 'GET'))
+  assert.deepEqual(writes(mock.calls),[])
 })
 
 test('repo-config rejects a caller-selected branch', async () => {
@@ -202,18 +208,14 @@ test('repo-config rejects a caller-selected branch', async () => {
 
 test('protected Config update uses OAuth user identity, maintenance branch and a PR', async () => {
   const mock = mockFetcher()
-  writeContext.body = {
+  const payload = {
     owner: OWNER, repo: REPO, action: 'save_config', branch: 'main',
     content: NEXT_CONFIG, expectedHeadSha: HEAD, expectedFileSha: FILE_SHA,
   }
   const handler = createRepoConfigHandler({
     fetcher: mock.fetcher,
-    resolveInstalledRepository: resolve,
-    writeContext,
   })
-  const response = await handler.fetch(new Request('https://example.test/api/repo-config', {
-    method: 'POST', headers: { origin: 'https://example.test' },
-  }))
+  const response = await handler.fetch(http.post('/api/repo-config',payload))
   const data = await response.json()
   assert.equal(response.status, 200)
   assert.equal(data.state, 'awaiting_pr_merge')
@@ -226,32 +228,19 @@ test('protected Config update uses OAuth user identity, maintenance branch and a
     call.authorization === 'Bearer user-oauth-token'))
   assert.ok(mock.calls.some(call => call.method === 'POST' && call.path === BASE + '/pulls' &&
     call.authorization === 'Bearer user-oauth-token'))
-  assert.ok(mock.calls.some(call => call.path === '/app/installations/17' &&
-    call.authorization === 'Bearer app-jwt'))
+  http.assertApp(mock.calls.find(call => call.path === '/app/installations/17').authorization)
   assert.ok(!mock.calls.some(call => call.authorization === 'Bearer app-install-read-token'))
   assert.equal(mock.getMainContent(), CONFIG)
 })
 
 async function syncPreviewId(mock) {
-  const preview = await readRepoConfigPreview({
-    owner: OWNER, repo: REPO,
-    accessFactory: async () => ({ token: 'user-oauth-token' }),
-    read: async (_access, path) => {
-      const url = new URL('https://api.github.com' + path)
-      const decoded = decodeURIComponent(url.pathname)
-      if (decoded === BASE) return { data: { private: false, full_name: OWNER + '/' + REPO } }
-      if (decoded === BASE + '/branches/main') {
-        return { data: { name: 'main', commit: { sha: HEAD } } }
-      }
-      if (decoded === BASE + '/contents/labourchain.config.yaml') {
-        return { data: file(mock.getMainContent(), FILE_SHA) }
-      }
-      if (decoded === BASE + '/labels') return { data: mock.getLabels(), link: '' }
-      if (decoded === BASE + '/issues') return { data: [mock.getIssue()], link: '' }
-      throw new Error('Unexpected preview path ' + path)
-    },
-  })
-  assert.equal(preview.state, 'changes')
+  const response=await createRepoConfigHandler({fetcher:mock.fetcher}).fetch(new Request(
+    'https://example.test/api/repo-config?owner='+OWNER+'&repo='+REPO))
+  assert.equal(response.status,200)
+  const preview=await response.json()
+  assert.equal(preview.state,'sync_pending')
+  assert.match(preview.snapshotId,/^[a-f0-9]{64}$/)
+  mock.calls.length=0
   return preview.snapshotId
 }
 
@@ -262,18 +251,14 @@ test('Label sync requires explicit cleanup confirmation and uses exact DELETE wi
     labels: [{ name: 'foo:old' }],
   })
   const previewId = await syncPreviewId(mock)
-  writeContext.body = {
+  const payload = {
     owner: OWNER, repo: REPO, action: 'sync_labels', branch: 'main',
     previewId, confirmRemovals: true,
   }
   const handler = createRepoConfigHandler({
     fetcher: mock.fetcher,
-    resolveInstalledRepository: resolve,
-    writeContext,
   })
-  const response = await handler.fetch(new Request('https://example.test/api/repo-config', {
-    method: 'POST', headers: { origin: 'https://example.test' },
-  }))
+  const response = await handler.fetch(http.post('/api/repo-config',payload))
   const data = await response.json()
   assert.equal(response.status, 200)
   assert.equal(data.state, 'ready')
@@ -287,20 +272,18 @@ test('Label sync requires explicit cleanup confirmation and uses exact DELETE wi
 
 test('Label sync rejects an expired snapshot before any mutation', async () => {
   const mock = mockFetcher({ content: 'namespaces:\n  foo: []\n' })
-  writeContext.body = {
+  const payload = {
     owner: OWNER, repo: REPO, action: 'sync_labels', branch: 'main',
     previewId: '0'.repeat(64), confirmRemovals: true,
   }
   const handler = createRepoConfigHandler({
-    fetcher: mock.fetcher, resolveInstalledRepository: resolve, writeContext,
+    fetcher: mock.fetcher,
   })
-  const response = await handler.fetch(new Request('https://example.test/api/repo-config', {
-    method: 'POST', headers: { origin: 'https://example.test' },
-  }))
+  const response = await handler.fetch(http.post('/api/repo-config',payload))
   const data = await response.json()
   assert.equal(response.status, 409)
   assert.equal(data.state, 'stale_preview')
-  assert.ok(!mock.calls.some(call => call.method !== 'GET'))
+  assert.deepEqual(writes(mock.calls),[])
 })
 
 test('Label sync without destructive confirmation performs no writes', async () => {
@@ -310,35 +293,31 @@ test('Label sync without destructive confirmation performs no writes', async () 
     labels: [{ name: 'foo:old' }],
   })
   const previewId = await syncPreviewId(mock)
-  writeContext.body = {
+  const payload = {
     owner: OWNER, repo: REPO, action: 'sync_labels', branch: 'main',
     previewId, confirmRemovals: false,
   }
   const handler = createRepoConfigHandler({
-    fetcher: mock.fetcher, resolveInstalledRepository: resolve, writeContext,
+    fetcher: mock.fetcher,
   })
-  const response = await handler.fetch(new Request('https://example.test/api/repo-config', {
-    method: 'POST', headers: { origin: 'https://example.test' },
-  }))
+  const response = await handler.fetch(http.post('/api/repo-config',payload))
   const data = await response.json()
   assert.equal(response.status, 400)
   assert.equal(data.state, 'confirmation_required')
-  assert.ok(!mock.calls.some(call => call.method !== 'GET'))
+  assert.deepEqual(writes(mock.calls),[])
 })
 
 
 test('protected Config refuses a missing maintenance Ruleset after creating a ref, without PUT', async () => {
   const mock = mockFetcher({ newBranchRulesUnavailable: true })
-  writeContext.body = {
+  const payload = {
     owner: OWNER, repo: REPO, action: 'save_config', branch: 'main',
     content: NEXT_CONFIG, expectedHeadSha: HEAD, expectedFileSha: FILE_SHA,
   }
   const handler = createRepoConfigHandler({
-    fetcher: mock.fetcher, resolveInstalledRepository: resolve, writeContext,
+    fetcher: mock.fetcher,
   })
-  const response = await handler.fetch(new Request('https://example.test/api/repo-config', {
-    method: 'POST', headers: { origin: 'https://example.test' },
-  }))
+  const response = await handler.fetch(http.post('/api/repo-config',payload))
   const result = await response.json()
   assert.equal(response.status, 200)
   assert.equal(result.state, 'partial_failure')
@@ -355,39 +334,35 @@ test('protected Config refuses a missing maintenance Ruleset after creating a re
 
 test('Config save rejects stale main SHA before creating a branch or Contents PUT', async () => {
   const mock = mockFetcher()
-  writeContext.body = {
+  const payload = {
     owner: OWNER, repo: REPO, action: 'save_config', branch: 'main',
     content: NEXT_CONFIG, expectedHeadSha: '0'.repeat(40),
     expectedFileSha: FILE_SHA,
   }
   const handler = createRepoConfigHandler({
-    fetcher: mock.fetcher, resolveInstalledRepository: resolve, writeContext,
+    fetcher: mock.fetcher,
   })
-  const response = await handler.fetch(new Request('https://example.test/api/repo-config', {
-    method: 'POST', headers: { origin: 'https://example.test' },
-  }))
+  const response = await handler.fetch(http.post('/api/repo-config',payload))
   assert.equal(response.status, 409)
   assert.equal((await response.json()).state, 'stale_preview')
-  assert.equal(mock.calls.filter(call => call.method !== 'GET').length, 0)
+  assert.deepEqual(writes(mock.calls),[])
 })
 
 test('Config save rejects App permission gaps without Bot fallback or GitHub mutation', async () => {
   const mock = mockFetcher({
     appPermissions: { contents: 'read', issues: 'write', pull_requests: 'write' },
   })
-  writeContext.body = {
+  const payload = {
     owner: OWNER, repo: REPO, action: 'save_config', branch: 'main',
     content: NEXT_CONFIG, expectedHeadSha: HEAD, expectedFileSha: FILE_SHA,
   }
   const handler = createRepoConfigHandler({
-    fetcher: mock.fetcher, resolveInstalledRepository: resolve, writeContext,
+    fetcher: mock.fetcher,
   })
-  const response = await handler.fetch(new Request('https://example.test/api/repo-config', {
-    method: 'POST', headers: { origin: 'https://example.test' },
-  }))
+  const response = await handler.fetch(http.post('/api/repo-config',payload))
   assert.equal(response.status, 403)
   assert.equal((await response.json()).state, 'app_permission_missing')
-  assert.equal(mock.calls.filter(call => call.method !== 'GET').length, 0)
+  assert.deepEqual(writes(mock.calls),[])
 })
 
 test('#47 B1-2: GET main 429 after a Label create preserves progress and retry metadata', async () => {
@@ -397,16 +372,14 @@ test('#47 B1-2: GET main 429 after a Label create preserves progress and retry m
     failMainAfterLabelCreate: true,
   })
   const previewId = await syncPreviewId(mock)
-  writeContext.body = {
+  const payload = {
     owner: OWNER, repo: REPO, action: 'sync_labels', branch: 'main',
     previewId, confirmRemovals: true,
   }
   const handler = createRepoConfigHandler({
-    fetcher: mock.fetcher, resolveInstalledRepository: resolve, writeContext,
+    fetcher: mock.fetcher,
   })
-  const res = await handler.fetch(new Request('https://example.test/api/repo-config', {
-    method: 'POST',
-  }))
+  const res = await handler.fetch(http.post('/api/repo-config',payload))
   const data = await res.json()
   assert.equal(res.status, 200)
   assert.equal(data.state, 'partial_failure')
@@ -431,16 +404,14 @@ test('#47 B1-2: GET main 503 after ten Issue deletes preserves all successful op
     failMainAfterIssueDeletes: true,
   })
   const previewId = await syncPreviewId(mock)
-  writeContext.body = {
+  const payload = {
     owner: OWNER, repo: REPO, action: 'sync_labels', branch: 'main',
     previewId, confirmRemovals: true,
   }
   const handler = createRepoConfigHandler({
-    fetcher: mock.fetcher, resolveInstalledRepository: resolve, writeContext,
+    fetcher: mock.fetcher,
   })
-  const res = await handler.fetch(new Request('https://example.test/api/repo-config', {
-    method: 'POST',
-  }))
+  const res = await handler.fetch(http.post('/api/repo-config',payload))
   const data = await res.json()
   assert.equal(res.status, 200)
   assert.equal(data.state, 'partial_failure')
@@ -457,16 +428,14 @@ test('#47 B1-2: GET main 503 after ten Issue deletes preserves all successful op
 
 test('#47 B1-2: post-PUT maintenance branch verification 503 keeps commit and branch evidence', async () => {
   const mock = mockFetcher({ failBranchVerification: true })
-  writeContext.body = {
+  const payload = {
     owner: OWNER, repo: REPO, action: 'save_config', branch: 'main',
     content: NEXT_CONFIG, expectedHeadSha: HEAD, expectedFileSha: FILE_SHA,
   }
   const handler = createRepoConfigHandler({
-    fetcher: mock.fetcher, resolveInstalledRepository: resolve, writeContext,
+    fetcher: mock.fetcher,
   })
-  const res = await handler.fetch(new Request('https://example.test/api/repo-config', {
-    method: 'POST',
-  }))
+  const res = await handler.fetch(http.post('/api/repo-config',payload))
   const data = await res.json()
   assert.equal(res.status, 200)
   assert.equal(data.state, 'partial_failure')
@@ -480,16 +449,14 @@ test('#47 B1-2: post-PUT maintenance branch verification 503 keeps commit and br
 
 test('#47 B1-2: post-PUT direct main verification 503 keeps commit evidence', async () => {
   const mock = mockFetcher({ protected: false, failDirectVerification: true })
-  writeContext.body = {
+  const payload = {
     owner: OWNER, repo: REPO, action: 'save_config', branch: 'main',
     content: NEXT_CONFIG, expectedHeadSha: HEAD, expectedFileSha: FILE_SHA,
   }
   const handler = createRepoConfigHandler({
-    fetcher: mock.fetcher, resolveInstalledRepository: resolve, writeContext,
+    fetcher: mock.fetcher,
   })
-  const res = await handler.fetch(new Request('https://example.test/api/repo-config', {
-    method: 'POST',
-  }))
+  const res = await handler.fetch(http.post('/api/repo-config',payload))
   const data = await res.json()
   assert.equal(res.status, 200)
   assert.equal(data.state, 'partial_failure')
@@ -498,4 +465,18 @@ test('#47 B1-2: post-PUT direct main verification 503 keeps commit evidence', as
   assert.equal(data.failed[0].kind, 'verify_main_commit')
   assert.equal(data.requiresRefresh, true)
   assert.equal(mock.calls.filter(call => call.method === 'PUT').length, 1)
+})
+
+test('Config mutations require authenticated same-origin access to the exact active Installation',async()=>{
+  const payload={owner:OWNER,repo:REPO,action:'save_config',branch:'main',
+    content:NEXT_CONFIG,expectedHeadSha:HEAD,expectedFileSha:FILE_SHA}
+  for(const [options,requestOptions,status] of [
+    [{},{loggedIn:false},401],[{},{requestOrigin:'https://wrong.test'},403],
+    [{revoked:true},{},403],[{notMember:true},{},403]]){
+    const mock=mockFetcher(options)
+    const response=await createRepoConfigHandler({fetcher:mock.fetcher}).fetch(http.post('/api/repo-config',payload,requestOptions))
+    assert.equal(response.status,status)
+    assert.deepEqual(writes(mock.calls),[])
+    assert.equal(mock.getMainContent(),CONFIG)
+  }
 })

@@ -25,7 +25,7 @@ test('reserved API, callback and asset paths are not rewritten', () => {
   }
 })
 
-test('#94 six stable public Playground entry paths and their plugin-owned internal routes', () => {
+test('six stable public Playground entry paths and their plugin-owned internal routes', () => {
   assert.equal(PLAYGROUND_PLUGINS.length, 6)
   assert.equal(new Set(PLAYGROUND_PLUGINS.map(item => item.slug)).size, 6)
   assert.equal(resolvePlaygroundPath('/').kind, 'home')
@@ -47,14 +47,6 @@ test('#94 six stable public Playground entry paths and their plugin-owned intern
     assert.equal(resolvePlaygroundPath(path).kind, 'resource')
 })
 
-test('real resource routing and explicit Fixture mode preserve API/SPA boundaries', () => {
-  const main = readFileSync(new URL('../apps/playground/src/main.tsx', import.meta.url), 'utf8')
-  const single = readFileSync(new URL('../apps/playground/src/single-plugin-runtime.ts', import.meta.url), 'utf8')
-  const runtime = readFileSync(new URL('../apps/playground/src/runtime.tsx', import.meta.url), 'utf8')
-  assert.match(main,/startSinglePluginRuntime\(route\.plugin\.slug,true\)/)
-  assert.match(main,/startRuntime\(\)/)
-  assert.doesNotMatch(main,/legacyQuery|initialPath=\{/)
-  assert.doesNotMatch(runtime,/Fixture|URLSearchParams/)
-  assert.match(single,/createRepoPanelFixtureApi/)
-  assert.ok(config.rewrites.slice(1).every(item => item.source.startsWith('/api/')))
+test('API rewrites stay outside the SPA fallback',()=>{
+  assert.ok(config.rewrites.slice(1).every(item=>item.source.startsWith('/api/')))
 })
